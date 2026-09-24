@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.vite/
+*.local
+.DS_Store
+.superpowers/
+
+test-results/
+playwright-report/
+blob-report/
