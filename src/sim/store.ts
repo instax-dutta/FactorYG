@@ -17,6 +17,8 @@ type CommandApplication = {
   result: CommandResult;
 };
 
+type SimulationTick = typeof advanceSimulation;
+
 function defaultNow(): number {
   return globalThis.performance?.now() ?? Date.now();
 }
@@ -26,12 +28,18 @@ export class SimulationStore {
   #snapshot: SimulationSnapshot;
   #listeners = new Set<SnapshotListener>();
   #clock: FixedStepClock;
+  #advanceSimulation: SimulationTick;
   #timer: ReturnType<typeof setInterval> | undefined;
 
-  public constructor(initialState: SimulationState, now: () => number = defaultNow) {
+  public constructor(
+    initialState: SimulationState,
+    now: () => number = defaultNow,
+    tickFunction: SimulationTick = advanceSimulation,
+  ) {
     this.#state = structuredClone(initialState);
     this.#snapshot = createSnapshot(this.#state);
     this.#clock = new FixedStepClock(TICK_MS, () => this.advanceTicks(1), now);
+    this.#advanceSimulation = tickFunction;
   }
 
   public getSnapshot(): SimulationSnapshot {
@@ -81,7 +89,7 @@ export class SimulationStore {
       return;
     }
 
-    const nextState = advanceSimulation(this.#state, count);
+    const nextState = this.#advanceSimulation(this.#state, count);
     if (nextState === this.#state) {
       return;
     }
@@ -100,6 +108,34 @@ export class SimulationStore {
 
         return {
           state: { ...this.#state, placementMode: command.machine },
+          changed: true,
+          result: { ok: true },
+        };
+      }
+      case "demolishEntity": {
+        const entity = this.#state.grid.entities.find((candidate) => candidate.id === command.entityId);
+        if (entity === undefined) {
+          return { state: this.#state, changed: false, result: { ok: false, reason: "entityNotFound" } };
+        }
+
+        const machines = { ...this.#state.grid.machines };
+        const belts = { ...this.#state.grid.belts };
+        delete machines[entity.id];
+        delete belts[entity.id];
+        const selectedEntityId =
+          this.#state.selectedEntityId === entity.id ? undefined : this.#state.selectedEntityId;
+
+        return {
+          state: {
+            ...this.#state,
+            selectedEntityId,
+            grid: {
+              ...this.#state.grid,
+              entities: this.#state.grid.entities.filter((candidate) => candidate.id !== entity.id),
+              machines,
+              belts,
+            },
+          },
           changed: true,
           result: { ok: true },
         };

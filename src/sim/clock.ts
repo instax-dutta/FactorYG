@@ -28,7 +28,7 @@ export class FixedStepClock {
 
     const availableTicks = Math.floor(this.accumulator / this.tickMs);
     const tickCount = Math.min(availableTicks, MAX_CATCH_UP_TICKS);
-    this.accumulator -= tickCount * this.tickMs;
+    this.accumulator %= this.tickMs;
 
     for (let tickIndex = 0; tickIndex < tickCount; tickIndex += 1) {
       this.onTick();

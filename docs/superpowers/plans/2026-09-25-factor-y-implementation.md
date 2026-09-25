@@ -380,7 +380,7 @@ git commit -m "feat: add grid and rotation math"
 - Create: `tests/integration/store.test.ts`
 
 **Interfaces:**
-- Consumes: `SimulationState`, `SimulationCommand`, `SimulationSnapshot`, `CommandResult`, and `TICK_MS`.
+- Consumes: `SimulationState`, `SimulationCommand`, `SimulationSnapshot`, `CommandResult`, `TICK_MS`, and `PRESTIGE_THRESHOLD`.
 - Produces: `FixedStepClock`, `createSnapshot(state)`, `advanceSimulation(state, tickCount)`, and `SimulationStore` with `getSnapshot()`, `subscribe(listener)`, `dispatch(command)`, `start()`, `stop()`, and `advanceTicks(count)`.
 
 - [ ] **Step 1: Write failing clock and subscription tests**
@@ -455,7 +455,7 @@ Expected: FAIL because the clock, tick, and store modules are missing.
 
 - [ ] **Step 3: Implement the clock and store contracts**
 
-`FixedStepClock` accepts `tickMs`, `onTick`, and an injected `now` function. It carries elapsed time and caps catch-up at 120 ticks per call. `createSnapshot` returns a frozen object containing the fields in `SimulationSnapshot`. `advanceSimulation(state, tickCount)` is a pure seam that returns the same state until machine behavior is introduced in Phase 1. `SimulationStore` keeps the current state private, returns a cached frozen snapshot, dispatches commands through a command handler, and publishes only after a successful state mutation. `advanceTicks` is the only method that calls `advanceSimulation`.
+`FixedStepClock` accepts `tickMs`, `onTick`, and an injected `now` function. It carries elapsed time and caps catch-up at 120 ticks per call, discarding whole-tick backlog beyond the cap while retaining the sub-tick remainder. `createSnapshot` returns a frozen object containing the fields in `SimulationSnapshot`, with `prestigeReady` derived from `state.lifetimeCurrency >= PRESTIGE_THRESHOLD`. `PRESTIGE_THRESHOLD` is the shared `100_000` lifetime-currency gate used by Phase 3. `advanceSimulation(state, tickCount)` is a pure seam that returns the same state until machine behavior is introduced in Phase 1. `SimulationStore` keeps the current state private, returns a cached frozen snapshot, dispatches commands through a command handler, and publishes only after a successful state mutation. `advanceTicks` is the only method that calls the injected or default pure tick function.
 
 - [ ] **Step 4: Verify red-to-green and full tests**
 
@@ -1380,8 +1380,8 @@ git commit -m "feat: deliver full production chain content"
 - Create: `tests/unit/prestige.test.ts`
 
 **Interfaces:**
-- Consumes: `lifetimeCurrency`, `prestige.points`, and the balance configuration.
-- Produces: `PRESTIGE_THRESHOLD`, `calculatePrestigePoints(lifetimeCurrency)`, and `canPrestige(state)`.
+- Consumes: `lifetimeCurrency`, `prestige.points`, the balance configuration, and the shared `PRESTIGE_THRESHOLD = 100_000`.
+- Produces: `calculatePrestigePoints(lifetimeCurrency)` and `canPrestige(state)`, using the shared threshold.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1395,7 +1395,7 @@ npm run test -- tests/unit/prestige.test.ts
 
 - [ ] **Step 3: Implement**
 
-Use `floor(sqrt(lifetimeCurrency / 100000))` for the first points curve, with a data-configurable threshold of 100,000 lifetime currency. Reject negative or non-finite values.
+Use `floor(sqrt(lifetimeCurrency / 100000))` for the first points curve, with the shared `PRESTIGE_THRESHOLD` constant set to 100,000 lifetime currency. Reject negative or non-finite values.
 
 - [ ] **Step 4: Verify green**
 

@@ -31,4 +31,17 @@ describe("FixedStepClock", () => {
 
     expect(tick).toHaveBeenCalledTimes(120);
   });
+
+  it("discards whole-tick backlog beyond the cap", () => {
+    let currentTime = 0;
+    const tick = vi.fn();
+    const clock = new FixedStepClock(100, tick, () => currentTime);
+
+    currentTime = 25_000;
+
+    expect(clock.advance()).toBe(120);
+    expect(tick).toHaveBeenCalledTimes(120);
+    expect(clock.advance()).toBe(0);
+    expect(tick).toHaveBeenCalledTimes(120);
+  });
 });

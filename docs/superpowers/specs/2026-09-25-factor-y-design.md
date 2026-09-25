@@ -66,7 +66,7 @@ Each logical tick performs these phases:
 5. Remove invalid stale references and update throughput samples.
 6. Mark the simulation snapshot dirty when observable state changes.
 
-The pure function `advanceSimulation(state, tickCount)` is the authoritative testable implementation. The browser store wraps it with scheduling, command dispatch, subscriptions, persistence hooks, and throttled snapshots. `currencyPerSecond` is calculated from the currency credited over the previous 100 logical ticks, or ten seconds, and returns zero until a full rate window has elapsed.
+The pure function `advanceSimulation(state, tickCount)` is the authoritative testable implementation. The browser store wraps it with scheduling, command dispatch, subscriptions, persistence hooks, and throttled snapshots. `currencyPerSecond` is calculated from the currency credited over the previous 100 logical ticks, or ten seconds, and returns zero until a full rate window has elapsed. `PRESTIGE_THRESHOLD` is the shared `100_000` lifetime-currency gate; `prestigeReady` is true at or above it, and Phase 3 uses the same constant.
 
 ### 3.3 React bridge
 
