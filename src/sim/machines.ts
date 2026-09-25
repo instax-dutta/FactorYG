@@ -25,8 +25,22 @@ export function tickExtractor(
     return runtime;
   }
 
+  const speedMultiplier = Math.max(
+    1,
+    Math.floor(state.prestige.permanentMultipliers.productionSpeed * entity.level),
+  );
+  const processTicks = Math.max(1, Math.floor(definition.defaultProcessTicks / speedMultiplier));
+  const outputAmount = getResourceAmount(runtime.output, entity.resourceNode);
+  if (outputAmount >= definition.outputBuffer) {
+    return {
+      ...runtime,
+      progressTicks: processTicks,
+      active: false,
+    };
+  }
+
   const progressTicks = runtime.progressTicks + 1;
-  if (progressTicks < definition.defaultProcessTicks) {
+  if (progressTicks < processTicks) {
     return {
       ...runtime,
       progressTicks,
@@ -34,29 +48,14 @@ export function tickExtractor(
     };
   }
 
-  const outputAmount = getResourceAmount(runtime.output, entity.resourceNode);
-  if (outputAmount >= definition.outputBuffer) {
-    return {
-      ...runtime,
-      progressTicks: definition.defaultProcessTicks,
-      active: true,
-    };
-  }
-
-  const multiplier = Math.max(
-    1,
-    Math.floor(state.prestige.permanentMultipliers.productionSpeed * entity.level),
-  );
-  const amount = Math.min(multiplier, definition.outputBuffer - outputAmount);
-
   return {
     ...runtime,
     progressTicks: 0,
     output: {
       ...runtime.output,
-      [entity.resourceNode]: outputAmount + amount,
+      [entity.resourceNode]: outputAmount + 1,
     },
-    active: true,
+    active: false,
   };
 }
 
