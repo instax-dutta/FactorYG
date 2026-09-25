@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { SAVE_KEY } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
-import type { SimulationState } from "../../src/sim/types";
+import type { SaveGame, SimulationState } from "../../src/sim/types";
+import * as persistenceMigrations from "../../src/persistence/migrate";
 import { migrateSave } from "../../src/persistence/migrate";
-import type { MigrationResult } from "../../src/persistence/migrate";
+import type { MigrationResult, SaveMigration } from "../../src/persistence/migrate";
 import {
   loadSave,
   loadSaveWithResult,
   parseSave,
+  projectSaveGame,
   saveToStorage,
   serializeSave,
 } from "../../src/persistence/save";
@@ -141,9 +143,168 @@ describe("save serialization", () => {
     expect(first).toBe(second);
     expect(state).toEqual(before);
   });
+
+  it("rejects non-finite persisted values before serialization and storage writes", () => {
+    const nanState = createStateWithEntities();
+    nanState.currency = Number.NaN;
+    const nanStorage = new FakeStorage();
+
+    expect(() => serializeSave(nanState)).toThrow(TypeError);
+    expect(() => saveToStorage(nanStorage, nanState)).not.toThrow();
+    expect(nanStorage.writes).toHaveLength(0);
+
+    const infiniteState = createStateWithEntities();
+    infiniteState.lifetimeCurrency = Number.POSITIVE_INFINITY;
+    const infiniteStorage = new FakeStorage();
+
+    expect(() => serializeSave(infiniteState)).toThrow(TypeError);
+    expect(() => saveToStorage(infiniteStorage, infiniteState)).not.toThrow();
+    expect(infiniteStorage.writes).toHaveLength(0);
+  });
+});
+
+describe("save graph integrity and projection", () => {
+  it("rejects dangling machine and belt record keys", () => {
+    const machineSave = toSaveObject(createStateWithEntities());
+    const machineGrid = machineSave.grid as Record<string, unknown>;
+    const machines = machineGrid.machines as Record<string, unknown>;
+    const machineRuntime = machines["entity-2"] as Record<string, unknown>;
+    machines.ghost = { ...machineRuntime, entityId: "ghost" };
+
+    const beltSave = toSaveObject(createStateWithEntities());
+    const beltGrid = beltSave.grid as Record<string, unknown>;
+    const belts = beltGrid.belts as Record<string, unknown>;
+    const beltRuntime = belts["entity-1"] as Record<string, unknown>;
+    belts.ghost = { ...beltRuntime, entityId: "ghost" };
+
+    expectInvalidSave(machineSave);
+    expectInvalidSave(beltSave);
+  });
+
+  it("enforces the machine and belt partition for every entity", () => {
+    const missingMachine = toSaveObject(createStateWithEntities());
+    const missingMachineGrid = missingMachine.grid as Record<string, unknown>;
+    delete (missingMachineGrid.machines as Record<string, unknown>)["entity-2"];
+
+    const nonBeltWithBelt = toSaveObject(createStateWithEntities());
+    const nonBeltGrid = nonBeltWithBelt.grid as Record<string, unknown>;
+    (nonBeltGrid.belts as Record<string, unknown>)["entity-2"] = {
+      entityId: "entity-2",
+      progress: 0,
+    };
+
+    const missingBelt = toSaveObject(createStateWithEntities());
+    const missingBeltGrid = missingBelt.grid as Record<string, unknown>;
+    delete (missingBeltGrid.belts as Record<string, unknown>)["entity-1"];
+
+    const beltWithMachine = toSaveObject(createStateWithEntities());
+    const beltGrid = beltWithMachine.grid as Record<string, unknown>;
+    const machines = beltGrid.machines as Record<string, unknown>;
+    const machineRuntime = machines["entity-2"] as Record<string, unknown>;
+    machines["entity-1"] = { ...machineRuntime, entityId: "entity-1" };
+
+    expectInvalidSave(missingMachine);
+    expectInvalidSave(nonBeltWithBelt);
+    expectInvalidSave(missingBelt);
+    expectInvalidSave(beltWithMachine);
+  });
+
+  it("rejects runtime records whose entityId does not match their key", () => {
+    const save = toSaveObject(createStateWithEntities());
+    const grid = save.grid as Record<string, unknown>;
+    const machines = grid.machines as Record<string, unknown>;
+    const machineRuntime = machines["entity-2"] as Record<string, unknown>;
+    machineRuntime.entityId = "entity-1";
+
+    expectInvalidSave(save);
+  });
+
+  it("projects only explicit node and nested record fields", () => {
+    const state = createStateWithEntities();
+    Object.assign(state.grid.nodes[0], { unknownNodeField: "node" });
+    Object.assign(state.grid.entities[0], { unknownEntityField: "entity" });
+    Object.assign(state.grid.machines["entity-2"], { unknownMachineField: "machine" });
+    Object.assign(state.grid.machines["entity-2"].input, { unknownAmountField: 1 });
+    Object.assign(state.grid.belts["entity-1"], { unknownBeltField: "belt" });
+    Object.assign(state.productionChains.copper, { unknownChainField: "chain" });
+
+    const projected = projectSaveGame(state);
+
+    expect(Object.keys(projected.grid.nodes[0])).toEqual(["id", "resource", "x", "y"]);
+    expect(projected.grid.nodes[0]).not.toHaveProperty("unknownNodeField");
+    expect(projected.grid.entities[0]).not.toHaveProperty("unknownEntityField");
+    expect(projected.grid.machines["entity-2"]).not.toHaveProperty("unknownMachineField");
+    expect(projected.grid.machines["entity-2"].input).not.toHaveProperty("unknownAmountField");
+    expect(projected.grid.belts["entity-1"]).not.toHaveProperty("unknownBeltField");
+    expect(projected.productionChains.copper).not.toHaveProperty("unknownChainField");
+  });
+
+  it("deep-copies projected nested data", () => {
+    const state = createStateWithEntities();
+    const projected = projectSaveGame(state);
+
+    projected.grid.nodes[0].x = 63;
+    projected.grid.machines["entity-2"].output.copperOre = 99;
+    projected.grid.belts["entity-1"].item = "coal";
+    projected.productionChains.copper.sellValue = 999;
+
+    expect(state.grid.nodes[0].x).not.toBe(63);
+    expect(state.grid.machines["entity-2"].output.copperOre).toBe(2);
+    expect(state.grid.belts["entity-1"].item).toBe("ironOre");
+    expect(state.productionChains.copper.sellValue).toBe(6);
+  });
 });
 
 describe("save validation and migration", () => {
+  it("rejects unsafe record keys", () => {
+    for (const key of ["__proto__", "prototype", "constructor"]) {
+      const save = toSaveObject(createStateWithEntities());
+      const grid = save.grid as Record<string, unknown>;
+      const entities = grid.entities as Array<Record<string, unknown>>;
+      const belts = grid.belts as Record<string, unknown>;
+      const originalBelt = belts["entity-1"] as Record<string, unknown>;
+      delete belts["entity-1"];
+      entities[0].id = key;
+      Object.defineProperty(belts, key, {
+        configurable: true,
+        enumerable: true,
+        value: { ...originalBelt, entityId: key },
+        writable: true,
+      });
+
+      expectInvalidSave(save);
+    }
+  });
+
+  it("dispatches a temporarily registered migration by source version", () => {
+    const registry = persistenceMigrations as unknown as {
+      registerSaveMigration?: (version: number, migration: SaveMigration) => () => void;
+    };
+    expect(registry.registerSaveMigration).toBeTypeOf("function");
+    if (registry.registerSaveMigration === undefined) {
+      return;
+    }
+
+    const state = createStateWithEntities();
+    const validSave = toSaveObject(state) as unknown as SaveGame;
+    const source = { ...validSave, version: 2 };
+    let calls = 0;
+    const cleanup = registry.registerSaveMigration(2, () => {
+      calls += 1;
+      return { ok: true, save: validSave, migrated: true };
+    });
+
+    try {
+      const result = migrateSave(source);
+      expect(calls).toBe(1);
+      expect(result).toEqual({ ok: true, save: validSave, migrated: true });
+    } finally {
+      cleanup();
+    }
+
+    expect(migrateSave(source)).toMatchObject({ ok: false, reason: "unsupportedVersion" });
+  });
+
   it("rejects an unknown version without throwing", () => {
     const state = createStateWithEntities();
     const raw = JSON.parse(serializeSave(state)) as Record<string, unknown>;
@@ -222,6 +383,38 @@ describe("save validation and migration", () => {
 });
 
 describe("save storage", () => {
+  it("returns a new-game result when storage getItem throws", () => {
+    const storage: SaveStorage = {
+      getItem: () => {
+        throw new Error("read failed");
+      },
+      setItem: () => undefined,
+    };
+
+    const result = loadSaveWithResult(storage);
+
+    expect(result).toMatchObject({
+      recovered: true,
+      reason: "storageError",
+      source: "newGame",
+    });
+    expect(result.state).toEqual(createInitialState());
+  });
+
+  it("does not throw or write when storage setItem throws", () => {
+    let writeCount = 0;
+    const storage: SaveStorage = {
+      getItem: () => null,
+      setItem: () => {
+        writeCount += 1;
+        throw new Error("write failed");
+      },
+    };
+
+    expect(() => saveToStorage(storage, createStateWithEntities())).not.toThrow();
+    expect(writeCount).toBe(1);
+  });
+
   it("writes and reads the explicit save key through a fake storage adapter", () => {
     const storage = new FakeStorage();
     const state = createStateWithEntities();
@@ -262,6 +455,14 @@ describe("save storage", () => {
     expect(loadSave(storage).grid.entities).toEqual(state.grid.entities);
   });
 });
+
+function toSaveObject(state: SimulationState): Record<string, unknown> {
+  return JSON.parse(serializeSave(state)) as Record<string, unknown>;
+}
+
+function expectInvalidSave(save: Record<string, unknown>): void {
+  expect(parseSave(JSON.stringify(save))).toMatchObject({ ok: false, reason: "invalidSave" });
+}
 
 function createStateWithEntities(): SimulationState {
   const state = createInitialState();

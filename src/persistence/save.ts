@@ -1,15 +1,18 @@
 import { createInitialState } from "../sim/initialState";
 import { SAVE_KEY } from "../sim/constants";
+import { RESOURCES } from "../content/resources";
 import type {
   BeltCell,
   Entity,
   MachineRuntime,
   ProductionChainSummary,
+  ResourceNode,
   SaveGame,
   SimulationState,
 } from "../sim/types";
 import {
   migrateSave,
+  validateSaveGame,
   type SaveFailureReason,
   type MigrationResult,
 } from "./migrate";
@@ -53,7 +56,7 @@ export function projectSaveGame(state: SaveGame): SaveGame {
       width: state.grid.width,
       height: state.grid.height,
       tileSizePx: state.grid.tileSizePx,
-      nodes: state.grid.nodes.map((node) => ({ ...node })),
+      nodes: state.grid.nodes.map((node) => projectNode(node)),
       entities: state.grid.entities.map((entity) => projectEntity(entity)),
       machines: projectMachines(state.grid.machines),
       belts: projectBelts(state.grid.belts),
@@ -63,7 +66,13 @@ export function projectSaveGame(state: SaveGame): SaveGame {
 }
 
 export function serializeSave(state: SaveGame): string {
-  return JSON.stringify(projectSaveGame(state));
+  const projected = projectSaveGame(state);
+  const validation = validateSaveGame(projected);
+  if (!validation.ok) {
+    throw new TypeError(`Cannot serialize save: ${validation.message}`);
+  }
+
+  return JSON.stringify(projected);
 }
 
 export function parseSave(raw: unknown): ParseSaveResult {
@@ -171,6 +180,15 @@ function getNextEntitySequence(entities: readonly Entity[]): number {
   return highestSequence + 1;
 }
 
+function projectNode(node: ResourceNode): ResourceNode {
+  return {
+    id: node.id,
+    resource: node.resource,
+    x: node.x,
+    y: node.y,
+  };
+}
+
 function projectEntity(entity: Entity): Entity {
   const projected: Entity = {
     id: entity.id,
@@ -195,13 +213,13 @@ function projectMachines(machines: Record<string, MachineRuntime>): Record<strin
   const projected: Record<string, MachineRuntime> = {};
   for (const entityId of Object.keys(machines).sort()) {
     const runtime = machines[entityId];
-    projected[entityId] = {
+    setRecordValue(projected, entityId, {
       entityId: runtime.entityId,
       progressTicks: runtime.progressTicks,
       input: projectAmounts(runtime.input),
       output: projectAmounts(runtime.output),
       active: runtime.active,
-    };
+    });
   }
   return projected;
 }
@@ -210,11 +228,11 @@ function projectBelts(belts: Record<string, BeltCell>): Record<string, BeltCell>
   const projected: Record<string, BeltCell> = {};
   for (const entityId of Object.keys(belts).sort()) {
     const belt = belts[entityId];
-    projected[entityId] = {
+    setRecordValue(projected, entityId, {
       entityId: belt.entityId,
       progress: belt.progress,
       ...(belt.item === undefined ? {} : { item: belt.item }),
-    };
+    });
   }
   return projected;
 }
@@ -225,12 +243,12 @@ function projectProductionChains(
   const projected: Record<string, ProductionChainSummary> = {};
   for (const chainId of Object.keys(chains).sort()) {
     const chain = chains[chainId];
-    projected[chainId] = {
+    setRecordValue(projected, chainId, {
       id: chain.id,
       outputResource: chain.outputResource,
       steadyStateThroughput: chain.steadyStateThroughput,
       sellValue: chain.sellValue,
-    };
+    });
   }
   return projected;
 }
@@ -240,12 +258,24 @@ function projectAmounts(
 ): Partial<Record<string, number>> {
   const projected: Record<string, number> = {};
   for (const resource of Object.keys(amounts).sort()) {
+    if (!Object.hasOwn(RESOURCES, resource)) {
+      continue;
+    }
     const amount = amounts[resource];
     if (amount !== undefined) {
-      projected[resource] = amount;
+      setRecordValue(projected, resource, amount);
     }
   }
   return projected;
+}
+
+function setRecordValue<T>(record: Record<string, T>, key: string, value: T): void {
+  Object.defineProperty(record, key, {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  });
 }
 
 function isSaveStorage(value: unknown): value is SaveStorage {

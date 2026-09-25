@@ -53,11 +53,27 @@ export function migrateVersion1(raw: unknown): MigrationResult {
   return { ok: true, save: validation.value, migrated: false };
 }
 
-export const SAVE_MIGRATIONS: Readonly<Record<number, SaveMigration>> = Object.freeze({
+export const SAVE_MIGRATIONS: Record<number, SaveMigration> = {
   1: migrateVersion1,
-});
+};
 
 export const MIGRATIONS = SAVE_MIGRATIONS;
+
+export function registerSaveMigration(version: number, migration: SaveMigration): () => void {
+  if (!Number.isInteger(version) || version < 1) {
+    throw new TypeError("Save migration version must be a positive integer.");
+  }
+  if (Object.hasOwn(SAVE_MIGRATIONS, version)) {
+    throw new Error(`Save migration version ${version} is already registered.`);
+  }
+
+  SAVE_MIGRATIONS[version] = migration;
+  return () => {
+    if (SAVE_MIGRATIONS[version] === migration) {
+      delete SAVE_MIGRATIONS[version];
+    }
+  };
+}
 
 export function migrateSave(raw: unknown): MigrationResult {
   let candidate = raw;
@@ -78,11 +94,18 @@ export function migrateSave(raw: unknown): MigrationResult {
     return failure("invalidSave", "Save data is missing a version.");
   }
 
-  if (candidate.version !== 1) {
-    return failure("unsupportedVersion", `Save version ${String(candidate.version)} is not supported.`);
+  const sourceVersion = candidate.version;
+  if (typeof sourceVersion !== "number" || !Number.isInteger(sourceVersion)) {
+    return failure("invalidSave", "Save version must be an integer.");
   }
 
-  const migration = SAVE_MIGRATIONS[1];
+  const migration = Object.hasOwn(SAVE_MIGRATIONS, sourceVersion)
+    ? SAVE_MIGRATIONS[sourceVersion]
+    : undefined;
+  if (migration === undefined) {
+    return failure("unsupportedVersion", `Save version ${String(sourceVersion)} is not supported.`);
+  }
+
   return migration(candidate);
 }
 
@@ -179,24 +202,36 @@ function validateGrid(grid: UnknownRecord): boolean {
     nodeCoordinates.add(`${String(node.x)},${String(node.y)}`);
   }
 
+  const entityById = new Map<string, Entity>();
   for (const entity of entities) {
     if (!isValidEntity(entity, width, height, entityIds, entityCoordinates)) {
       return false;
     }
     entityIds.add(entity.id);
     entityCoordinates.add(`${entity.x},${entity.y}`);
+    entityById.set(entity.id, entity);
   }
 
   const machines: UnknownRecord = grid.machines;
   for (const [entityId, runtime] of Object.entries(machines)) {
-    if (!isValidMachineRuntime(entityId, runtime)) {
+    const entity = entityById.get(entityId);
+    if (entity === undefined || entity.type === "belt" || !isValidMachineRuntime(entityId, runtime)) {
       return false;
     }
   }
 
   const belts: UnknownRecord = grid.belts;
   for (const [entityId, belt] of Object.entries(belts)) {
-    if (!isValidBeltCell(entityId, belt)) {
+    const entity = entityById.get(entityId);
+    if (entity === undefined || entity.type !== "belt" || !isValidBeltCell(entityId, belt)) {
+      return false;
+    }
+  }
+
+  for (const [entityId, entity] of entityById) {
+    const hasMachine = Object.hasOwn(machines, entityId);
+    const hasBelt = Object.hasOwn(belts, entityId);
+    if (entity.type === "belt" ? !hasBelt || hasMachine : !hasMachine || hasBelt) {
       return false;
     }
   }
@@ -342,7 +377,16 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 function isRecord(value: unknown): value is UnknownRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    !Object.getOwnPropertyNames(value).some(isUnsafeRecordKey)
+  );
+}
+
+function isUnsafeRecordKey(key: string): boolean {
+  return key === "__proto__" || key === "prototype" || key === "constructor";
 }
 
 function failure(reason: SaveFailureReason, message: string): SaveFailure {
