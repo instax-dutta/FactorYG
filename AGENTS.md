@@ -76,6 +76,8 @@ Default section order:
 
 ## User Preferences
 
+The public game name is Factor-I, with short label factori; preserve factor-y internal IDs and save-key compatibility unless a migration is explicitly designed.
+
 When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md
 
 ## Child DOX Index

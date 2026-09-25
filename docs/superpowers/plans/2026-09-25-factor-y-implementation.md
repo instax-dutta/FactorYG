@@ -19,6 +19,7 @@
 - The welcome-back modal appears when elapsed real time exceeds 60 seconds.
 - Save key is `factor-y:save`; the first shipped schema is version 1 with a migration registry.
 - Desktop browser only; no touch controls, responsive breakpoint system, multiplayer, combat, power grid, fluids, backend accounts, cloud sync, monetization, or machine module slots.
+- Public product name is Factor-I, with short label factori; internal factor-y IDs and save key remain compatibility names.
 - Custom art is one cohesive set with neutral overhead lighting and no baked directional shadows.
 - The simulation store must not import React, Phaser, DOM APIs, or persistence implementation.
 - Phaser must not advance economic logic from `update()`.
@@ -721,6 +722,73 @@ git commit -m "feat: mount Phaser factory scene and raw spike loop"
 - [ ] `npm run build` passes.
 - [ ] The browser can pan, zoom, place a valid entity, reject an invalid entity, rotate the ghost, and show currency changing independently of Phaser render frames.
 - [ ] The first art spike has been manually reviewed for neutral lighting and consistent palette.
+
+## Task 0.9: Adopt the Factor-I Public Name
+
+**Files:**
+- Create: `src/content/product.ts`
+- Create: `src/ui/components/GameHeader.tsx`
+- Modify: `src/app/App.tsx`
+- Modify: `index.html`
+- Modify: `package.json`
+- Modify: `package-lock.json`
+- Modify: `AGENTS.md`
+- Modify: `docs/superpowers/specs/2026-09-25-factor-y-design.md`
+- Create: `tests/unit/gameHeader.test.tsx`
+
+**Interfaces:**
+- Consumes: the approved product identity and the existing React shell.
+- Produces: `PRODUCT_NAME = "Factor-I"`, `PRODUCT_SHORT_NAME = "factori"`, a visible accessible game header, browser title/metadata, and a package name of `factor-i`.
+
+- [ ] **Step 1: Write the failing header test**
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { GameHeader } from "../../src/ui/components/GameHeader";
+import { PRODUCT_NAME, PRODUCT_SHORT_NAME } from "../../src/content/product";
+
+describe("GameHeader", () => {
+  it("shows the public Factor-I name and short label", () => {
+    render(<GameHeader />);
+
+    expect(screen.getByRole("heading", { name: PRODUCT_NAME })).toBeVisible();
+    expect(screen.getByText(PRODUCT_SHORT_NAME)).toBeVisible();
+  });
+});
+```
+
+- [ ] **Step 2: Verify red**
+
+```bash
+npm run test -- tests/unit/gameHeader.test.tsx
+```
+
+Expected: FAIL because the product constants and header component are missing.
+
+- [ ] **Step 3: Implement the public identity**
+
+Create the exact constants, render a non-interactive header overlay above the canvas, set `index.html` title and description to Factor-I, set the package name to `factor-i`, and update the root DOX user preference plus the design document’s product identity. Keep `factor-y-2d-spec.md`, existing internal IDs, and `factor-y:save` unchanged for compatibility.
+
+- [ ] **Step 4: Verify green**
+
+```bash
+npm run test -- tests/unit/gameHeader.test.tsx
+npm run test
+npm run test:e2e -- tests/e2e/phase0.spec.ts --workers=1
+npm run lint
+npm run typecheck
+npm run build
+```
+
+Expected: all commands pass and the browser visibly renders Factor-I.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/content/product.ts src/ui/components/GameHeader.tsx src/app/App.tsx index.html package.json package-lock.json AGENTS.md docs/superpowers/specs/2026-09-25-factor-y-design.md tests/unit/gameHeader.test.tsx
+git commit -m "feat: adopt Factor-I public name"
+```
 
 ---
 

@@ -4,6 +4,8 @@
 **Design version:** 1.0
 **Status:** Approved for implementation planning
 **Target:** Desktop browser game built with TypeScript, Phaser 3, React, and Vite
+**Public name:** Factor-I
+**Short label:** factori
 
 ## 1. Product Boundary
 
