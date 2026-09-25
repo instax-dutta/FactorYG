@@ -26,4 +26,4 @@
 
 ## Child DOX Index
 
-- No child boundaries currently exist under `docs/`.
+- `superpowers/AGENTS.md` - design specifications and implementation plans.

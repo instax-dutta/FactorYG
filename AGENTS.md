@@ -83,3 +83,6 @@ When the user requests a durable behavior change, record it here or in the relev
 ## Child DOX Index
 
 - `docs/AGENTS.md` - durable design, implementation-plan, and release documentation.
+- `public/AGENTS.md` - static art and asset manifests.
+- `src/AGENTS.md` - application source boundaries and verification.
+- `tests/AGENTS.md` - unit, integration, and browser verification.
