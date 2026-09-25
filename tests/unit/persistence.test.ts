@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SAVE_KEY } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
+import { canStoreInput } from "../../src/sim/machines";
 import type { SaveGame, SimulationState } from "../../src/sim/types";
 import * as persistenceMigrations from "../../src/persistence/migrate";
 import { migrateSave } from "../../src/persistence/migrate";
@@ -130,6 +131,14 @@ describe("save serialization", () => {
         level: 1,
         resourceNode: "copperOre",
       },
+      {
+        id: "entity-3",
+        type: "silo",
+        x: 12,
+        y: 13,
+        rotation: 180,
+        level: 1,
+      },
     ]);
   });
 
@@ -253,7 +262,79 @@ describe("save graph integrity and projection", () => {
     expect(state.grid.belts["entity-1"].item).toBe("ironOre");
     expect(state.productionChains.copper.sellValue).toBe(6);
   });
+
+  it("derives the buffered resource of a legacy shared-storage machine that lacks it", () => {
+    const legacy = legacySaveWithoutBufferedResource();
+
+    const parsed = parseSave(JSON.stringify(legacy));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      throw new Error(parsed.message);
+    }
+
+    const runtime = parsed.save.grid.machines["entity-3"];
+    expect(runtime?.input).toEqual({ copperIngot: 42 });
+    expect(runtime?.bufferedResource).toBe("copperIngot");
+  });
+
+  it("keeps a migrated silo single-resource and refuses a different resource while occupied", () => {
+    const parsed = parseSave(JSON.stringify(legacySaveWithoutBufferedResource()));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      throw new Error(parsed.message);
+    }
+
+    const silo = parsed.save.grid.entities.find((entity) => entity.id === "entity-3");
+    const runtime = parsed.save.grid.machines["entity-3"];
+    expect(silo).toBeDefined();
+    expect(runtime).toBeDefined();
+    if (silo === undefined || runtime === undefined) {
+      throw new Error("missing migrated silo");
+    }
+
+    expect(canStoreInput(silo, runtime, "copperIngot")).toBe(true);
+    expect(canStoreInput(silo, runtime, "coal")).toBe(false);
+    expect(canStoreInput(silo, runtime, "motor")).toBe(false);
+  });
+
+  it("derives the buffered resource deterministically for a legacy silo holding several types", () => {
+    const legacy = legacySaveWithoutBufferedResource();
+    const machines = (legacy.grid as Record<string, unknown>).machines as Record<string, unknown>;
+    (machines["entity-3"] as Record<string, unknown>).input = { copperIngot: 5, coal: 3 };
+
+    const first = parseSave(JSON.stringify(legacy));
+    const second = parseSave(JSON.stringify(legacy));
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) {
+      throw new Error("migration failed");
+    }
+
+    expect(first.save.grid.machines["entity-3"]?.bufferedResource).toBe("coal");
+    expect(second.save.grid.machines["entity-3"]?.bufferedResource).toBe("coal");
+  });
+
+  it("never derives a buffered resource for a machine without shared storage", () => {
+    const legacy = legacySaveWithoutBufferedResource();
+    const machines = (legacy.grid as Record<string, unknown>).machines as Record<string, unknown>;
+    (machines["entity-2"] as Record<string, unknown>).input = { copperOre: 4 };
+
+    const parsed = parseSave(JSON.stringify(legacy));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      throw new Error(parsed.message);
+    }
+
+    expect(parsed.save.grid.machines["entity-2"]?.input).toEqual({ copperOre: 4 });
+    expect(parsed.save.grid.machines["entity-2"]).not.toHaveProperty("bufferedResource");
+  });
 });
+
+function legacySaveWithoutBufferedResource(): Record<string, unknown> {
+  const legacy = toSaveObject(createStateWithEntities());
+  const machines = (legacy.grid as Record<string, unknown>).machines as Record<string, unknown>;
+  delete (machines["entity-3"] as Record<string, unknown>).bufferedResource;
+  return legacy;
+}
 
 describe("save validation and migration", () => {
   it("rejects unsafe record keys", () => {
@@ -496,6 +577,14 @@ function createStateWithEntities(): SimulationState {
       level: 1,
       resourceNode: "copperOre",
     },
+    {
+      id: "entity-3",
+      type: "silo",
+      x: 12,
+      y: 13,
+      rotation: 180,
+      level: 1,
+    },
   ];
   state.grid.machines = {
     "entity-2": {
@@ -504,6 +593,14 @@ function createStateWithEntities(): SimulationState {
       input: {},
       output: { copperOre: 2 },
       active: true,
+    },
+    "entity-3": {
+      entityId: "entity-3",
+      progressTicks: 0,
+      input: { copperIngot: 42 },
+      output: {},
+      active: false,
+      bufferedResource: "copperIngot",
     },
   };
   state.grid.belts = {

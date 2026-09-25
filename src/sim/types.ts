@@ -138,7 +138,7 @@ export type RenderEvent =
   | { type: "entityRemoved"; entityId: string }
   | { type: "machineStateChanged"; entityId: string; active: boolean }
   | { type: "beltItemChanged"; entityId: string; item?: ResourceId }
-  | { type: "storageFull"; entityId: string; resource: ResourceId }
+  | { type: "storageFull"; entityId: string; resource: ResourceId; worldX: number; worldY: number }
   | { type: "saleCompleted"; entityId: string; resource: ResourceId; currency: number; worldX: number; worldY: number };
 
 export interface CommandResult {

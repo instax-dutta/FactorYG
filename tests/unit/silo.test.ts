@@ -2,8 +2,14 @@ import { describe, expect, it } from "vitest";
 import { MACHINES } from "../../src/content/machines";
 import { RECIPES } from "../../src/content/recipes";
 import { RESOURCES } from "../../src/content/resources";
+import { TILE_SIZE_PX } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
-import { canStoreInput, createMachineRuntime, getTotalAmount } from "../../src/sim/machines";
+import {
+  canStoreInput,
+  createMachineRuntime,
+  getResourceAmount,
+  getTotalAmount,
+} from "../../src/sim/machines";
 import { advanceSimulation } from "../../src/sim/tick";
 import type {
   Entity,
@@ -44,7 +50,7 @@ describe("silo capacity", () => {
     expect(canStoreInput(createSilo(), full, "copperOre")).toBe(false);
   });
 
-  it("fills to exactly 100 from a belt and then stalls the belt deterministically", () => {
+  it("fills to exactly 100 from a belt, notifies once, and then stalls the belt deterministically", () => {
     const belt = createBelt("belt-silo-fill");
     const silo = createSilo({ id: "silo-fill" });
     const state = createState([belt, silo]);
@@ -63,29 +69,25 @@ describe("silo capacity", () => {
     expect(filling.grid.belts[belt.id]?.progress).toBe(0);
     expect(fillingEvents).toEqual([
       { type: "beltItemChanged", entityId: belt.id, item: undefined },
+      storageFullEvent(silo.id, SILO_AT, "copperOre"),
     ]);
 
-    const stalledBelt = {
-      ...filling,
-      grid: {
-        ...filling.grid,
-        belts: {
-          ...filling.grid.belts,
-          [belt.id]: { entityId: belt.id, item: "copperOre" as ResourceId, progress: 0 },
-        },
-      },
-    };
+    const stalledBelt = withBeltItem(filling, belt.id, "copperOre");
     const stalledEvents: RenderEvent[] = [];
     const stalled = advanceSimulation(stalledBelt, 1, stalledEvents);
 
     expect(stalled.grid.machines[silo.id]?.input).toEqual({ copperOre: 100 });
     expect(stalled.grid.belts[belt.id]?.item).toBe("copperOre");
-    expect(stalledEvents).toEqual([
-      { type: "storageFull", entityId: silo.id, resource: "copperOre" },
-    ]);
+    expect(stalledEvents).toEqual([]);
+
+    const repeatEvents: RenderEvent[] = [];
+    const repeated = advanceSimulation(stalled, 10, repeatEvents);
+
+    expect(repeated.grid.machines[silo.id]?.input).toEqual({ copperOre: 100 });
+    expect(repeatEvents).toEqual([]);
   });
 
-  it("emits a storage-full notification when a machine output would exceed capacity", () => {
+  it("refuses a machine output that would exceed capacity and keeps every unit in the smelter", () => {
     const smelter = createSmelter({ id: "smelter-silo-overflow", x: SILO_AT.x - 1, y: SILO_AT.y });
     const silo = createSilo({ id: "silo-overflow" });
     const state = createState([smelter, silo]);
@@ -101,9 +103,73 @@ describe("silo capacity", () => {
     expect(next.grid.machines[silo.id]?.input).toEqual({ copperIngot: 95 });
     expect(next.grid.machines[silo.id]?.bufferedResource).toBe("copperIngot");
     expect(next.grid.machines[smelter.id]?.output).toEqual({ copperIngot: 10 });
-    expect(events).toEqual([
-      { type: "storageFull", entityId: silo.id, resource: "copperIngot" },
-    ]);
+    expect(events).toEqual([]);
+  });
+
+  it("conserves every unit when a full silo pushes at one occupied belt cell", () => {
+    const silo = createSilo({ id: "silo-belt-drain" });
+    const belt = createBelt("belt-silo-drain", { x: DOWNSTREAM_AT.x, y: DOWNSTREAM_AT.y });
+    const state = createState([silo, belt]);
+    state.grid.machines[silo.id] = createSiloRuntime({
+      input: { copperIngot: SILO_CAPACITY },
+      bufferedResource: "copperIngot",
+    });
+
+    const next = advanceSimulation(state, 1, []);
+
+    expect(countStoredUnits(next)).toBe(SILO_CAPACITY);
+    expect(next.grid.belts[belt.id]?.item).toBe("copperIngot");
+    expect(next.grid.machines[silo.id]?.input).toEqual({ copperIngot: SILO_CAPACITY - 1 });
+  });
+
+  it("conserves every unit when a smelter with a full output buffer pushes to a belt", () => {
+    const smelter = createSmelter({
+      id: "smelter-belt-drain",
+      x: SILO_AT.x,
+      y: SILO_AT.y,
+    });
+    const belt = createBelt("belt-smelter-drain", { x: DOWNSTREAM_AT.x, y: DOWNSTREAM_AT.y });
+    const state = createState([smelter, belt]);
+    state.grid.machines[smelter.id] = createSmelterRuntime({
+      output: { copperIngot: MACHINES.smelter.outputBuffer },
+    });
+
+    const next = advanceSimulation(state, 1, []);
+
+    expect(countStoredUnits(next)).toBe(MACHINES.smelter.outputBuffer);
+    expect(next.grid.machines[smelter.id]?.output).toEqual({
+      copperIngot: MACHINES.smelter.outputBuffer - 1,
+    });
+    expect(next.grid.belts[belt.id]?.item).toBe("copperIngot");
+  });
+
+  it("conserves every unit while a smelter drains one unit per tick along a belt line", () => {
+    const total = MACHINES.smelter.outputBuffer;
+    const smelter = createSmelter({ id: "smelter-belt-line", x: SILO_AT.x, y: SILO_AT.y });
+    const belts = Array.from({ length: total }, (_unused, index) =>
+      createBelt(`belt-line-${index + 1}`, {
+        x: DOWNSTREAM_AT.x + index,
+        y: DOWNSTREAM_AT.y,
+      }),
+    );
+    const state = createState([smelter, ...belts]);
+    state.grid.machines[smelter.id] = createSmelterRuntime({ output: { copperIngot: total } });
+
+    let current = state;
+    let ticks = 0;
+    while (
+      getResourceAmount(current.grid.machines[smelter.id]?.output, "copperIngot") > 0 &&
+      ticks < total * 3
+    ) {
+      current = advanceSimulation(current, 1, []);
+      ticks += 1;
+      expect(countStoredUnits(current)).toBe(total);
+    }
+
+    expect(current.grid.machines[smelter.id]?.output).toEqual({});
+    expect(
+      belts.filter((belt) => current.grid.belts[belt.id]?.item !== undefined),
+    ).toHaveLength(total);
   });
 });
 
@@ -209,7 +275,7 @@ describe("silo storage", () => {
     expect(next.grid.machines[silo.id]?.output).toEqual({});
   });
 
-  it("keeps stored units when a downstream silo is full", () => {
+  it("keeps stored units when a downstream silo is already full", () => {
     const silo = createSilo({ id: "silo-blocked" });
     const neighbor = createSilo({ id: "silo-neighbor-full", x: DOWNSTREAM_AT.x, y: DOWNSTREAM_AT.y });
     const state = createState([silo, neighbor]);
@@ -228,9 +294,7 @@ describe("silo storage", () => {
     expect(next.grid.machines[silo.id]?.input).toEqual({ copperIngot: 3 });
     expect(next.grid.machines[silo.id]?.bufferedResource).toBe("copperIngot");
     expect(next.grid.machines[neighbor.id]?.input).toEqual({ copperIngot: SILO_CAPACITY });
-    expect(events).toEqual([
-      { type: "storageFull", entityId: neighbor.id, resource: "copperIngot" },
-    ]);
+    expect(events).toEqual([]);
   });
 });
 
@@ -343,7 +407,7 @@ function createSmelterRuntime(overrides: Partial<MachineRuntime> = {}): MachineR
   };
 }
 
-function createBelt(id: string): Entity {
+function createBelt(id: string, overrides: Partial<Entity> = {}): Entity {
   return {
     id,
     type: "belt",
@@ -351,6 +415,51 @@ function createBelt(id: string): Entity {
     y: BELT_AT.y,
     rotation: 0,
     level: 1,
+    ...overrides,
+  };
+}
+
+function withBeltItem(
+  state: SimulationState,
+  beltId: string,
+  item: ResourceId,
+): SimulationState {
+  const belt = state.grid.belts[beltId];
+  if (belt === undefined) {
+    return state;
+  }
+
+  return {
+    ...state,
+    grid: {
+      ...state.grid,
+      belts: { ...state.grid.belts, [beltId]: { ...belt, item, progress: 0 } },
+    },
+  };
+}
+
+function countStoredUnits(state: SimulationState): number {
+  let total = 0;
+  for (const runtime of Object.values(state.grid.machines)) {
+    total += getTotalAmount(runtime.input) + getTotalAmount(runtime.output);
+  }
+  for (const belt of Object.values(state.grid.belts)) {
+    total += belt.item === undefined ? 0 : 1;
+  }
+  return total;
+}
+
+function storageFullEvent(
+  entityId: string,
+  at: { x: number; y: number },
+  resource: ResourceId,
+): RenderEvent {
+  return {
+    type: "storageFull",
+    entityId,
+    resource,
+    worldX: at.x * TILE_SIZE_PX + TILE_SIZE_PX / 2,
+    worldY: at.y * TILE_SIZE_PX + TILE_SIZE_PX / 2,
   };
 }
 

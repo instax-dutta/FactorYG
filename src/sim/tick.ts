@@ -11,7 +11,9 @@ import {
   addResource,
   canStoreInput,
   createMachineRuntime,
+  getBeltCellCapacity,
   getResourceAmount,
+  isStorageFull,
   removeResource,
   tickExtractor,
   tickProcessor,
@@ -57,10 +59,14 @@ export function advanceSimulation(
 
 function advanceOneTick(state: SimulationState, events: RenderEvent[], tick: number): boolean {
   const activeBefore = new Map<string, boolean>();
+  const storageFullBefore = new Set<string>();
   for (const entity of state.grid.entities) {
     const runtime = state.grid.machines[entity.id];
     if (runtime !== undefined) {
       activeBefore.set(entity.id, runtime.active);
+      if (isStorageFull(entity, runtime)) {
+        storageFullBefore.add(entity.id);
+      }
     }
   }
 
@@ -108,6 +114,20 @@ function advanceOneTick(state: SimulationState, events: RenderEvent[], tick: num
     if (previousActive !== undefined && previousActive !== runtime.active) {
       events.push({ type: "machineStateChanged", entityId: entity.id, active: runtime.active });
     }
+
+    if (
+      runtime.bufferedResource !== undefined &&
+      isStorageFull(entity, runtime) &&
+      !storageFullBefore.has(entity.id)
+    ) {
+      events.push({
+        type: "storageFull",
+        entityId: entity.id,
+        resource: runtime.bufferedResource,
+        worldX: entity.x * TILE_SIZE_PX + TILE_SIZE_PX / 2,
+        worldY: entity.y * TILE_SIZE_PX + TILE_SIZE_PX / 2,
+      });
+    }
   }
 
   return changed;
@@ -138,9 +158,15 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
         continue;
       }
 
+      let transferred: number;
       if (target.type === "belt") {
         const belt = state.grid.belts[target.id];
         if (belt === undefined || belt.item !== undefined) {
+          continue;
+        }
+
+        transferred = Math.min(amount, getBeltCellCapacity(target));
+        if (transferred <= 0) {
           continue;
         }
 
@@ -152,17 +178,18 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
           continue;
         }
 
-        const nextTargetRuntime = acceptMachineInput(target, targetRuntime, resource, amount, events);
+        const nextTargetRuntime = acceptMachineInput(target, targetRuntime, resource, amount);
         if (nextTargetRuntime === targetRuntime) {
           continue;
         }
 
         state.grid.machines[target.id] = nextTargetRuntime;
+        transferred = amount;
       }
 
       state.grid.machines[entity.id] = isSilo
-        ? withdrawSiloInput(runtime, resource, amount)
-        : { ...runtime, output: removeResource(runtime.output, resource, amount) };
+        ? withdrawSiloInput(runtime, resource, transferred)
+        : { ...runtime, output: removeResource(runtime.output, resource, transferred) };
       changed = true;
       break;
     }
@@ -176,14 +203,9 @@ function acceptMachineInput(
   runtime: MachineRuntime,
   resource: ResourceId,
   amount: number,
-  events: RenderEvent[],
 ): MachineRuntime {
   if (entity.type === "silo") {
-    const acceptance = acceptSiloInput(entity, runtime, resource, amount);
-    if (!acceptance.accepted && acceptance.reason === "storageFull") {
-      events.push({ type: "storageFull", entityId: entity.id, resource });
-    }
-    return acceptance.runtime;
+    return acceptSiloInput(entity, runtime, resource, amount).runtime;
   }
 
   if (!canStoreInput(entity, runtime, resource)) {
@@ -302,7 +324,7 @@ export function depositBeltItems(state: SimulationState, events: RenderEvent[] =
         continue;
       }
 
-      const nextRuntime = acceptMachineInput(target, runtime, item, 1, events);
+      const nextRuntime = acceptMachineInput(target, runtime, item, 1);
       if (nextRuntime === runtime) {
         continue;
       }

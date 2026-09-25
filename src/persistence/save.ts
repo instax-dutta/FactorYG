@@ -1,11 +1,13 @@
 import { createInitialState } from "../sim/initialState";
 import { SAVE_KEY } from "../sim/constants";
+import { getMachine } from "../content/machines";
 import { RESOURCES } from "../content/resources";
 import { applyOfflineProgress, calculateOfflineProgress } from "../sim/offline";
 import type {
   BeltCell,
   Entity,
   MachineRuntime,
+  MachineType,
   ProductionChainSummary,
   ResourceId,
   ResourceNode,
@@ -60,7 +62,7 @@ export function projectSaveGame(state: SaveGame): SaveGame {
       tileSizePx: state.grid.tileSizePx,
       nodes: state.grid.nodes.map((node) => projectNode(node)),
       entities: state.grid.entities.map((entity) => projectEntity(entity)),
-      machines: projectMachines(state.grid.machines),
+      machines: projectMachines(state.grid.machines, state.grid.entities),
       belts: projectBelts(state.grid.belts),
     },
     productionChains: projectProductionChains(state.productionChains),
@@ -237,17 +239,26 @@ function projectEntity(entity: Entity): Entity {
   return projected;
 }
 
-function projectMachines(machines: Record<string, MachineRuntime>): Record<string, MachineRuntime> {
+function projectMachines(
+  machines: Record<string, MachineRuntime>,
+  entities: readonly Entity[],
+): Record<string, MachineRuntime> {
+  const typeByEntityId = new Map(entities.map((entity) => [entity.id, entity.type]));
   const projected: Record<string, MachineRuntime> = {};
   for (const entityId of Object.keys(machines).sort()) {
     const runtime = machines[entityId];
+    const input = projectAmounts(runtime.input);
     setRecordValue(projected, entityId, {
       entityId: runtime.entityId,
       progressTicks: runtime.progressTicks,
-      input: projectAmounts(runtime.input),
+      input,
       output: projectAmounts(runtime.output),
       active: runtime.active,
-      ...projectBufferedResource(runtime.bufferedResource),
+      ...projectBufferedResource(
+        typeByEntityId.get(entityId),
+        runtime.bufferedResource,
+        input,
+      ),
     });
   }
   return projected;
@@ -299,13 +310,25 @@ function projectAmounts(
 }
 
 function projectBufferedResource(
+  entityType: MachineType | undefined,
   bufferedResource: ResourceId | undefined,
+  input: Partial<Record<string, number>>,
 ): { bufferedResource?: ResourceId } {
-  if (bufferedResource === undefined || !Object.hasOwn(RESOURCES, bufferedResource)) {
+  if (bufferedResource !== undefined) {
+    return Object.hasOwn(RESOURCES, bufferedResource) ? { bufferedResource } : {};
+  }
+
+  if (entityType === undefined || getMachine(entityType)?.bufferMode !== "shared") {
     return {};
   }
 
-  return { bufferedResource };
+  for (const resource of Object.keys(input).sort()) {
+    if ((input[resource] ?? 0) > 0) {
+      return { bufferedResource: resource as ResourceId };
+    }
+  }
+
+  return {};
 }
 
 function setRecordValue<T>(record: Record<string, T>, key: string, value: T): void {

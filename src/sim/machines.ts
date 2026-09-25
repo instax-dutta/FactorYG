@@ -255,7 +255,7 @@ export function acceptSiloInput(
     return { accepted: false, reason: "lockedResource", runtime };
   }
 
-  if (getTotalAmount(runtime.input) + amount > getSiloStorageCapacity(entity)) {
+  if (getTotalAmount(runtime.input) + amount > (getStorageCapacity(entity) ?? 0)) {
     return { accepted: false, reason: "storageFull", runtime };
   }
 
@@ -282,6 +282,15 @@ export function withdrawSiloInput(
   };
 }
 
+export function isStorageFull(entity: Entity, runtime: MachineRuntime): boolean {
+  const capacity = getStorageCapacity(entity);
+  return capacity !== undefined && getTotalAmount(runtime.input) >= capacity;
+}
+
+export function getBeltCellCapacity(entity: Entity): number {
+  return getMachine(entity.type)?.inputBuffer ?? 0;
+}
+
 function isSiloResourceLocked(runtime: MachineRuntime, resource: ResourceId): boolean {
   return (
     runtime.bufferedResource !== undefined &&
@@ -290,9 +299,13 @@ function isSiloResourceLocked(runtime: MachineRuntime, resource: ResourceId): bo
   );
 }
 
-function getSiloStorageCapacity(entity: Entity): number {
+function getStorageCapacity(entity: Entity): number | undefined {
   const definition = getMachine(entity.type);
-  return definition?.storageCapacity ?? definition?.inputBuffer ?? 0;
+  if (definition === undefined || definition.bufferMode !== "shared") {
+    return undefined;
+  }
+
+  return definition.storageCapacity ?? definition.inputBuffer;
 }
 
 export function getTotalAmount(values: Partial<Record<ResourceId, number>>): number {

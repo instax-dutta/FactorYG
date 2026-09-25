@@ -311,10 +311,19 @@ export class FactoryScene extends Phaser.Scene {
           this.setEntityActive(event.entityId);
         }
         break;
-      case "saleCompleted":
-        this.renderSale(event.worldX, event.worldY);
+      case "storageFull":
+        this.renderNotice(event.worldX, event.worldY);
         break;
+      case "saleCompleted":
+        this.renderNotice(event.worldX, event.worldY);
+        break;
+      default:
+        return this.assertUnreachableRenderEvent(event);
     }
+  }
+
+  private assertUnreachableRenderEvent(event: never): never {
+    throw new Error(`Unhandled render event: ${JSON.stringify(event)}`);
   }
 
   private renderEntity(entity: Entity): void {
@@ -461,7 +470,7 @@ export class FactoryScene extends Phaser.Scene {
     };
   }
 
-  private renderSale(worldX: number, worldY: number): void {
+  private renderNotice(worldX: number, worldY: number): void {
     const sparkKey = frameTextureKey("vfx.spark", 0);
     if (!this.textures.exists(sparkKey)) {
       return;

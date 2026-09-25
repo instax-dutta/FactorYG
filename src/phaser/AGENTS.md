@@ -13,6 +13,7 @@ Own the Phaser scene, camera, world input, and render orchestration.
 ## Local Contracts
 
 - Phaser reads simulation snapshots and dispatches commands; `update()` contains no economic logic.
+- The render-event switch is exhaustive, so an unhandled `RenderEvent` variant is a compile error rather than a silent no-op.
 - Machine textures resolve only to the same machine's idle/active art.
 - The scene signals readiness only after store subscriptions and input are installed.
 - Cleanup is idempotent and handles both shutdown and destroy events.
@@ -24,7 +25,7 @@ Own the Phaser scene, camera, world input, and render orchestration.
 
 ## Verification
 
-- `npm run test -- tests/unit/cameraConfig.test.ts tests/unit/primaryInteraction.test.ts tests/unit/sceneTelemetry.test.ts`
+- `npm run test -- tests/unit/cameraConfig.test.ts tests/unit/primaryInteraction.test.ts tests/unit/sceneTelemetry.test.ts tests/unit/renderEventContract.test.ts`
 - `npm run test:e2e -- tests/e2e/phase0.spec.ts --workers=1`
 
 ## Child DOX Index
