@@ -1054,12 +1054,14 @@ git commit -m "feat: calculate capped offline production"
 - Create: `src/ui/components/NotificationStack.tsx`
 - Create: `src/ui/components/OfflineSummaryModal.tsx`
 - Modify: `src/app/App.tsx`
+- Modify: `src/app/GameCanvas.tsx`
+- Modify: `src/app/runtime.ts`
 - Create: `tests/unit/hud.test.tsx`
 - Create: `tests/unit/buildDock.test.tsx`
 
 **Interfaces:**
 - Consumes: `SimulationStore`, `SimulationSnapshot`, and UI command types.
-- Produces: a React overlay with currency, rate, prestige status, machine selection, selection details, rotate/demolish/upgrade controls, notification display, and offline modal.
+- Produces: a React overlay with currency, rate, prestige status, machine selection, selection details, rotate/demolish/upgrade controls, notification display, and offline modal, all subscribed to the same `SimulationStore` instance as Phaser.
 
 - [ ] **Step 1: Write failing component tests**
 
@@ -1087,7 +1089,7 @@ npm run typecheck
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/ui src/app/App.tsx tests/unit/hud.test.tsx tests/unit/buildDock.test.tsx
+git add src/ui/hooks/useSimulationSnapshot.ts src/ui/components/BuildDock.tsx src/ui/components/EntityInspector.tsx src/ui/components/Hud.tsx src/ui/components/NotificationStack.tsx src/ui/components/OfflineSummaryModal.tsx src/app/App.tsx src/app/GameCanvas.tsx src/app/runtime.ts tests/unit/hud.test.tsx tests/unit/buildDock.test.tsx
 git commit -m "feat: add core React HUD and build controls"
 ```
 
