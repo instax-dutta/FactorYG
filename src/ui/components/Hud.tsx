@@ -48,23 +48,32 @@ export function Hud({ store }: HudProps) {
       <button
         type="button"
         aria-label="Prestige"
+        aria-describedby="prestige-unavailable"
+        data-prestige-ready={snapshot.prestigeReady}
         data-testid="prestige-button"
-        disabled={!snapshot.prestigeReady}
-        onClick={() => store.dispatch({ type: "prestige" })}
+        disabled
+        title="Prestige will be available in a later phase"
         style={{
           pointerEvents: "auto",
           minHeight: 36,
-          border: "1px solid #c98245",
+          border: "1px solid #58758a",
           borderRadius: 6,
-          background: snapshot.prestigeReady ? "#c98245" : "#34424c",
-          color: "#101820",
-          cursor: snapshot.prestigeReady ? "pointer" : "not-allowed",
+          background: "#34424c",
+          color: "#c2cbd1",
+          cursor: "not-allowed",
           font: "inherit",
           fontWeight: 700,
         }}
       >
         Prestige
       </button>
+      <span
+        id="prestige-unavailable"
+        data-testid="prestige-unavailable"
+        style={{ color: "#aab7bf", fontSize: "0.8rem" }}
+      >
+        Prestige is not available yet.
+      </span>
     </section>
   );
 }

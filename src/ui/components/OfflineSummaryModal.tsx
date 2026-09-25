@@ -1,9 +1,21 @@
+import { useCallback, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import { getResource } from "../../content/resources";
 import type { SimulationStore } from "../../sim/store";
 import { useSimulationSnapshot } from "../hooks/useSimulationSnapshot";
 
 interface OfflineSummaryModalProps {
   store: SimulationStore;
 }
+
+interface BackgroundState {
+  element: HTMLElement;
+  inertAttribute: string | null;
+  ariaHiddenAttribute: string | null;
+}
+
+const focusableSelector =
+  "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])";
 
 const numberFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
@@ -12,27 +24,124 @@ const numberFormatter = new Intl.NumberFormat("en-US", {
 export function OfflineSummaryModal({ store }: OfflineSummaryModalProps) {
   const snapshot = useSimulationSnapshot(store);
   const summary = snapshot.offlineSummary;
+  const isOpen = summary !== undefined;
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const continueRef = useRef<HTMLButtonElement>(null);
+  const dismiss = useCallback(() => {
+    store.dispatch({ type: "dismissOfflineSummary" });
+  }, [store]);
 
-  if (summary === undefined) {
+  useEffect(() => {
+    if (!isOpen || typeof document === "undefined") {
+      return undefined;
+    }
+
+    const dialog = dialogRef.current;
+    if (dialog === null) {
+      return undefined;
+    }
+
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const portalElement = dialog.parentElement === document.body ? dialog : dialog.parentElement;
+    const background = Array.from(document.body.children).filter(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement &&
+        child !== portalElement &&
+        !(portalElement?.contains(child) ?? false),
+    );
+    const backgroundStates = background.map<BackgroundState>((element) => ({
+      element,
+      inertAttribute: element.getAttribute("inert"),
+      ariaHiddenAttribute: element.getAttribute("aria-hidden"),
+    }));
+    for (const { element } of backgroundStates) {
+      element.setAttribute("inert", "");
+      element.setAttribute("aria-hidden", "true");
+    }
+
+    continueRef.current?.focus();
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        dismiss();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector)).filter(
+        (element) => element.getAttribute("aria-hidden") !== "true",
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (first === undefined || last === undefined) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const activeElement = document.activeElement;
+      if (!(activeElement instanceof Node) || !dialog.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
+      if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+      for (const state of backgroundStates) {
+        if (state.inertAttribute === null) {
+          state.element.removeAttribute("inert");
+        } else {
+          state.element.setAttribute("inert", state.inertAttribute);
+        }
+        if (state.ariaHiddenAttribute === null) {
+          state.element.removeAttribute("aria-hidden");
+        } else {
+          state.element.setAttribute("aria-hidden", state.ariaHiddenAttribute);
+        }
+      }
+      if (previousFocus?.isConnected === true) {
+        previousFocus.focus();
+      }
+    };
+  }, [dismiss, isOpen]);
+
+  if (!isOpen || typeof document === "undefined") {
     return null;
   }
 
-  return (
+  return createPortal(
     <div
+      ref={dialogRef}
       role="dialog"
-      aria-modal="true"
+      aria-modal={true}
       aria-labelledby="offline-summary-title"
       data-testid="offline-summary-modal"
+      tabIndex={-1}
       style={{
-        position: "absolute",
+        position: "fixed",
         inset: 0,
-        zIndex: 10,
+        zIndex: 1000,
         display: "grid",
         placeItems: "center",
         background: "rgba(4, 8, 12, 0.68)",
         color: "#f5f7fa",
         fontFamily: "system-ui, sans-serif",
-        pointerEvents: "none",
+        pointerEvents: "auto",
       }}
     >
       <section
@@ -70,36 +179,60 @@ export function OfflineSummaryModal({ store }: OfflineSummaryModalProps) {
             <p style={{ margin: 0 }}>No chain units recorded.</p>
           ) : (
             <ul style={{ display: "grid", gap: 6, margin: 0, paddingLeft: 20 }}>
-              {Object.entries(summary.chainUnits).map(([resource, units]) => (
-                <li key={resource} data-testid={`offline-chain-${resource}`}>
-                  {resource}: {formatNumber(units)}
-                </li>
-              ))}
+              {Object.entries(summary.chainUnits).map(([resource, units]) => {
+                const label = getResource(resource)?.label ?? resource;
+                return (
+                  <li key={resource} data-testid={`offline-chain-${resource}`}>
+                    {label}: {formatNumber(units)}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
-        <button
-          type="button"
-          aria-label="Dismiss offline summary"
-          data-testid="dismiss-offline-summary"
-          onClick={() => store.dispatch({ type: "dismissOfflineSummary" })}
-          style={{
-            marginTop: 24,
-            minHeight: 38,
-            padding: "0 16px",
-            border: 0,
-            borderRadius: 6,
-            background: "#36c5b5",
-            color: "#101820",
-            cursor: "pointer",
-            font: "inherit",
-            fontWeight: 700,
-          }}
-        >
-          Continue
-        </button>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 24 }}>
+          <button
+            ref={continueRef}
+            type="button"
+            aria-label="Dismiss offline summary"
+            data-testid="dismiss-offline-summary"
+            onClick={dismiss}
+            style={{
+              minHeight: 38,
+              padding: "0 16px",
+              border: 0,
+              borderRadius: 6,
+              background: "#36c5b5",
+              color: "#101820",
+              cursor: "pointer",
+              font: "inherit",
+              fontWeight: 700,
+            }}
+          >
+            Continue
+          </button>
+          <button
+            type="button"
+            aria-label="Close offline summary"
+            data-testid="offline-close"
+            onClick={dismiss}
+            style={{
+              minHeight: 38,
+              padding: "0 16px",
+              border: "1px solid #58758a",
+              borderRadius: 6,
+              background: "#263746",
+              color: "#f5f7fa",
+              cursor: "pointer",
+              font: "inherit",
+            }}
+          >
+            Close
+          </button>
+        </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

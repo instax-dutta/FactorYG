@@ -22,6 +22,8 @@ const numberFormatter = new Intl.NumberFormat("en-US", {
 export function EntityInspector({ store }: EntityInspectorProps) {
   const snapshot = useSimulationSnapshot(store);
   const entity = snapshot.selectedEntity;
+  const throughput =
+    snapshot.selectedThroughput > 0 ? `${formatNumber(snapshot.selectedThroughput)} / sec` : "Pending";
 
   return (
     <aside
@@ -29,7 +31,7 @@ export function EntityInspector({ store }: EntityInspectorProps) {
       data-testid="entity-inspector"
       style={{
         position: "absolute",
-        top: 24,
+        top: 128,
         left: 24,
         zIndex: 3,
         width: 240,
@@ -63,8 +65,12 @@ export function EntityInspector({ store }: EntityInspectorProps) {
               {formatNumber(entity.level)}
             </dd>
             <dt>Throughput</dt>
-            <dd data-testid="inspector-throughput" style={{ margin: 0 }}>
-              {formatNumber(snapshot.selectedThroughput)} / sec
+            <dd
+              data-testid="inspector-throughput"
+              data-throughput-status={snapshot.selectedThroughput > 0 ? "available" : "pending"}
+              style={{ margin: 0 }}
+            >
+              {throughput}
             </dd>
           </dl>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}>
@@ -89,13 +95,22 @@ export function EntityInspector({ store }: EntityInspectorProps) {
             <button
               type="button"
               aria-label="Upgrade"
+              aria-describedby="inspector-upgrade-unavailable"
               data-testid="inspector-upgrade"
-              onClick={() => store.dispatch({ type: "upgradeEntity", entityId: entity.id })}
-              style={buttonStyle}
+              disabled
+              title="Upgrades will be available in a later phase"
+              style={disabledButtonStyle}
             >
               Upgrade
             </button>
           </div>
+          <span
+            id="inspector-upgrade-unavailable"
+            data-testid="inspector-upgrade-unavailable"
+            style={{ display: "block", marginTop: 8, color: "#aab7bf", fontSize: "0.8rem" }}
+          >
+            Upgrade is not available yet.
+          </span>
         </>
       )}
     </aside>
@@ -112,6 +127,13 @@ const buttonStyle = {
   color: "#f5f7fa",
   cursor: "pointer",
   font: "inherit",
+};
+
+const disabledButtonStyle = {
+  ...buttonStyle,
+  background: "#34424c",
+  color: "#c2cbd1",
+  cursor: "not-allowed",
 };
 
 function formatNumber(value: number): string {

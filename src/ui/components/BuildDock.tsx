@@ -24,7 +24,7 @@ export function BuildDock({ store }: BuildDockProps) {
       data-testid="build-dock"
       style={{
         position: "absolute",
-        right: 24,
+        left: 24,
         bottom: 24,
         zIndex: 3,
         display: "flex",

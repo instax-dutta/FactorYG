@@ -20,9 +20,31 @@ export function pointerToCell(
   pointer: Phaser.Input.Pointer,
   camera: Phaser.Cameras.Scene2D.Camera,
   tileSizePx = 64,
+  canvas?: HTMLCanvasElement,
 ): GridPoint {
-  const worldPoint = camera.getWorldPoint(pointer.x, pointer.y);
+  const canvasPoint = getCanvasPoint(pointer, canvas);
+  const worldPoint = camera.getWorldPoint(canvasPoint?.x ?? pointer.x, canvasPoint?.y ?? pointer.y);
   return worldToCell({ x: worldPoint.x, y: worldPoint.y }, tileSizePx);
+}
+
+function getCanvasPoint(
+  pointer: Phaser.Input.Pointer,
+  canvas: HTMLCanvasElement | undefined,
+): { x: number; y: number } | undefined {
+  const event = pointer.event;
+  if (canvas === undefined || event === undefined || !("clientX" in event) || !("clientY" in event)) {
+    return undefined;
+  }
+
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0 || canvas.width <= 0 || canvas.height <= 0) {
+    return undefined;
+  }
+
+  return {
+    x: (event.clientX - rect.left) * (canvas.width / rect.width),
+    y: (event.clientY - rect.top) * (canvas.height / rect.height),
+  };
 }
 
 export class CameraInputAdapter {
@@ -91,29 +113,35 @@ export class CameraInputAdapter {
     this.pointers.clear();
   }
 
+  private pointerPosition(pointer: Phaser.Input.Pointer): PointerPosition {
+    return getCanvasPoint(pointer, this.scene.scale.canvas) ?? { x: pointer.x, y: pointer.y };
+  }
+
   private readonly handlePointerDown = (pointer: Phaser.Input.Pointer): void => {
-    this.pointers.set(pointer.id, { x: pointer.x, y: pointer.y });
+    const position = this.pointerPosition(pointer);
+    this.pointers.set(pointer.id, position);
     this.updatePinchDistance();
     if (this.pointers.size >= 2) {
       this.suppressPrimaryClick = true;
     }
 
     if (pointer.button === 2) {
-      this.options.onSecondaryClick(pointerToCell(pointer, this.camera));
+      this.options.onSecondaryClick(pointerToCell(pointer, this.camera, 64, this.scene.scale.canvas));
       return;
     }
 
     if (pointer.button === 0) {
       this.primaryPointerId = pointer.id;
-      this.primaryStart = { x: pointer.x, y: pointer.y };
+      this.primaryStart = position;
       this.primaryMoved = false;
     }
   };
 
   private readonly handlePointerMove = (pointer: Phaser.Input.Pointer): void => {
-    const previous = this.pointers.get(pointer.id) ?? { x: pointer.x, y: pointer.y };
-    this.pointers.set(pointer.id, { x: pointer.x, y: pointer.y });
-    this.options.onPointerMove(pointerToCell(pointer, this.camera));
+    const position = this.pointerPosition(pointer);
+    const previous = this.pointers.get(pointer.id) ?? position;
+    this.pointers.set(pointer.id, position);
+    this.options.onPointerMove(pointerToCell(pointer, this.camera, 64, this.scene.scale.canvas));
 
     if (this.pointers.size >= 2) {
       this.suppressPrimaryClick = true;
@@ -130,9 +158,9 @@ export class CameraInputAdapter {
       return;
     }
 
-    const deltaX = pointer.x - previous.x;
-    const deltaY = pointer.y - previous.y;
-    if (Math.hypot(pointer.x - this.primaryStart.x, pointer.y - this.primaryStart.y) > 6) {
+    const deltaX = position.x - previous.x;
+    const deltaY = position.y - previous.y;
+    if (Math.hypot(position.x - this.primaryStart.x, position.y - this.primaryStart.y) > 6) {
       this.primaryMoved = true;
     }
     if (this.primaryMoved) {
@@ -144,7 +172,7 @@ export class CameraInputAdapter {
   private readonly handlePointerUp = (pointer: Phaser.Input.Pointer): void => {
     if (this.primaryPointerId === pointer.id) {
       if (!this.primaryMoved && !this.suppressPrimaryClick && pointer.button === 0) {
-        this.options.onPrimaryClick(pointerToCell(pointer, this.camera));
+        this.options.onPrimaryClick(pointerToCell(pointer, this.camera, 64, this.scene.scale.canvas));
       }
       this.primaryPointerId = undefined;
       this.primaryStart = { x: 0, y: 0 };

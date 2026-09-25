@@ -15,8 +15,8 @@ export function NotificationStack({ store }: NotificationStackProps) {
       data-testid="notification-stack"
       style={{
         position: "absolute",
+        top: 220,
         right: 24,
-        bottom: 92,
         zIndex: 4,
         display: "grid",
         gap: 8,

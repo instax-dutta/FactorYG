@@ -8,6 +8,8 @@ interface RuntimeBridge {
   advanceTicks(count: number): void;
   getSnapshot(): {
     currency: number;
+    placementMode?: string;
+    selectedEntityId?: string;
     offlineSummary?: {
       elapsedSeconds: number;
       cappedSeconds: number;
@@ -50,6 +52,7 @@ declare global {
 }
 
 const COPPER_NODE = { x: 20, y: 21 };
+const TEST_IRON_NODE = { x: 36, y: 27 };
 const TEST_CELL = { x: 32, y: 32 };
 const TILE_SIZE_PX = 64;
 
@@ -118,6 +121,18 @@ async function waitForReady(page: Page): Promise<void> {
     .toBe(true);
 }
 
+function boxesOverlap(
+  first: { x: number; y: number; width: number; height: number },
+  second: { x: number; y: number; width: number; height: number },
+): boolean {
+  return (
+    first.x < second.x + second.width &&
+    first.x + first.width > second.x &&
+    first.y < second.y + second.height &&
+    first.y + first.height > second.y
+  );
+}
+
 test.use({ viewport: { width: 1000, height: 800 } });
 
 async function getTelemetry(page: Page): Promise<SceneTelemetry> {
@@ -177,12 +192,20 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
     "Build, optimize, and grow your Factor-I factory.",
   );
   await expect(page.getByRole("heading", { name: "Factor-I" })).toBeVisible();
+  await expect(page.getByRole("banner")).toBeVisible();
   const wrapper = page.getByTestId("game-canvas");
   await expect(wrapper).toBeVisible();
   await waitForBootingStatus(page, 1);
   await expect(wrapper).toHaveAttribute("data-factor-y-status", "ready");
   await expect(wrapper.locator("canvas")).toBeVisible();
   await waitForReady(page);
+
+  const headerBox = await page.getByRole("banner").boundingBox();
+  const inspectorBox = await page.getByTestId("entity-inspector").boundingBox();
+  if (headerBox === null || inspectorBox === null) {
+    throw new Error("Header or inspector bounding box unavailable");
+  }
+  expect(boxesOverlap(headerBox, inspectorBox)).toBe(false);
 
   expect(
     await page.evaluate(() => Object.keys(window.__FACTOR_Y__ ?? {}).sort()),
@@ -332,6 +355,68 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
     await page.evaluate(() => Object.keys(window.__FACTOR_Y_TELEMETRY__ ?? {}).sort()),
   ).toEqual(["getSnapshot"]);
   expect(browserErrors).toEqual([]);
+});
+
+test("selects placed entities from the canvas and preserves placement mode", async ({ page }) => {
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await waitForReady(page);
+
+  const placementResults = await page.evaluate((node) => {
+    const runtime = window.__FACTOR_Y__;
+    if (runtime === undefined) {
+      throw new Error("Factor-Y runtime bridge unavailable");
+    }
+    return [
+      runtime.dispatch({
+        type: "placeEntity",
+        machine: "extractor",
+        x: node.x,
+        y: node.y,
+        rotation: 0,
+        resourceNode: "ironOre",
+      }),
+      runtime.dispatch({
+        type: "placeEntity",
+        machine: "belt",
+        x: node.x + 1,
+        y: node.y,
+        rotation: 0,
+      }),
+      runtime.dispatch({
+        type: "placeEntity",
+        machine: "depot",
+        x: node.x + 2,
+        y: node.y,
+        rotation: 0,
+      }),
+    ];
+  }, TEST_IRON_NODE);
+
+  expect(placementResults).toEqual([{ ok: true }, { ok: true }, { ok: true }]);
+
+  await page.getByTestId("build-belt").click();
+  expect(await page.evaluate(() => window.__FACTOR_Y__?.getSnapshot().placementMode)).toBe("belt");
+
+  const extractorPoint = await screenPointForCell(page, TEST_IRON_NODE);
+  await page.mouse.click(extractorPoint.x, extractorPoint.y);
+  await expect(page.getByTestId("inspector-empty")).toBeVisible();
+
+  await page.evaluate(() => {
+    window.__FACTOR_Y__?.dispatch({ type: "setPlacementMode" });
+  });
+  await page.mouse.click(extractorPoint.x, extractorPoint.y);
+  await expect(page.getByTestId("inspector-type")).toHaveText("Extractor");
+  await expect(page.getByTestId("inspector-id")).toHaveText("entity-1");
+
+  const emptyPoint = await screenPointForCell(page, TEST_CELL);
+  await page.mouse.click(emptyPoint.x, emptyPoint.y);
+  await expect(page.getByTestId("inspector-empty")).toBeVisible();
+
+  await page.mouse.click(extractorPoint.x, extractorPoint.y);
+  await expect(page.getByTestId("inspector-type")).toHaveText("Extractor");
+  await page.mouse.click(extractorPoint.x, extractorPoint.y, { button: "right" });
+  await expect(page.getByTestId("inspector-empty")).toBeVisible();
+  expect(await page.evaluate(() => window.__FACTOR_Y__?.getSnapshot().selectedEntityId)).toBeUndefined();
 });
 
 test("loads and anchors persisted offline state during browser startup", async ({ page }) => {

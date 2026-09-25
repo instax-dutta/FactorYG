@@ -6,6 +6,7 @@ import type { Entity, MachineType, RenderEvent, SimulationSnapshot } from "../si
 import { SimulationStore } from "../sim/store";
 import { createCameraConfig } from "./cameraConfig";
 import { createInputAdapter, type CameraInputAdapter } from "./inputAdapter";
+import { createPrimaryCanvasCommand } from "./primaryInteraction";
 import { createSceneTelemetry, type SceneTelemetry } from "./telemetry";
 
 const GRID_WIDTH = 64;
@@ -91,7 +92,7 @@ export class FactoryScene extends Phaser.Scene {
     this.inputAdapter = createInputAdapter(this, camera, {
       minZoom: cameraConfig.minZoom,
       maxZoom: cameraConfig.maxZoom,
-      onPrimaryClick: (cell) => this.placeAt(cell),
+      onPrimaryClick: (cell) => this.handlePrimaryClick(cell),
       onSecondaryClick: (cell) => this.demolishAt(cell),
       onPointerMove: (cell) => this.updateGhost(cell),
       onRotate: () => this.store.dispatch({ type: "rotatePlacement" }),
@@ -140,18 +141,15 @@ export class FactoryScene extends Phaser.Scene {
     floorLayer?.setDepth(0);
   }
 
-  private placeAt(cell: { x: number; y: number }): void {
-    const machine = this.snapshot.placementMode;
-    if (machine === undefined) {
-      return;
-    }
-    this.store.dispatch({
-      type: "placeEntity",
-      machine,
-      x: cell.x,
-      y: cell.y,
-      rotation: this.snapshot.pendingRotation,
-    });
+  private handlePrimaryClick(cell: { x: number; y: number }): void {
+    this.store.dispatch(
+      createPrimaryCanvasCommand(
+        this.snapshot.placementMode,
+        this.snapshot.pendingRotation,
+        cell,
+        this.findPlacedEntity(cell),
+      ),
+    );
   }
 
   private demolishAt(cell: { x: number; y: number }): void {
