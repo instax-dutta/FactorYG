@@ -839,7 +839,7 @@ git commit -m "feat: validate machine placement and port connections"
 ## Task 1.2: Implement Extractor Production
 
 **Files:**
-- Create: `src/sim/machines.ts`
+- Modify: `src/sim/machines.ts`
 - Modify: `src/sim/tick.ts`
 - Create: `tests/unit/extractor.test.ts`
 
