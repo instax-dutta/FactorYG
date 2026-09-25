@@ -7,6 +7,7 @@ import {
 } from "./connections";
 import { CURRENCY_RATE_WINDOW_TICKS, sellResource } from "./economy";
 import {
+  acceptSiloInput,
   addResource,
   canStoreInput,
   createMachineRuntime,
@@ -14,6 +15,7 @@ import {
   removeResource,
   tickExtractor,
   tickProcessor,
+  withdrawSiloInput,
 } from "./machines";
 import type {
   BeltCell,
@@ -128,8 +130,10 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
       continue;
     }
 
-    for (const resource of Object.keys(runtime.output) as ResourceId[]) {
-      const amount = getResourceAmount(runtime.output, resource);
+    const isSilo = entity.type === "silo";
+    const stored = isSilo ? runtime.input : runtime.output;
+    for (const resource of Object.keys(stored) as ResourceId[]) {
+      const amount = getResourceAmount(stored, resource);
       if (amount <= 0) {
         continue;
       }
@@ -144,25 +148,49 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
         emitBeltItemChanged(events, target.id, resource);
       } else {
         const targetRuntime = state.grid.machines[target.id];
-        if (targetRuntime === undefined || !canStoreInput(target, targetRuntime, resource)) {
+        if (targetRuntime === undefined) {
           continue;
         }
-        state.grid.machines[target.id] = {
-          ...targetRuntime,
-          input: addResource(targetRuntime.input, resource, amount),
-        };
+
+        const nextTargetRuntime = acceptMachineInput(target, targetRuntime, resource, amount, events);
+        if (nextTargetRuntime === targetRuntime) {
+          continue;
+        }
+
+        state.grid.machines[target.id] = nextTargetRuntime;
       }
 
-      state.grid.machines[entity.id] = {
-        ...runtime,
-        output: removeResource(runtime.output, resource, amount),
-      };
+      state.grid.machines[entity.id] = isSilo
+        ? withdrawSiloInput(runtime, resource, amount)
+        : { ...runtime, output: removeResource(runtime.output, resource, amount) };
       changed = true;
       break;
     }
   }
 
   return changed;
+}
+
+function acceptMachineInput(
+  entity: Entity,
+  runtime: MachineRuntime,
+  resource: ResourceId,
+  amount: number,
+  events: RenderEvent[],
+): MachineRuntime {
+  if (entity.type === "silo") {
+    const acceptance = acceptSiloInput(entity, runtime, resource, amount);
+    if (!acceptance.accepted && acceptance.reason === "storageFull") {
+      events.push({ type: "storageFull", entityId: entity.id, resource });
+    }
+    return acceptance.runtime;
+  }
+
+  if (!canStoreInput(entity, runtime, resource)) {
+    return runtime;
+  }
+
+  return { ...runtime, input: addResource(runtime.input, resource, amount) };
 }
 
 export function moveBelts(state: SimulationState, events: RenderEvent[] = []): boolean {
@@ -270,20 +298,17 @@ export function depositBeltItems(state: SimulationState, events: RenderEvent[] =
 
       const belt = state.grid.belts[source.id];
       const item = belt?.item;
-      if (
-        belt === undefined ||
-        item === undefined ||
-        !arePortsConnected(source, target, item) ||
-        !canStoreInput(target, runtime, item)
-      ) {
+      if (belt === undefined || item === undefined || !arePortsConnected(source, target, item)) {
         continue;
       }
 
-      runtime = {
-        ...runtime,
-        input: addResource(runtime.input, item, 1),
-      };
-      state.grid.machines[target.id] = runtime;
+      const nextRuntime = acceptMachineInput(target, runtime, item, 1, events);
+      if (nextRuntime === runtime) {
+        continue;
+      }
+
+      state.grid.machines[target.id] = nextRuntime;
+      runtime = nextRuntime;
       state.grid.belts[source.id] = { ...belt, item: undefined, progress: 0 };
       emitBeltItemChanged(events, source.id, undefined);
       changed = true;

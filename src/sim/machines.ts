@@ -10,6 +10,12 @@ import type {
 
 const CYCLE_COMPLETION_EPSILON = 1e-12;
 
+export type SiloRejection = "lockedResource" | "storageFull";
+
+export type SiloAcceptance =
+  | { accepted: true; runtime: MachineRuntime }
+  | { accepted: false; reason: SiloRejection; runtime: MachineRuntime };
+
 export function createMachineRuntime(entity: Entity): MachineRuntime {
   return {
     entityId: entity.id,
@@ -230,10 +236,63 @@ export function canStoreInput(entity: Entity, runtime: MachineRuntime, resource:
   }
 
   if (definition.bufferMode === "shared") {
-    return getTotalAmount(runtime.input) < (definition.storageCapacity ?? definition.inputBuffer);
+    return (
+      !isSiloResourceLocked(runtime, resource) &&
+      getTotalAmount(runtime.input) < (definition.storageCapacity ?? definition.inputBuffer)
+    );
   }
 
   return getResourceAmount(runtime.input, resource) < definition.inputBuffer;
+}
+
+export function acceptSiloInput(
+  entity: Entity,
+  runtime: MachineRuntime,
+  resource: ResourceId,
+  amount: number,
+): SiloAcceptance {
+  if (isSiloResourceLocked(runtime, resource)) {
+    return { accepted: false, reason: "lockedResource", runtime };
+  }
+
+  if (getTotalAmount(runtime.input) + amount > getSiloStorageCapacity(entity)) {
+    return { accepted: false, reason: "storageFull", runtime };
+  }
+
+  return {
+    accepted: true,
+    runtime: {
+      ...runtime,
+      input: addResource(runtime.input, resource, amount),
+      bufferedResource: resource,
+    },
+  };
+}
+
+export function withdrawSiloInput(
+  runtime: MachineRuntime,
+  resource: ResourceId,
+  amount: number,
+): MachineRuntime {
+  const input = removeResource(runtime.input, resource, amount);
+  return {
+    ...runtime,
+    input,
+    ...(getTotalAmount(input) === 0 ? { bufferedResource: undefined } : {}),
+  };
+}
+
+function isSiloResourceLocked(runtime: MachineRuntime, resource: ResourceId): boolean {
+  return (
+    runtime.bufferedResource !== undefined &&
+    runtime.bufferedResource !== resource &&
+    getTotalAmount(runtime.input) > 0
+  );
+}
+
+function getSiloStorageCapacity(entity: Entity): number {
+  const definition = getMachine(entity.type);
+  return definition?.storageCapacity ?? definition?.inputBuffer ?? 0;
 }
 
 export function getTotalAmount(values: Partial<Record<ResourceId, number>>): number {

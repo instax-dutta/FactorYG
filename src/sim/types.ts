@@ -39,6 +39,7 @@ export interface MachineRuntime {
   input: Partial<Record<ResourceId, number>>;
   output: Partial<Record<ResourceId, number>>;
   active: boolean;
+  bufferedResource?: ResourceId;
 }
 
 export interface BeltCell {
@@ -137,6 +138,7 @@ export type RenderEvent =
   | { type: "entityRemoved"; entityId: string }
   | { type: "machineStateChanged"; entityId: string; active: boolean }
   | { type: "beltItemChanged"; entityId: string; item?: ResourceId }
+  | { type: "storageFull"; entityId: string; resource: ResourceId }
   | { type: "saleCompleted"; entityId: string; resource: ResourceId; currency: number; worldX: number; worldY: number };
 
 export interface CommandResult {

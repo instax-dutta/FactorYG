@@ -7,6 +7,7 @@ import type {
   Entity,
   MachineRuntime,
   ProductionChainSummary,
+  ResourceId,
   ResourceNode,
   SaveGame,
   SimulationState,
@@ -246,6 +247,7 @@ function projectMachines(machines: Record<string, MachineRuntime>): Record<strin
       input: projectAmounts(runtime.input),
       output: projectAmounts(runtime.output),
       active: runtime.active,
+      ...projectBufferedResource(runtime.bufferedResource),
     });
   }
   return projected;
@@ -294,6 +296,16 @@ function projectAmounts(
     }
   }
   return projected;
+}
+
+function projectBufferedResource(
+  bufferedResource: ResourceId | undefined,
+): { bufferedResource?: ResourceId } {
+  if (bufferedResource === undefined || !Object.hasOwn(RESOURCES, bufferedResource)) {
+    return {};
+  }
+
+  return { bufferedResource };
 }
 
 function setRecordValue<T>(record: Record<string, T>, key: string, value: T): void {
