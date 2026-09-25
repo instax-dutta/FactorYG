@@ -1003,19 +1003,22 @@ git commit -m "feat: add versioned local save and migration"
 **Files:**
 - Create: `src/sim/offline.ts`
 - Modify: `src/persistence/save.ts`
+- Modify: `src/app/runtime.ts`
+- Modify: `src/app/GameCanvas.tsx`
 - Modify: `src/sim/types.ts`
 - Modify: `src/sim/initialState.ts`
 - Modify: `src/sim/snapshot.ts`
 - Modify: `src/sim/store.ts`
 - Create: `tests/unit/offline.test.ts`
+- Create: `tests/unit/runtime.test.ts`
 
 **Interfaces:**
 - Consumes: `productionChains`, `lastSavedAt`, current time, sell multipliers, and the 12-hour cap.
-- Produces: `calculateOfflineProgress(save, now)`, `applyOfflineProgress(state, summary)`, `shouldShowOfflineSummary(summary)`, an explicit `loadSaveWithOfflineResult(storage, now)`, and a runtime-only offline summary in the simulation snapshot.
+- Produces: `calculateOfflineProgress(save, now)`, `applyOfflineProgress(state, summary)`, `shouldShowOfflineSummary(summary)`, an explicit `loadSaveWithOfflineResult(storage, now)`, a browser-runtime loader that anchors persisted state, and a runtime-only offline summary in the simulation snapshot.
 
 - [ ] **Step 1: Write failing tests**
 
-Assert zero elapsed time produces no modal, 59 seconds does not show the modal, 60 seconds does, elapsed time is capped at 43,200 seconds, each chain contributes throughput multiplied by sell value, and the result is deterministic.
+Assert zero elapsed time produces no modal, 59 seconds does not show the modal, exactly 60 seconds follows the strict `> 60` contract, 61 seconds does, elapsed time is capped at 43,200 seconds, each chain contributes throughput multiplied by sell value, the result is deterministic, repeated offline loads with unchanged storage do not double-credit, and the browser runtime loads an anchored persisted state.
 
 - [ ] **Step 2: Verify red**
 
@@ -1025,7 +1028,7 @@ npm run test -- tests/unit/offline.test.ts
 
 - [ ] **Step 3: Implement**
 
-Compute `elapsedSeconds`, `cappedSeconds`, `earnedCurrency`, and per-resource `chainUnits` without simulating belt items. Treat `NEW_GAME_TIMESTAMP` as zero elapsed, cap at 43,200 seconds, apply currency/lifetime earnings exactly once through the explicit offline-load path, retain the summary in runtime state/snapshot, and clear it only on `dismissOfflineSummary`. Keep offline summary fields out of the serialized SaveGame projection.
+Compute `elapsedSeconds`, `cappedSeconds`, `earnedCurrency`, and per-resource `chainUnits` without simulating belt items. Treat `NEW_GAME_TIMESTAMP` as zero elapsed, cap at 43,200 seconds, apply currency/lifetime earnings exactly once through the explicit offline-load path, anchor `lastSavedAt` monotonically to the maximum of the saved timestamp and valid current time, persist the anchored state through the injected storage, and retain the summary in runtime state/snapshot until `dismissOfflineSummary`. Wire the browser runtime to this loader, and keep offline summary fields out of the serialized SaveGame projection.
 
 - [ ] **Step 4: Verify green**
 
@@ -1037,7 +1040,7 @@ npm run test
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/sim/offline.ts src/persistence/save.ts src/sim/types.ts src/sim/initialState.ts src/sim/snapshot.ts src/sim/store.ts tests/unit/offline.test.ts
+git add src/sim/offline.ts src/persistence/save.ts src/app/runtime.ts src/app/GameCanvas.tsx src/sim/types.ts src/sim/initialState.ts src/sim/snapshot.ts src/sim/store.ts tests/unit/offline.test.ts tests/unit/runtime.test.ts
 git commit -m "feat: calculate capped offline production"
 ```
 
