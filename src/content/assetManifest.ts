@@ -40,6 +40,13 @@ const ASSET_ENTRIES = {
     height: 64,
     frameCount: 1,
   },
+  "machine.depot.idle": {
+    path: "assets/machines/depot-idle.svg",
+    framePaths: ["assets/machines/depot-idle.svg"],
+    width: 64,
+    height: 64,
+    frameCount: 1,
+  },
   "resource.copperOre": {
     path: "assets/resources/copper-ore.svg",
     framePaths: ["assets/resources/copper-ore.svg"],

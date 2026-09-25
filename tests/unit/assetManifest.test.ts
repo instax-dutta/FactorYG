@@ -21,6 +21,7 @@ const EXPECTED_FRAME_PATHS = {
     "assets/machines/extractor-active-1.svg",
   ],
   "machine.belt.idle": ["assets/machines/belt.svg"],
+  "machine.depot.idle": ["assets/machines/depot-idle.svg"],
   "resource.copperOre": ["assets/resources/copper-ore.svg"],
   "resource.ironOre": ["assets/resources/iron-ore.svg"],
   "vfx.spark": ["assets/vfx/spark.svg"],
@@ -74,6 +75,7 @@ describe("asset manifest", () => {
       "assets/machines/extractor-active-1.svg",
     ]);
     expect(getAssetPath("machine.belt.idle")).toBe("assets/machines/belt.svg");
+    expect(getAssetPath("machine.depot.idle")).toBe("assets/machines/depot-idle.svg");
   });
 
   it("deeply freezes the manifest and every frame path list", () => {

@@ -16,13 +16,35 @@ export function GameCanvas() {
       return undefined;
     }
 
-    const game = createFactoryGame(container, runtime.store);
-    const removeBridge = installRuntimeBridge(runtime);
-    runtime.start();
+    let disposed = false;
+    let cleaned = false;
+    let removeBridge: (() => void) | undefined;
+    const game = createFactoryGame(
+      container,
+      runtime.store,
+      () => {
+        if (disposed) {
+          return;
+        }
+        removeBridge = installRuntimeBridge(runtime);
+        runtime.start();
+      },
+      (telemetry) => {
+        if (!disposed) {
+          runtime.setSceneTelemetry(telemetry);
+        }
+      },
+    );
 
     return () => {
+      if (cleaned) {
+        return;
+      }
+      cleaned = true;
+      disposed = true;
+      removeBridge?.();
+      removeBridge = undefined;
       runtime.stop();
-      removeBridge();
       game.destroy(true);
     };
   }, []);

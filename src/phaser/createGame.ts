@@ -1,8 +1,17 @@
 import Phaser from "phaser";
 import { FactoryScene } from "./FactoryScene";
 import { SimulationStore } from "../sim/store";
+import type { SceneTelemetry } from "./telemetry";
 
-export function createFactoryGame(container: HTMLElement, store: SimulationStore): Phaser.Game {
+export type FactoryGameReady = () => void;
+export type FactoryGameTelemetry = (telemetry: SceneTelemetry) => void;
+
+export function createFactoryGame(
+  container: HTMLElement,
+  store: SimulationStore,
+  onReady: FactoryGameReady = () => undefined,
+  onTelemetry: FactoryGameTelemetry = () => undefined,
+): Phaser.Game {
   const width = Math.max(container.clientWidth, 1);
   const height = Math.max(container.clientHeight, 1);
   const config: Phaser.Types.Core.GameConfig = {
@@ -18,7 +27,10 @@ export function createFactoryGame(container: HTMLElement, store: SimulationStore
     render: {
       antialias: true,
     },
-    scene: [new FactoryScene(store)],
+    input: {
+      activePointers: 2,
+    },
+    scene: [new FactoryScene(store, onReady, onTelemetry)],
   };
 
   return new Phaser.Game(config);

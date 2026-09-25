@@ -1,5 +1,10 @@
 import { createInitialState } from "../sim/initialState";
 import { SimulationStore } from "../sim/store";
+import {
+  createSceneTelemetry,
+  INITIAL_SCENE_TELEMETRY,
+  type SceneTelemetry,
+} from "../phaser/telemetry";
 import type {
   CommandResult,
   SimulationCommand,
@@ -13,14 +18,21 @@ export interface SimulationRuntimeBridge {
   getSnapshot(): SimulationSnapshot;
 }
 
+export interface SimulationRuntimeTelemetryBridge {
+  getSnapshot(): SceneTelemetry;
+}
+
 export interface SimulationRuntime {
   readonly store: SimulationStore;
   start(): void;
   stop(): void;
+  setSceneTelemetry(telemetry: SceneTelemetry): void;
+  getSceneTelemetry(): SceneTelemetry;
 }
 
 type RuntimeWindow = Window & {
   __FACTOR_Y__?: SimulationRuntimeBridge;
+  __FACTOR_Y_TELEMETRY__?: SimulationRuntimeTelemetryBridge;
 };
 
 export function createRuntimeBridge(store: SimulationStore): SimulationRuntimeBridge {
@@ -31,14 +43,28 @@ export function createRuntimeBridge(store: SimulationStore): SimulationRuntimeBr
   });
 }
 
+export function createRuntimeTelemetryBridge(
+  getSnapshot: () => SceneTelemetry,
+): SimulationRuntimeTelemetryBridge {
+  return Object.freeze({
+    getSnapshot: (): SceneTelemetry => getSnapshot(),
+  });
+}
+
 export function createSimulationRuntime(
   initialState: SimulationState = createInitialState(),
 ): SimulationRuntime {
   const store = new SimulationStore(initialState);
+  let sceneTelemetry = INITIAL_SCENE_TELEMETRY;
+
   return {
     store,
     start: (): void => store.start(),
     stop: (): void => store.stop(),
+    setSceneTelemetry: (telemetry: SceneTelemetry): void => {
+      sceneTelemetry = createSceneTelemetry(telemetry);
+    },
+    getSceneTelemetry: (): SceneTelemetry => sceneTelemetry,
   };
 }
 
@@ -52,16 +78,26 @@ export function installRuntimeBridge(runtime: SimulationRuntime): () => void {
 
   const runtimeWindow = window as RuntimeWindow;
   const bridge = createRuntimeBridge(runtime.store);
+  const telemetryBridge = createRuntimeTelemetryBridge(() => runtime.getSceneTelemetry());
   Object.defineProperty(runtimeWindow, "__FACTOR_Y__", {
     configurable: true,
     enumerable: false,
     value: bridge,
     writable: false,
   });
+  Object.defineProperty(runtimeWindow, "__FACTOR_Y_TELEMETRY__", {
+    configurable: true,
+    enumerable: false,
+    value: telemetryBridge,
+    writable: false,
+  });
 
   return () => {
     if (runtimeWindow.__FACTOR_Y__ === bridge) {
       delete runtimeWindow.__FACTOR_Y__;
+    }
+    if (runtimeWindow.__FACTOR_Y_TELEMETRY__ === telemetryBridge) {
+      delete runtimeWindow.__FACTOR_Y_TELEMETRY__;
     }
   };
 }

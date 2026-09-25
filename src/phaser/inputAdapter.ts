@@ -36,6 +36,7 @@ export class CameraInputAdapter {
   private primaryMoved = false;
   private suppressPrimaryClick = false;
   private pinchDistance: number | undefined;
+  private disposed = false;
 
   public constructor(
     scene: Phaser.Scene,
@@ -48,6 +49,7 @@ export class CameraInputAdapter {
     this.scene.input.on("pointerdown", this.handlePointerDown);
     this.scene.input.on("pointermove", this.handlePointerMove);
     this.scene.input.on("pointerup", this.handlePointerUp);
+    this.scene.input.on("pointerupoutside", this.handlePointerUp);
     this.scene.input.on("wheel", this.handleWheel);
     this.scene.input.keyboard?.on("keydown", this.handleKeyDown);
     this.scene.input.keyboard?.on("keyup", this.handleKeyUp);
@@ -55,6 +57,9 @@ export class CameraInputAdapter {
   }
 
   public update(delta: number): void {
+    if (this.disposed) {
+      return;
+    }
     const speed = (600 * Math.max(0, delta)) / 1000 / Math.max(this.camera.zoom, 0.1);
     if (this.keys.has("arrowleft") || this.keys.has("a")) {
       this.camera.scrollX -= speed;
@@ -71,9 +76,14 @@ export class CameraInputAdapter {
   }
 
   public dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     this.scene.input.off("pointerdown", this.handlePointerDown);
     this.scene.input.off("pointermove", this.handlePointerMove);
     this.scene.input.off("pointerup", this.handlePointerUp);
+    this.scene.input.off("pointerupoutside", this.handlePointerUp);
     this.scene.input.off("wheel", this.handleWheel);
     this.scene.input.keyboard?.off("keydown", this.handleKeyDown);
     this.scene.input.keyboard?.off("keyup", this.handleKeyUp);
