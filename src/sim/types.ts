@@ -87,8 +87,15 @@ export interface SaveGame {
   productionChains: Record<string, ProductionChainSummary>;
 }
 
+export interface CurrencySample {
+  tick: number;
+  amount: number;
+}
+
 export interface SimulationState extends SaveGame {
   nextEntitySequence: number;
+  tickCount: number;
+  currencySamples: CurrencySample[];
   selectedEntityId?: string;
   placementMode?: MachineType;
   pendingRotation: Rotation;

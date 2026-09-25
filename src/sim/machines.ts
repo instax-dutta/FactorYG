@@ -84,7 +84,8 @@ export function removeResource(
   amount: number,
 ): Partial<Record<ResourceId, number>> {
   const current = getResourceAmount(values, resource);
-  const remaining = Math.max(0, current - Math.max(0, amount));
+  const safeAmount = Number.isFinite(amount) ? Math.max(0, amount) : 0;
+  const remaining = Math.max(0, current - safeAmount);
   const next = { ...values };
   if (remaining === 0) {
     delete next[resource];

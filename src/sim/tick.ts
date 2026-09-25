@@ -5,7 +5,7 @@ import {
   getEntityAt,
   getWorldPortCells,
 } from "./connections";
-import { sellResource } from "./economy";
+import { CURRENCY_RATE_WINDOW_TICKS, sellResource } from "./economy";
 import {
   addResource,
   canStoreInput,
@@ -33,17 +33,19 @@ export function advanceSimulation(
   }
 
   const nextState = structuredClone(state);
-  let changed = false;
   for (let tickIndex = 0; tickIndex < tickCount; tickIndex += 1) {
-    if (advanceOneTick(nextState, events)) {
-      changed = true;
-    }
+    nextState.tickCount += 1;
+    advanceOneTick(nextState, events, nextState.tickCount);
+    const firstTick = nextState.tickCount - CURRENCY_RATE_WINDOW_TICKS + 1;
+    nextState.currencySamples = nextState.currencySamples.filter(
+      (sample) => sample.tick >= firstTick && sample.tick <= nextState.tickCount,
+    );
   }
 
-  return changed ? nextState : state;
+  return nextState;
 }
 
-function advanceOneTick(state: SimulationState, events: RenderEvent[]): boolean {
+function advanceOneTick(state: SimulationState, events: RenderEvent[], tick: number): boolean {
   const activeBefore = new Map<string, boolean>();
   for (const entity of state.grid.entities) {
     const runtime = state.grid.machines[entity.id];
@@ -79,7 +81,7 @@ function advanceOneTick(state: SimulationState, events: RenderEvent[]): boolean 
   if (depositBeltItems(state)) {
     changed = true;
   }
-  if (sellDepotInputs(state, events)) {
+  if (sellDepotInputs(state, events, tick)) {
     changed = true;
   }
 
@@ -267,14 +269,14 @@ export function depositBeltItems(state: SimulationState): boolean {
   return changed;
 }
 
-function sellDepotInputs(state: SimulationState, events: RenderEvent[]): boolean {
+function sellDepotInputs(state: SimulationState, events: RenderEvent[], tick: number): boolean {
   let changed = false;
   for (const entity of state.grid.entities) {
     if (entity.type !== "depot") {
       continue;
     }
 
-    const runtime = state.grid.machines[entity.id];
+    let runtime = state.grid.machines[entity.id];
     if (runtime === undefined) {
       continue;
     }
@@ -292,10 +294,13 @@ function sellDepotInputs(state: SimulationState, events: RenderEvent[]): boolean
 
       state.currency = sale.state.currency;
       state.lifetimeCurrency = sale.state.lifetimeCurrency;
-      state.grid.machines[entity.id] = {
+      const nextRuntime = {
         ...runtime,
         input: removeResource(runtime.input, resource, amount),
       };
+      state.grid.machines[entity.id] = nextRuntime;
+      runtime = nextRuntime;
+      state.currencySamples.push({ tick, amount: sale.currency });
       events.push({
         type: "saleCompleted",
         entityId: entity.id,

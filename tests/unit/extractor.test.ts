@@ -197,7 +197,7 @@ describe("extractor production", () => {
     expect(result.active).toBe(false);
   });
 
-  it("returns the same references and preserves the snapshot while already blocked", () => {
+  it("preserves blocked machine state while advancing runtime ticks", () => {
     const entity = createExtractor();
     const runtime = createRuntime(entity, {
       progressTicks: 0.95,
@@ -208,7 +208,10 @@ describe("extractor production", () => {
     const events: RenderEvent[] = [];
 
     expect(tickExtractor(runtime, entity, state)).toBe(runtime);
-    expect(advanceSimulation(state, 1, events)).toBe(state);
+    const next = advanceSimulation(state, 1, events);
+    expect(next).not.toBe(state);
+    expect(next.grid.machines[entity.id]).toEqual(state.grid.machines[entity.id]);
+    expect(next.tickCount).toBe(1);
     expect(events).toEqual([]);
 
     const store = new SimulationStore(state);
@@ -218,8 +221,8 @@ describe("extractor production", () => {
 
     store.advanceTicks(1);
 
-    expect(store.getSnapshot()).toBe(snapshot);
-    expect(listener).not.toHaveBeenCalled();
+    expect(store.getSnapshot()).not.toBe(snapshot);
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it("recovers from a blocked near-threshold accumulator after the buffer clears", () => {
@@ -281,7 +284,8 @@ describe("extractor production", () => {
     ]);
 
     const blocked = advanceSimulation(completed, EXTRACTOR_INTERVAL, events);
-    expect(blocked).toBe(completed);
+    expect(blocked).not.toBe(completed);
+    expect(blocked.tickCount).toBe(40);
     expect(events).toHaveLength(2);
   });
 

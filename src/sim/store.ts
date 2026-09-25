@@ -121,7 +121,7 @@ export class SimulationStore {
     }
 
     this.#state = nextState;
-    this.#snapshot = createSnapshot(this.#state);
+    this.#snapshot = createSnapshot(nextState);
     this.#publish();
     this.#publishEvents(events);
   }

@@ -1,6 +1,9 @@
 import { getResource } from "../content/resources";
 import type { ResourceId, SimulationState } from "./types";
 
+export const CURRENCY_RATE_WINDOW_TICKS = 100;
+export const CURRENCY_RATE_WINDOW_SECONDS = 10;
+
 export interface SaleResult {
   state: SimulationState;
   resource: ResourceId;
@@ -15,14 +18,18 @@ export function sellResource(
 ): SaleResult {
   const definition = getResource(resource);
   const normalizedAmount = Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : 0;
-  if (definition === undefined || normalizedAmount === 0) {
+  const multiplier = state.prestige.permanentMultipliers.sellValue;
+  const currency = definition === undefined ? 0 : definition.sellValue * normalizedAmount * multiplier;
+  if (
+    definition === undefined ||
+    normalizedAmount === 0 ||
+    !Number.isFinite(multiplier) ||
+    multiplier <= 0 ||
+    !Number.isFinite(currency) ||
+    currency <= 0
+  ) {
     return { state, resource, amount: 0, currency: 0 };
   }
-
-  const currency =
-    definition.sellValue *
-    normalizedAmount *
-    state.prestige.permanentMultipliers.sellValue;
 
   return {
     state: {
@@ -37,6 +44,17 @@ export function sellResource(
 }
 
 export function getCurrencyPerSecond(state: SimulationState): number {
-  void state;
-  return 0;
+  if (!Number.isFinite(state.tickCount) || state.tickCount < CURRENCY_RATE_WINDOW_TICKS) {
+    return 0;
+  }
+
+  const firstTick = state.tickCount - CURRENCY_RATE_WINDOW_TICKS + 1;
+  const total = state.currencySamples.reduce((sum, sample) => {
+    if (sample.tick < firstTick || sample.tick > state.tickCount || !Number.isFinite(sample.amount)) {
+      return sum;
+    }
+    return sum + sample.amount;
+  }, 0);
+
+  return Number.isFinite(total) ? total / CURRENCY_RATE_WINDOW_SECONDS : 0;
 }

@@ -95,6 +95,8 @@ export function createInitialState(seed = 1337): SimulationState {
     },
     productionChains: {},
     nextEntitySequence: 1,
+    tickCount: 0,
+    currencySamples: [],
     pendingRotation: 0,
     notifications: [],
   };
