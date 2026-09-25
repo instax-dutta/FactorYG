@@ -14,7 +14,7 @@ Own immutable Factor-I content definitions.
 
 - Tables are data-driven; machine and recipe behavior must not be hardcoded per instance.
 - Resource and machine IDs are canonical and validated across tables.
-- Smelters use mixed input ports, silos use shared storage, and recipe duration overrides machine fallback timing.
+- Smelters and assemblers use mixed input ports, silos use shared storage, and recipe duration overrides machine fallback timing.
 
 ## Work Guidance
 
