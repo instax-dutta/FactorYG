@@ -920,12 +920,16 @@ git commit -m "feat: move resources along connected belts"
 **Files:**
 - Modify: `src/sim/machines.ts`
 - Modify: `src/sim/tick.ts`
-- Create: `src/sim/economy.ts`
+- Modify: `src/sim/economy.ts`
+- Modify: `src/sim/types.ts`
+- Modify: `src/sim/initialState.ts`
+- Modify: `src/sim/snapshot.ts`
+- Modify: `src/sim/store.ts`
 - Create: `tests/unit/economy.test.ts`
 
 **Interfaces:**
 - Consumes: `RESOURCES`, depot entities, machine output, and `prestige.permanentMultipliers.sellValue`.
-- Produces: `sellResource(resource, amount, state)`, `getCurrencyPerSecond(state)`, and `saleCompleted` render events.
+- Produces: `sellResource(resource, amount, state)`, `getCurrencyPerSecond(state)`, a runtime-only 100-tick currency sample window, and `saleCompleted` render events.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -939,7 +943,7 @@ npm run test -- tests/unit/economy.test.ts
 
 - [ ] **Step 3: Implement**
 
-Debit the depot input exactly once, compute finite integer or decimal currency using the resource table, update `lifetimeCurrency`, maintain a 100-tick rate window, and emit the typed sale event with world coordinates.
+Debit the depot input exactly once, compute finite currency using the resource table, update `lifetimeCurrency`, record each sale in a runtime-only sample list keyed by logical tick, prune samples older than the latest 100 ticks, and compute `getCurrencyPerSecond` only after a full ten-second window. Emit the typed sale event with world coordinates. Runtime rate samples must be excluded from the serialized save shape.
 
 - [ ] **Step 4: Verify green**
 
@@ -951,7 +955,7 @@ npm run test
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/sim/machines.ts src/sim/tick.ts src/sim/economy.ts tests/unit/economy.test.ts
+git add src/sim/machines.ts src/sim/tick.ts src/sim/economy.ts src/sim/types.ts src/sim/initialState.ts src/sim/snapshot.ts src/sim/store.ts tests/unit/economy.test.ts
 git commit -m "feat: sell delivered resources for currency"
 ```
 
