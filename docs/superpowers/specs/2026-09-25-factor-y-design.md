@@ -439,6 +439,7 @@ The simulation credits the computed currency and lifetime earnings, records chai
 `FactoryScene` creates the grid, background, machine layer, belt-item layer, ghost layer, and VFX layer. It reads simulation snapshots and render events. It does not mutate economic state.
 
 - Camera bounds equal grid dimensions multiplied by 64 plus a 256-pixel margin.
+- The desktop renderer uses a fixed 1280 by 720 surface with Phaser FIT and CENTER_BOTH scaling; transient or undersized parent dimensions use a 640 by 360 minimum surface floor.
 - Initial zoom is 1.0, with a minimum of 0.5 and maximum of 2.0.
 - Drag and WASD/arrow keys pan the camera; wheel and pinch zoom use Phaser camera APIs.
 - Right-click on an entity dispatches the demolish command, while the inspector provides the same action as an accessible button.

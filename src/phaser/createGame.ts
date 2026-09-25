@@ -2,7 +2,11 @@ import Phaser from "phaser";
 import { FactoryScene } from "./FactoryScene";
 import { SimulationStore } from "../sim/store";
 import type { SceneTelemetry } from "./telemetry";
-import { createScaleConfig } from "./scaleConfig";
+import {
+  createScaleConfig,
+  DEFAULT_SURFACE_HEIGHT,
+  DEFAULT_SURFACE_WIDTH,
+} from "./scaleConfig";
 
 export type FactoryGameReady = () => void;
 export type FactoryGameTelemetry = (telemetry: SceneTelemetry) => void;
@@ -13,7 +17,7 @@ export function createFactoryGame(
   onReady: FactoryGameReady = () => undefined,
   onTelemetry: FactoryGameTelemetry = () => undefined,
 ): Phaser.Game {
-  const scaleConfig = createScaleConfig(container.clientWidth, container.clientHeight);
+  const scaleConfig = createScaleConfig(DEFAULT_SURFACE_WIDTH, DEFAULT_SURFACE_HEIGHT);
   const config: Phaser.Types.Core.GameConfig = {
     type: Phaser.AUTO,
     parent: container,

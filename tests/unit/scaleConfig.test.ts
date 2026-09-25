@@ -3,8 +3,8 @@ import {
   createScaleConfig,
   DEFAULT_SURFACE_HEIGHT,
   DEFAULT_SURFACE_WIDTH,
-  PHASER_SCALE_CENTER_BOTH,
-  PHASER_SCALE_FIT,
+  MIN_SURFACE_HEIGHT,
+  MIN_SURFACE_WIDTH,
 } from "../../src/phaser/scaleConfig";
 
 describe("scale configuration", () => {
@@ -17,6 +17,15 @@ describe("scale configuration", () => {
     expect(config.height).toBeGreaterThan(0);
   });
 
+  it("raises positive dimensions below the minimum surface floor", () => {
+    const config = createScaleConfig(1, 1);
+
+    expect(MIN_SURFACE_WIDTH).toBe(640);
+    expect(MIN_SURFACE_HEIGHT).toBe(360);
+    expect(config.width).toBe(MIN_SURFACE_WIDTH);
+    expect(config.height).toBe(MIN_SURFACE_HEIGHT);
+  });
+
   it("preserves normal finite dimensions", () => {
     const config = createScaleConfig(1440, 900);
 
@@ -24,10 +33,10 @@ describe("scale configuration", () => {
     expect(config.height).toBe(900);
   });
 
-  it("uses centered FIT scaling", () => {
+  it("uses the literal Phaser 3.90 centered FIT values", () => {
     const config = createScaleConfig(1280, 720);
 
-    expect(config.mode).toBe(PHASER_SCALE_FIT);
-    expect(config.autoCenter).toBe(PHASER_SCALE_CENTER_BOTH);
+    expect(config.mode).toBe(3);
+    expect(config.autoCenter).toBe(1);
   });
 });

@@ -107,6 +107,8 @@ async function waitForReady(page: Page): Promise<void> {
     .toBe(true);
 }
 
+test.use({ viewport: { width: 1000, height: 800 } });
+
 async function getTelemetry(page: Page): Promise<SceneTelemetry> {
   return page.evaluate(() => {
     const telemetry = window.__FACTOR_Y_TELEMETRY__;
@@ -123,16 +125,25 @@ async function screenPointForCell(
 ): Promise<{ x: number; y: number }> {
   return page.evaluate(
     ({ cell, tileSize }) => {
-      const canvas = document.querySelector("[data-testid=game-canvas] canvas");
+      const canvas = document.querySelector<HTMLCanvasElement>("[data-testid=game-canvas] canvas");
       const telemetry = window.__FACTOR_Y_TELEMETRY__;
       if (canvas === null || telemetry === undefined) {
         throw new Error("Factor-Y canvas or telemetry unavailable");
       }
       const rect = canvas.getBoundingClientRect();
+      const intrinsicWidth = canvas.width;
+      const intrinsicHeight = canvas.height;
+      if (intrinsicWidth <= 0 || intrinsicHeight <= 0) {
+        throw new Error("Factor-Y canvas intrinsic dimensions unavailable");
+      }
+      const displayScale = Math.min(
+        rect.width / intrinsicWidth,
+        rect.height / intrinsicHeight,
+      );
       const snapshot = telemetry.getSnapshot();
       return {
-        x: rect.left + (cell.x * tileSize + tileSize / 2 - snapshot.camera.scrollX) * snapshot.camera.zoom,
-        y: rect.top + (cell.y * tileSize + tileSize / 2 - snapshot.camera.scrollY) * snapshot.camera.zoom,
+        x: rect.left + (cell.x * tileSize + tileSize / 2 - snapshot.camera.scrollX) * snapshot.camera.zoom * displayScale,
+        y: rect.top + (cell.y * tileSize + tileSize / 2 - snapshot.camera.scrollY) * snapshot.camera.zoom * displayScale,
       };
     },
     { cell, tileSize: TILE_SIZE_PX },
@@ -163,6 +174,21 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
   expect(
     await page.evaluate(() => Object.keys(window.__FACTOR_Y_TELEMETRY__ ?? {}).sort()),
   ).toEqual(["getSnapshot"]);
+
+  const scaleEvidence = await page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>("[data-testid=game-canvas] canvas");
+    if (canvas === null) {
+      throw new Error("Factor-Y canvas unavailable");
+    }
+    const rect = canvas.getBoundingClientRect();
+    return {
+      intrinsicWidth: canvas.width,
+      intrinsicHeight: canvas.height,
+      displayScale: Math.min(rect.width / canvas.width, rect.height / canvas.height),
+    };
+  });
+  expect(scaleEvidence.displayScale).toBeGreaterThan(0);
+  expect(scaleEvidence.displayScale).not.toBe(1);
 
   const initialTelemetry = await getTelemetry(page);
   expect(initialTelemetry.ready).toBe(true);

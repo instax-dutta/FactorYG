@@ -2,6 +2,8 @@ import type Phaser from "phaser";
 
 export const DEFAULT_SURFACE_WIDTH = 1280;
 export const DEFAULT_SURFACE_HEIGHT = 720;
+export const MIN_SURFACE_WIDTH = 640;
+export const MIN_SURFACE_HEIGHT = 360;
 export const PHASER_SCALE_FIT = 3 as Phaser.Scale.ScaleModeType;
 export const PHASER_SCALE_CENTER_BOTH = 1 as Phaser.Scale.CenterType;
 
@@ -12,14 +14,15 @@ export interface ScaleConfig {
   autoCenter: Phaser.Scale.CenterType;
 }
 
-function normalizeDimension(value: number, fallback: number): number {
-  return Number.isFinite(value) && value > 0 ? value : fallback;
+function normalizeDimension(value: number, fallback: number, minimum: number): number {
+  const normalized = Number.isFinite(value) && value > 0 ? value : fallback;
+  return Math.max(normalized, minimum);
 }
 
 export function createScaleConfig(width: number, height: number): ScaleConfig {
   return {
-    width: normalizeDimension(width, DEFAULT_SURFACE_WIDTH),
-    height: normalizeDimension(height, DEFAULT_SURFACE_HEIGHT),
+    width: normalizeDimension(width, DEFAULT_SURFACE_WIDTH, MIN_SURFACE_WIDTH),
+    height: normalizeDimension(height, DEFAULT_SURFACE_HEIGHT, MIN_SURFACE_HEIGHT),
     mode: PHASER_SCALE_FIT,
     autoCenter: PHASER_SCALE_CENTER_BOTH,
   };
