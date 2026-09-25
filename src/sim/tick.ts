@@ -19,10 +19,17 @@ import type {
   BeltCell,
   Entity,
   MachineRuntime,
+  MachineType,
   RenderEvent,
   ResourceId,
   SimulationState,
 } from "./types";
+
+const PRODUCING_MACHINE_TYPES: ReadonlySet<MachineType> = new Set<MachineType>([
+  "extractor",
+  "smelter",
+  "assembler",
+]);
 
 export function advanceSimulation(
   state: SimulationState,
@@ -57,7 +64,7 @@ function advanceOneTick(state: SimulationState, events: RenderEvent[], tick: num
 
   let changed = false;
   for (const entity of state.grid.entities) {
-    if (entity.type !== "extractor" && entity.type !== "smelter") {
+    if (!PRODUCING_MACHINE_TYPES.has(entity.type)) {
       continue;
     }
 
