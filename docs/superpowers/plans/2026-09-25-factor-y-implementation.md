@@ -639,6 +639,7 @@ git commit -m "feat: add first custom factory art assets"
 **Files:**
 - Create: `src/phaser/cameraConfig.ts`
 - Create: `src/phaser/inputAdapter.ts`
+- Create: `public/assets/machines/depot-idle.svg`
 - Create: `src/phaser/FactoryScene.ts`
 - Create: `src/phaser/createGame.ts`
 - Create: `src/app/runtime.ts`
@@ -675,7 +676,7 @@ describe("camera configuration", () => {
 });
 ```
 
-The unit test must build one extractor, one belt, and one depot through the public store command path, advance enough logical ticks for one item to be produced, moved, and sold, assert currency increases, and assert an occupied cell rejects a second entity. The Playwright test must load the app, assert the canvas wrapper, use the stable development/test bridge to dispatch the same commands, verify the currency changes after logical ticks, and verify an occupied cell rejects a second placement.
+The unit test must build one extractor, one belt, and one depot through the public store command path, advance enough logical ticks for one item to be produced, moved, and sold, assert currency increases, and assert an occupied cell rejects a second entity. The Playwright test must load the app, assert the canvas wrapper, use the stable development/test bridge to dispatch the same commands, verify the currency changes after logical ticks, verify an occupied cell rejects a second placement, exercise camera pan/zoom and rotation, verify the ghost changes validity state, and verify the bridge/runtime is removed after React cleanup.
 
 - [ ] **Step 2: Run the tests to verify red**
 
@@ -688,7 +689,7 @@ Expected: FAIL because the Phaser modules and browser behavior do not exist.
 
 - [ ] **Step 3: Implement the scene**
 
-Create an orthogonal `Tilemap`/`TilemapLayer` using a generated 64 by 64 floor data array, load the first custom assets, create machine and ghost layers, set camera bounds and zoom, convert pointer coordinates through `camera.getWorldPoint`, dispatch placement commands, rotate with `R`, and support drag plus arrow/WASD panning. Create a stable `SimulationStore` runtime in `src/app/runtime.ts`, start/stop it from the React canvas lifecycle, and expose a development/test bridge that calls only public store methods. Implement the minimal data-driven raw path in `placement.ts`, `connections.ts`, `machines.ts`, `economy.ts`, and `tick.ts`: extractors produce on their configured interval, belts move one item per tick, depots sell delivered resources, placement debits cost and rejects occupied/invalid cells, and the store publishes the resulting snapshot. `FactoryScene` may read the store and render events but may not call `advanceSimulation` from `update()`.
+Create an orthogonal `Tilemap`/`TilemapLayer` using a generated 64 by 64 floor data array, load the first custom assets plus the depot asset, create machine and ghost layers, set camera bounds and zoom, convert pointer coordinates through `camera.getWorldPoint`, dispatch placement commands, rotate with `R`, and support drag plus arrow/WASD panning. Create a stable `SimulationStore` runtime in `src/app/runtime.ts`, start/stop it from the React canvas lifecycle only after the scene signals readiness, and expose a development/test bridge that calls only public store methods. Implement the minimal data-driven raw path in `placement.ts`, `connections.ts`, `machines.ts`, `economy.ts`, and `tick.ts`: extractors produce on their configured interval, belts move one item per tick, depots sell delivered resources, placement debits cost and rejects occupied/invalid cells, and the store publishes the resulting snapshot. Use a machine texture for the ghost, hide it before pointer movement, handle `pointerupoutside`, set two active pointers, and report missing machine textures as development errors rather than substituting another machine. `FactoryScene` may read the store and render events but may not call `advanceSimulation` from `update()`.
 
 - [ ] **Step 4: Verify the phase-0 browser path**
 
@@ -705,7 +706,7 @@ Expected: all commands exit 0, the browser reports no uncaught errors, and curre
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/phaser/cameraConfig.ts src/phaser/inputAdapter.ts src/phaser/FactoryScene.ts src/phaser/createGame.ts src/app/runtime.ts src/app/GameCanvas.tsx src/sim/placement.ts src/sim/connections.ts src/sim/machines.ts src/sim/economy.ts src/sim/store.ts src/sim/tick.ts tests/unit/cameraConfig.test.ts tests/unit/phase0Simulation.test.ts tests/e2e/phase0.spec.ts
+git add src/phaser/cameraConfig.ts src/phaser/inputAdapter.ts src/phaser/FactoryScene.ts src/phaser/createGame.ts public/assets/machines/depot-idle.svg src/app/runtime.ts src/app/GameCanvas.tsx src/sim/placement.ts src/sim/connections.ts src/sim/machines.ts src/sim/economy.ts src/sim/store.ts src/sim/tick.ts tests/unit/cameraConfig.test.ts tests/unit/phase0Simulation.test.ts tests/e2e/phase0.spec.ts
 git commit -m "feat: mount Phaser factory scene and raw spike loop"
 ```
 
