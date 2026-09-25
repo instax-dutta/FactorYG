@@ -230,19 +230,28 @@ export function canAcceptResource(entity: Entity, resource: ResourceId): boolean
 }
 
 export function canStoreInput(entity: Entity, runtime: MachineRuntime, resource: ResourceId): boolean {
+  return getInputRoom(entity, runtime, resource) > 0;
+}
+
+export function getInputRoom(
+  entity: Entity,
+  runtime: MachineRuntime,
+  resource: ResourceId,
+): number {
   const definition = getMachine(entity.type);
   if (definition === undefined || !canAcceptResource(entity, resource)) {
-    return false;
+    return 0;
   }
 
   if (definition.bufferMode === "shared") {
-    return (
-      !isSiloResourceLocked(runtime, resource) &&
-      getTotalAmount(runtime.input) < (definition.storageCapacity ?? definition.inputBuffer)
-    );
+    if (isSiloResourceLocked(runtime, resource)) {
+      return 0;
+    }
+
+    return Math.max(0, (getStorageCapacity(entity) ?? 0) - getTotalAmount(runtime.input));
   }
 
-  return getResourceAmount(runtime.input, resource) < definition.inputBuffer;
+  return Math.max(0, definition.inputBuffer - getResourceAmount(runtime.input, resource));
 }
 
 export function acceptSiloInput(

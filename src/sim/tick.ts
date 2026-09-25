@@ -9,9 +9,9 @@ import { CURRENCY_RATE_WINDOW_TICKS, sellResource } from "./economy";
 import {
   acceptSiloInput,
   addResource,
-  canStoreInput,
   createMachineRuntime,
   getBeltCellCapacity,
+  getInputRoom,
   getResourceAmount,
   isStorageFull,
   removeResource,
@@ -34,6 +34,11 @@ const PRODUCING_MACHINE_TYPES: ReadonlySet<MachineType> = new Set<MachineType>([
   "smelter",
   "assembler",
 ]);
+
+interface MachineAcceptance {
+  runtime: MachineRuntime;
+  accepted: number;
+}
 
 export function advanceSimulation(
   state: SimulationState,
@@ -178,13 +183,13 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
           continue;
         }
 
-        const nextTargetRuntime = acceptMachineInput(target, targetRuntime, resource, amount);
-        if (nextTargetRuntime === targetRuntime) {
+        const acceptance = acceptMachineInput(target, targetRuntime, resource, amount);
+        if (acceptance.accepted <= 0) {
           continue;
         }
 
-        state.grid.machines[target.id] = nextTargetRuntime;
-        transferred = amount;
+        state.grid.machines[target.id] = acceptance.runtime;
+        transferred = acceptance.accepted;
       }
 
       state.grid.machines[entity.id] = isSilo
@@ -203,16 +208,21 @@ function acceptMachineInput(
   runtime: MachineRuntime,
   resource: ResourceId,
   amount: number,
-): MachineRuntime {
+): MachineAcceptance {
   if (entity.type === "silo") {
-    return acceptSiloInput(entity, runtime, resource, amount).runtime;
+    const acceptance = acceptSiloInput(entity, runtime, resource, amount);
+    return {
+      runtime: acceptance.runtime,
+      accepted: acceptance.accepted ? amount : 0,
+    };
   }
 
-  if (!canStoreInput(entity, runtime, resource)) {
-    return runtime;
+  const accepted = Math.min(amount, getInputRoom(entity, runtime, resource));
+  if (accepted <= 0) {
+    return { runtime, accepted: 0 };
   }
 
-  return { ...runtime, input: addResource(runtime.input, resource, amount) };
+  return { runtime: { ...runtime, input: addResource(runtime.input, resource, accepted) }, accepted };
 }
 
 export function moveBelts(state: SimulationState, events: RenderEvent[] = []): boolean {
@@ -324,13 +334,13 @@ export function depositBeltItems(state: SimulationState, events: RenderEvent[] =
         continue;
       }
 
-      const nextRuntime = acceptMachineInput(target, runtime, item, 1);
-      if (nextRuntime === runtime) {
+      const acceptance = acceptMachineInput(target, runtime, item, 1);
+      if (acceptance.runtime === runtime) {
         continue;
       }
 
-      state.grid.machines[target.id] = nextRuntime;
-      runtime = nextRuntime;
+      state.grid.machines[target.id] = acceptance.runtime;
+      runtime = acceptance.runtime;
       state.grid.belts[source.id] = { ...belt, item: undefined, progress: 0 };
       emitBeltItemChanged(events, source.id, undefined);
       changed = true;

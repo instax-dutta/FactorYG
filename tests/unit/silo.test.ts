@@ -7,6 +7,7 @@ import { createInitialState } from "../../src/sim/initialState";
 import {
   canStoreInput,
   createMachineRuntime,
+  getInputRoom,
   getResourceAmount,
   getTotalAmount,
 } from "../../src/sim/machines";
@@ -170,6 +171,174 @@ describe("silo capacity", () => {
     expect(
       belts.filter((belt) => current.grid.belts[belt.id]?.item !== undefined),
     ).toHaveLength(total);
+  });
+});
+
+describe("machine input room", () => {
+  it("reports the exact room a machine has left for one resource", () => {
+    const partial = { ...createMachineRuntime(createSmelter()), input: { copperOre: 5 } };
+
+    expect(getInputRoom(createSmelter(), partial, "copperOre")).toBe(5);
+    expect(getInputRoom(createSmelter(), partial, "ironOre")).toBe(MACHINES.smelter.inputBuffer);
+    expect(getInputRoom(createSmelter(), createMachineRuntime(createSmelter()), "coal")).toBe(
+      MACHINES.smelter.inputBuffer,
+    );
+  });
+
+  it("never reports room for a resource the input ports refuse", () => {
+    const smelter = createSmelter();
+
+    expect(getInputRoom(smelter, createMachineRuntime(smelter), "copperIngot")).toBe(0);
+    expect(canStoreInput(smelter, createMachineRuntime(smelter), "copperIngot")).toBe(false);
+  });
+
+  it("reports a shared room for the locked resource and none for a conflicting one", () => {
+    const partial = createSiloRuntime({
+      input: { copperOre: 5 },
+      bufferedResource: "copperOre",
+    });
+
+    expect(getInputRoom(createSilo(), partial, "copperOre")).toBe(SILO_CAPACITY - 5);
+    expect(getInputRoom(createSilo(), partial, "ironOre")).toBe(0);
+    expect(getInputRoom(createSilo(), createSiloRuntime(), "ironOre")).toBe(SILO_CAPACITY);
+  });
+
+  it("clamps a multi-unit machine transfer to the room the target has left", () => {
+    const held = MACHINES.assembler.inputBuffer - 5;
+    const offered = MACHINES.smelter.outputBuffer;
+    const source = createSmelter({ id: "smelter-clamp", x: SILO_AT.x, y: SILO_AT.y });
+    const target = createAssembler({
+      id: "assembler-clamp",
+      x: SILO_AT.x + 1,
+      y: SILO_AT.y,
+    });
+    const state = createState([source, target], {
+      [source.id]: createSmelterRuntime({ output: { copperIngot: offered } }),
+      [target.id]: {
+        ...createMachineRuntime(target),
+        input: { copperIngot: held },
+      },
+    });
+
+    const events: RenderEvent[] = [];
+    const next = advanceSimulation(state, 1, events);
+
+    expect(next.grid.machines[target.id]?.input).toEqual({
+      copperIngot: MACHINES.assembler.inputBuffer,
+    });
+    expect(next.grid.machines[source.id]?.output).toEqual({ copperIngot: offered - 5 });
+    expect(countStoredUnits(next)).toBe(held + offered);
+    expect(events).toEqual([]);
+  });
+
+  it("keeps a full output buffer buffered while the target is partially full", () => {
+    const offered = MACHINES.smelter.outputBuffer;
+    const source = createSmelter({ id: "smelter-backpressure", x: SILO_AT.x, y: SILO_AT.y });
+    const target = createAssembler({
+      id: "assembler-backpressure",
+      x: SILO_AT.x + 1,
+      y: SILO_AT.y,
+    });
+    const state = createState([source, target], {
+      [source.id]: createSmelterRuntime({ output: { copperIngot: offered } }),
+      [target.id]: {
+        ...createMachineRuntime(target),
+        input: { copperIngot: MACHINES.assembler.inputBuffer - 1 },
+      },
+    });
+    const stateBefore = structuredClone(state);
+
+    const events: RenderEvent[] = [];
+    const next = advanceSimulation(state, 3, events);
+
+    expect(next.grid.machines[target.id]?.input).toEqual({
+      copperIngot: MACHINES.assembler.inputBuffer,
+    });
+    expect(next.grid.machines[source.id]?.output).toEqual({ copperIngot: offered - 1 });
+    expect(next.grid.machines[source.id]?.active).toBe(false);
+    expect(countStoredUnits(next)).toBe(MACHINES.assembler.inputBuffer - 1 + offered);
+    expect(events).toEqual([]);
+    expect(state).toEqual(stateBefore);
+  });
+
+  it("fully accepts an exact fit and empties the offering machine", () => {
+    const offered = MACHINES.smelter.outputBuffer;
+    const source = createSmelter({ id: "smelter-exact", x: SILO_AT.x, y: SILO_AT.y });
+    const target = createAssembler({
+      id: "assembler-exact",
+      x: SILO_AT.x + 1,
+      y: SILO_AT.y,
+    });
+    const state = createState([source, target], {
+      [source.id]: createSmelterRuntime({ output: { copperIngot: offered } }),
+      [target.id]: {
+        ...createMachineRuntime(target),
+        input: { copperIngot: MACHINES.assembler.inputBuffer - offered },
+      },
+    });
+
+    const next = advanceSimulation(state, 1, []);
+
+    expect(next.grid.machines[target.id]?.input).toEqual({
+      copperIngot: MACHINES.assembler.inputBuffer,
+    });
+    expect(next.grid.machines[source.id]?.output).toEqual({});
+    expect(countStoredUnits(next)).toBe(MACHINES.assembler.inputBuffer);
+  });
+
+  it("refuses a transfer that fits no unit and changes neither machine", () => {
+    const offered = MACHINES.smelter.outputBuffer;
+    const source = createSmelter({ id: "smelter-refused", x: SILO_AT.x, y: SILO_AT.y });
+    const target = createAssembler({
+      id: "assembler-refused",
+      x: SILO_AT.x + 1,
+      y: SILO_AT.y,
+    });
+    const state = createState([source, target], {
+      [source.id]: createSmelterRuntime({ output: { copperIngot: offered } }),
+      [target.id]: {
+        ...createMachineRuntime(target),
+        input: { copperIngot: MACHINES.assembler.inputBuffer },
+      },
+    });
+    const stateBefore = structuredClone(state);
+
+    const events: RenderEvent[] = [];
+    const next = advanceSimulation(state, 5, events);
+
+    expect(next.grid.machines[target.id]?.input).toEqual({
+      copperIngot: MACHINES.assembler.inputBuffer,
+    });
+    expect(next.grid.machines[source.id]?.output).toEqual({ copperIngot: offered });
+    expect(next.grid.machines).toEqual(stateBefore.grid.machines);
+    expect(events).toEqual([]);
+  });
+
+  it("never lets a depot sell more units than the silo actually offered", () => {
+    const held = MACHINES.depot.inputBuffer - 5;
+    const offered = MACHINES.silo.storageCapacity;
+    const silo = createSilo({ id: "silo-depot-room", x: SILO_AT.x, y: SILO_AT.y });
+    const depot = createDepot({ id: "depot-depot-room", x: SILO_AT.x + 1, y: SILO_AT.y });
+    const state = createState([silo, depot], {
+      [silo.id]: createSiloRuntime({
+        input: { copperIngot: offered },
+        bufferedResource: "copperIngot",
+      }),
+      [depot.id]: {
+        ...createMachineRuntime(depot),
+        input: { copperIngot: held },
+      },
+    });
+    const stateBefore = structuredClone(state);
+
+    const next = advanceSimulation(state, 1, []);
+
+    const sale = next.currencySamples.at(-1);
+    const legitimateSale = RESOURCES.copperIngot.sellValue * offered;
+    expect(sale?.amount).toBe(legitimateSale);
+    expect(next.currency - stateBefore.currency).toBe(legitimateSale);
+    expect(next.grid.machines[silo.id]?.input).toEqual({ copperIngot: offered - 5 });
+    expect(next.grid.machines[silo.id]?.bufferedResource).toBe("copperIngot");
   });
 });
 
@@ -403,6 +572,30 @@ function createSmelter(overrides: Partial<Entity> = {}): Entity {
 function createSmelterRuntime(overrides: Partial<MachineRuntime> = {}): MachineRuntime {
   return {
     ...createMachineRuntime(createSmelter()),
+    ...overrides,
+  };
+}
+
+function createAssembler(overrides: Partial<Entity> = {}): Entity {
+  return {
+    id: "assembler-silo-test",
+    type: "assembler",
+    x: 11,
+    y: 8,
+    rotation: 0,
+    level: 1,
+    ...overrides,
+  };
+}
+
+function createDepot(overrides: Partial<Entity> = {}): Entity {
+  return {
+    id: "depot-silo-test",
+    type: "depot",
+    x: 13,
+    y: 9,
+    rotation: 0,
+    level: 1,
     ...overrides,
   };
 }

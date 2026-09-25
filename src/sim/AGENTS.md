@@ -21,6 +21,7 @@ Own deterministic Factor-I simulation state and production rules.
 - Processor progress is a discrete recipe-tick counter; inputs are charged once when a run starts, a blocked completion holds the counter only while the recipe remains valid, and an unresolvable recipe discards the run so a later run must pay again.
 - A silo is shared storage, not a processor: the first accepted resource locks in `bufferedResource` until the shared pool empties, capacity is enforced exactly at the acceptance boundary, and a refused acceptance consumes nothing.
 - A machine-to-belt transfer withdraws only what one belt cell can carry and leaves the remainder buffered, so a push never destroys units.
+- A machine-to-machine transfer accepts only the input room the target has left for that resource and leaves the remainder buffered, so a buffer never exceeds its declared `inputBuffer`; a transfer that fits no unit is refused and changes neither machine. Shared storage stays all-or-nothing.
 - `storageFull` is emitted on the transition into a full shared pool, never on every tick it stays full.
 - Content tables and shared types remain the single source of truth.
 
