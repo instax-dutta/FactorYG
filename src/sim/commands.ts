@@ -1,3 +1,4 @@
+import { getUpgradeLevel, isLevelAffected } from "../content/machines";
 import { UNLOCKS } from "../content/unlocks";
 import type { UnlockRequirement } from "../content/types";
 import { getUpgradeCost } from "./machines";
@@ -154,12 +155,17 @@ export interface UpgradeApplication {
   state: SimulationState;
   changed: boolean;
   result: CommandResult;
+  notification?: Notification;
 }
 
 export function canUpgrade(state: SimulationState, entityId: string): CommandResult {
   const entity = findEntity(state, entityId);
   if (entity === undefined) {
     return { ok: false, reason: "entityNotFound" };
+  }
+
+  if (!isLevelAffected(entity.type)) {
+    return { ok: false, reason: "unsupportedMachine" };
   }
 
   if (state.currency < getUpgradeCost(entity)) {
@@ -180,7 +186,14 @@ export function upgradeEntity(state: SimulationState, entityId: string): Upgrade
     return { state, changed: false, result: { ok: false, reason: "entityNotFound" } };
   }
 
-  const upgraded: Entity = { ...entity, level: entity.level + 1 };
+  const level = getUpgradeLevel(entity.level + 1);
+  const upgraded: Entity = { ...entity, level };
+  const notification: Notification = {
+    id: `upgrade-${entityId}`,
+    kind: "success",
+    message: `Upgraded ${entity.type} to level ${level}`,
+    createdAt: state.tickCount,
+  };
 
   return {
     state: {
@@ -192,9 +205,11 @@ export function upgradeEntity(state: SimulationState, entityId: string): Upgrade
           candidate.id === entityId ? upgraded : candidate,
         ),
       },
+      notifications: [...state.notifications, notification],
     },
     changed: true,
     result: { ok: true },
+    notification,
   };
 }
 

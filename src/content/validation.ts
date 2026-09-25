@@ -1,5 +1,5 @@
 import { deepFreeze } from "./freeze";
-import { MACHINES } from "./machines";
+import { MACHINES, isLevelAffected } from "./machines";
 import { RECIPES } from "./recipes";
 import { RESOURCES } from "./resources";
 import { UNLOCKS } from "./unlocks";
@@ -314,6 +314,11 @@ function validateMachines(
     }
     if (!isFiniteNumber(value.cost) || value.cost < 0) {
       errors.push(`Machine "${key}" must have a non-negative finite cost.`);
+    }
+    if (isLevelAffected(key) && !isPositiveInteger(value.cost)) {
+      errors.push(
+        `Machine "${key}" must have a positive integer cost because a level upgrade is priced from it.`,
+      );
     }
     if (!isNonNegativeInteger(value.unlockCost)) {
       errors.push(`Machine "${key}" must have a non-negative integer unlock cost.`);

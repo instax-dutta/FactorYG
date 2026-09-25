@@ -783,6 +783,35 @@ describe("Factor-Y content tables", () => {
     expect(validateContent(deepFreeze(selfConsuming))).toEqual([]);
   });
 
+  it("requires a positive integer cost for every machine a level can affect", () => {
+    expect(validateContent(deepFreeze(createMutableContentSnapshot()))).toEqual([]);
+
+    const freeExtractor = createMutableContentSnapshot();
+    freeExtractor.machines.extractor = { ...freeExtractor.machines.extractor, cost: 0 };
+    const fractionalSmelter = createMutableContentSnapshot();
+    fractionalSmelter.machines.smelter = { ...fractionalSmelter.machines.smelter, cost: 12.5 };
+    const negativeAssembler = createMutableContentSnapshot();
+    negativeAssembler.machines.assembler = {
+      ...negativeAssembler.machines.assembler,
+      cost: -1,
+    };
+    const freeBelt = createMutableContentSnapshot();
+    freeBelt.machines.belt = { ...freeBelt.machines.belt, cost: 0 };
+
+    expect(validateContent(deepFreeze(freeExtractor))).toContain(
+      'Machine "extractor" must have a positive integer cost because a level upgrade is priced from it.',
+    );
+    expect(validateContent(deepFreeze(fractionalSmelter))).toContain(
+      'Machine "smelter" must have a positive integer cost because a level upgrade is priced from it.',
+    );
+    expect(validateContent(deepFreeze(negativeAssembler))).toContain(
+      'Machine "assembler" must have a positive integer cost because a level upgrade is priced from it.',
+    );
+    expect(validateContent(deepFreeze(freeBelt))).not.toContain(
+      'Machine "belt" must have a positive integer cost because a level upgrade is priced from it.',
+    );
+  });
+
   it("reports no producer gap for a declared cycle between two recipes", () => {
     const cycle = createMutableContentSnapshot();
     cycle.recipes.wire = { ...cycle.recipes.wire, inputs: { gear: 1 } };

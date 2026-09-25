@@ -1,7 +1,12 @@
 import { deepFreeze } from "./freeze";
+import { RECIPES } from "./recipes";
 import type { MachineDefinition, MachineType, ResourceId } from "./types";
 
 export type { GridPoint, MachineDefinition, MachineType, PortDefinition } from "./types";
+
+const RECIPE_MACHINE_TYPES: ReadonlySet<MachineType> = new Set(
+  Object.values(RECIPES).map((recipe) => recipe.machine),
+);
 
 const RAW_RESOURCES: ResourceId[] = ["copperOre", "ironOre", "coal", "stone"];
 const PROCESSED_RESOURCES: ResourceId[] = [
@@ -174,7 +179,25 @@ export function getUpgradeLevel(level: number): number {
   return Number.isFinite(level) && level >= 1 ? Math.floor(level) : 1;
 }
 
-export function getMachineUpgradeCost(type: MachineType, level: number): number {
+export function getMachineUpgradeCost(type: string, level: number): number {
+  const definition = getMachine(type);
+  if (definition === undefined) {
+    return 0;
+  }
+
   const effectiveLevel = getUpgradeLevel(level);
-  return MACHINES[type].cost * effectiveLevel * effectiveLevel;
+  return definition.cost * effectiveLevel * effectiveLevel;
+}
+
+export function isLevelAffected(type: string): boolean {
+  const definition = getMachine(type);
+  if (definition === undefined || definition.bufferMode === "shared") {
+    return false;
+  }
+
+  if (RECIPE_MACHINE_TYPES.has(definition.type)) {
+    return true;
+  }
+
+  return !definition.ports.some((port) => port.kind === "input");
 }

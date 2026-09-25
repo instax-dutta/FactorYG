@@ -34,21 +34,26 @@ const COPPER_NODE = {
   x: 8,
   y: 9,
 };
+const DEFAULT_SMELTER = createSmelter();
 
 describe("canRunRecipe", () => {
   it.each(SMELTER_RECIPE_CASES)(
     "requires the exact inputs of %s",
     (_id, recipe) => {
-      expect(canRunRecipe(createRuntime({ input: fullInputs(recipe) }), recipe)).toBe(true);
-      expect(canRunRecipe(createRuntime({ input: shortInputs(recipe) }), recipe)).toBe(false);
-      expect(canRunRecipe(createRuntime(), recipe)).toBe(false);
+      expect(canRunRecipe(createRuntime({ input: fullInputs(recipe) }), DEFAULT_SMELTER, recipe)).toBe(
+        true,
+      );
+      expect(canRunRecipe(createRuntime({ input: shortInputs(recipe) }), DEFAULT_SMELTER, recipe)).toBe(
+        false,
+      );
+      expect(canRunRecipe(createRuntime(), DEFAULT_SMELTER, recipe)).toBe(false);
     },
   );
 
   it("accepts surplus inputs for a smelter mixed input buffer", () => {
     const runtime = createRuntime({ input: { ironOre: 5, coal: 3, stone: 2 } });
 
-    expect(canRunRecipe(runtime, RECIPES.ironIngot)).toBe(true);
+    expect(canRunRecipe(runtime, DEFAULT_SMELTER, RECIPES.ironIngot)).toBe(true);
   });
 
   it("refuses a recipe whose output buffer cannot hold the result", () => {
@@ -57,7 +62,7 @@ describe("canRunRecipe", () => {
       output: { copperIngot: OUTPUT_BUFFER },
     });
 
-    expect(canRunRecipe(runtime, RECIPES.copperIngot)).toBe(false);
+    expect(canRunRecipe(runtime, DEFAULT_SMELTER, RECIPES.copperIngot)).toBe(false);
   });
 
   it("allows a recipe with exactly one free output slot", () => {
@@ -66,7 +71,7 @@ describe("canRunRecipe", () => {
       output: { copperIngot: OUTPUT_BUFFER - 1 },
     });
 
-    expect(canRunRecipe(runtime, RECIPES.copperIngot)).toBe(true);
+    expect(canRunRecipe(runtime, DEFAULT_SMELTER, RECIPES.copperIngot)).toBe(true);
   });
 });
 
@@ -77,7 +82,7 @@ describe("consumeRecipeInputs", () => {
       const stored = { ...surplusInputs(recipe), ...fullInputs(recipe) };
       const runtime = createRuntime({ input: stored });
 
-      const result = consumeRecipeInputs(runtime, recipe);
+      const result = consumeRecipeInputs(runtime, DEFAULT_SMELTER, recipe);
 
       expect(result.input).toEqual(surplusInputs(recipe));
       expect(runtime.input).toEqual(stored);
@@ -87,7 +92,7 @@ describe("consumeRecipeInputs", () => {
   it("consumes both mixed inputs of ironIngot from one buffer", () => {
     const runtime = createRuntime({ input: { ironOre: 2, coal: 1 } });
 
-    const result = consumeRecipeInputs(runtime, RECIPES.ironIngot);
+    const result = consumeRecipeInputs(runtime, DEFAULT_SMELTER, RECIPES.ironIngot);
 
     expect(result.input).toEqual({ ironOre: 1 });
   });
@@ -95,7 +100,7 @@ describe("consumeRecipeInputs", () => {
   it("returns the same runtime when one required input is missing", () => {
     const runtime = createRuntime({ input: { ironOre: 1 } });
 
-    expect(consumeRecipeInputs(runtime, RECIPES.ironIngot)).toBe(runtime);
+    expect(consumeRecipeInputs(runtime, DEFAULT_SMELTER, RECIPES.ironIngot)).toBe(runtime);
   });
 
   it("returns the same runtime when the output buffer is full", () => {
@@ -104,7 +109,7 @@ describe("consumeRecipeInputs", () => {
       output: { copperIngot: OUTPUT_BUFFER },
     });
 
-    expect(consumeRecipeInputs(runtime, RECIPES.copperIngot)).toBe(runtime);
+    expect(consumeRecipeInputs(runtime, DEFAULT_SMELTER, RECIPES.copperIngot)).toBe(runtime);
   });
 });
 
@@ -112,7 +117,7 @@ describe("completeRecipe", () => {
   it("adds the exact output amount and resets progress", () => {
     const runtime = createRuntime({ progressTicks: 19, active: true });
 
-    const result = completeRecipe(runtime, RECIPES.copperIngot);
+    const result = completeRecipe(runtime, DEFAULT_SMELTER, RECIPES.copperIngot);
 
     expect(result.output).toEqual({ copperIngot: 1 });
     expect(result.progressTicks).toBe(0);
@@ -128,7 +133,7 @@ describe("completeRecipe", () => {
       active: true,
     });
 
-    const result = completeRecipe(runtime, RECIPES.refinedStone);
+    const result = completeRecipe(runtime, DEFAULT_SMELTER, RECIPES.refinedStone);
 
     expect(result.output).toEqual({ refinedStone: OUTPUT_BUFFER });
   });
@@ -140,7 +145,7 @@ describe("completeRecipe", () => {
       active: true,
     });
 
-    expect(completeRecipe(runtime, RECIPES.ironIngot)).toBe(runtime);
+    expect(completeRecipe(runtime, DEFAULT_SMELTER, RECIPES.ironIngot)).toBe(runtime);
     expect(runtime.progressTicks).toBe(30);
     expect(runtime.output).toEqual({ ironIngot: OUTPUT_BUFFER });
   });
@@ -480,7 +485,7 @@ function createSmelter(overrides: Partial<Entity> = {}): Entity {
 
 function createRuntime(overrides: Partial<MachineRuntime> = {}): MachineRuntime {
   return {
-    ...createMachineRuntime(createSmelter()),
+    ...createMachineRuntime(DEFAULT_SMELTER),
     ...overrides,
   };
 }

@@ -33,6 +33,7 @@ const ASSEMBLER_RECIPE_CASES = ASSEMBLER_RECIPES.map(
 );
 const ASSEMBLER_RECIPE_IDS = ASSEMBLER_RECIPES.map((recipe) => recipe.id);
 const OUTPUT_BUFFER = MACHINES.assembler.outputBuffer;
+const DEFAULT_ASSEMBLER = createAssembler();
 const SURPLUS_BASE: Partial<Record<ResourceId, number>> = {
   copperIngot: 3,
   ironIngot: 4,
@@ -55,9 +56,13 @@ describe("assembler recipe readiness", () => {
   it.each(ASSEMBLER_RECIPE_CASES)(
     "requires the exact inputs of %s",
     (_id, recipe) => {
-      expect(canRunRecipe(createRuntime({ input: fullInputs(recipe) }), recipe)).toBe(true);
-      expect(canRunRecipe(createRuntime({ input: shortInputs(recipe) }), recipe)).toBe(false);
-      expect(canRunRecipe(createRuntime(), recipe)).toBe(false);
+      expect(canRunRecipe(createRuntime({ input: fullInputs(recipe) }), DEFAULT_ASSEMBLER, recipe)).toBe(
+        true,
+      );
+      expect(
+        canRunRecipe(createRuntime({ input: shortInputs(recipe) }), DEFAULT_ASSEMBLER, recipe),
+      ).toBe(false);
+      expect(canRunRecipe(createRuntime(), DEFAULT_ASSEMBLER, recipe)).toBe(false);
     },
   );
 
@@ -67,8 +72,8 @@ describe("assembler recipe readiness", () => {
       const stored = { ...surplusInputs(recipe), ...shortInputs(recipe) };
       const runtime = createRuntime({ input: stored });
 
-      expect(canRunRecipe(runtime, recipe)).toBe(false);
-      expect(consumeRecipeInputs(runtime, recipe)).toBe(runtime);
+      expect(canRunRecipe(runtime, DEFAULT_ASSEMBLER, recipe)).toBe(false);
+      expect(consumeRecipeInputs(runtime, DEFAULT_ASSEMBLER, recipe)).toBe(runtime);
     },
   );
 
@@ -78,7 +83,7 @@ describe("assembler recipe readiness", () => {
       const stored = { ...surplusInputs(recipe), ...fullInputs(recipe) };
       const runtime = createRuntime({ input: stored });
 
-      const result = consumeRecipeInputs(runtime, recipe);
+      const result = consumeRecipeInputs(runtime, DEFAULT_ASSEMBLER, recipe);
 
       expect(result.input).toEqual(surplusInputs(recipe));
       expect(runtime.input).toEqual(stored);
@@ -91,8 +96,8 @@ describe("assembler recipe readiness", () => {
       output: { wire: OUTPUT_BUFFER },
     });
 
-    expect(canRunRecipe(runtime, RECIPES.wire)).toBe(false);
-    expect(consumeRecipeInputs(runtime, RECIPES.wire)).toBe(runtime);
+    expect(canRunRecipe(runtime, DEFAULT_ASSEMBLER, RECIPES.wire)).toBe(false);
+    expect(consumeRecipeInputs(runtime, DEFAULT_ASSEMBLER, RECIPES.wire)).toBe(runtime);
   });
 });
 
@@ -517,7 +522,7 @@ function createBeltCells(entries: Array<[Entity, ResourceId]>): Record<string, B
 
 function createRuntime(overrides: Partial<MachineRuntime> = {}): MachineRuntime {
   return {
-    ...createMachineRuntime(createAssembler()),
+    ...createMachineRuntime(DEFAULT_ASSEMBLER),
     ...overrides,
   };
 }

@@ -2,6 +2,7 @@ import { getMachine, getMachineUpgradeCost, getUpgradeLevel } from "../content/m
 import { getRecipe } from "../content/recipes";
 import type {
   Entity,
+  MachineDefinition,
   MachineRuntime,
   RecipeDefinition,
   ResourceId,
@@ -10,6 +11,7 @@ import type {
 
 const CYCLE_COMPLETION_EPSILON = 1e-12;
 const MIN_PROCESS_DURATION_TICKS = 1;
+const MAX_EXTRACTOR_CYCLES_PER_TICK = 1;
 
 export type SiloRejection = "lockedResource" | "storageFull";
 
@@ -22,24 +24,21 @@ export function getUpgradeCost(entity: Entity): number {
 }
 
 export function getExtractorRate(entity: Entity, state: SimulationState): number {
-  if (entity.type !== "extractor" || entity.resourceNode === undefined) {
-    return 0;
-  }
-
-  const definition = getMachine(entity.type);
+  const definition = getExtractorDefinition(entity);
   if (definition === undefined) {
     return 0;
   }
 
   const effectiveMultiplier =
     state.prestige.permanentMultipliers.productionSpeed * getUpgradeLevel(entity.level);
-  return effectiveMultiplier / definition.defaultProcessTicks;
+  const cyclesPerTick = effectiveMultiplier / definition.defaultProcessTicks;
+  return Math.min(cyclesPerTick, MAX_EXTRACTOR_CYCLES_PER_TICK);
 }
 
-export function getProcessDurationTicks(recipe: RecipeDefinition, level = 1): number {
+export function getProcessDurationTicks(entity: Entity, recipe: RecipeDefinition): number {
   return Math.max(
     MIN_PROCESS_DURATION_TICKS,
-    Math.ceil(recipe.durationTicks / getUpgradeLevel(level)),
+    Math.ceil(recipe.durationTicks / getUpgradeLevel(entity.level)),
   );
 }
 
@@ -67,16 +66,13 @@ export function tickExtractor(
   entity: Entity,
   state: SimulationState,
 ): MachineRuntime {
-  if (entity.type !== "extractor" || entity.resourceNode === undefined) {
+  const definition = getExtractorDefinition(entity);
+  const resource = entity.resourceNode;
+  if (definition === undefined || resource === undefined) {
     return runtime;
   }
 
-  const definition = getMachine("extractor");
-  if (definition === undefined) {
-    return runtime;
-  }
-
-  const outputAmount = getResourceAmount(runtime.output, entity.resourceNode);
+  const outputAmount = getResourceAmount(runtime.output, resource);
   if (outputAmount >= getOutputCapacity(entity)) {
     return runtime.active ? { ...runtime, active: false } : runtime;
   }
@@ -96,7 +92,7 @@ export function tickExtractor(
     progressTicks: Math.abs(remainder) <= CYCLE_COMPLETION_EPSILON ? 0 : remainder,
     output: {
       ...runtime.output,
-      [entity.resourceNode]: outputAmount + 1,
+      [resource]: outputAmount + 1,
     },
     active: false,
   };
@@ -112,33 +108,33 @@ export function tickProcessor(
     return abandonRun(runtime);
   }
 
-  const durationTicks = getProcessDurationTicks(recipe, entity.level);
+  const durationTicks = getProcessDurationTicks(entity, recipe);
   if (runtime.progressTicks > 0) {
     if (runtime.progressTicks + 1 < durationTicks) {
       return { ...runtime, progressTicks: runtime.progressTicks + 1, active: true };
     }
 
-    return setInactive(completeRecipe(runtime, recipe, entity.level));
+    return setInactive(completeRecipe(runtime, entity, recipe));
   }
 
-  const started = consumeRecipeInputs(runtime, recipe, entity.level);
+  const started = consumeRecipeInputs(runtime, entity, recipe);
   return started === runtime ? runtime : { ...started, progressTicks: 1, active: true };
 }
 
 export function canRunRecipe(
   runtime: MachineRuntime,
+  entity: Entity,
   recipe: RecipeDefinition,
-  level = 1,
 ): boolean {
-  return hasRecipeInputs(runtime, recipe) && hasOutputCapacity(runtime, recipe, level);
+  return hasRecipeInputs(runtime, recipe) && hasOutputCapacity(runtime, entity, recipe);
 }
 
 export function consumeRecipeInputs(
   runtime: MachineRuntime,
+  entity: Entity,
   recipe: RecipeDefinition,
-  level = 1,
 ): MachineRuntime {
-  if (!canRunRecipe(runtime, recipe, level)) {
+  if (!canRunRecipe(runtime, entity, recipe)) {
     return runtime;
   }
 
@@ -152,10 +148,10 @@ export function consumeRecipeInputs(
 
 export function completeRecipe(
   runtime: MachineRuntime,
+  entity: Entity,
   recipe: RecipeDefinition,
-  level = 1,
 ): MachineRuntime {
-  if (!hasOutputCapacity(runtime, recipe, level)) {
+  if (!hasOutputCapacity(runtime, entity, recipe)) {
     return runtime;
   }
 
@@ -164,6 +160,14 @@ export function completeRecipe(
     progressTicks: 0,
     output: addResource(runtime.output, recipe.output.resource, recipe.output.amount),
   };
+}
+
+function getExtractorDefinition(entity: Entity): MachineDefinition | undefined {
+  if (entity.type !== "extractor" || entity.resourceNode === undefined) {
+    return undefined;
+  }
+
+  return getMachine(entity.type);
 }
 
 function getProcessorRecipe(
@@ -186,16 +190,11 @@ function hasRecipeInputs(runtime: MachineRuntime, recipe: RecipeDefinition): boo
 
 function hasOutputCapacity(
   runtime: MachineRuntime,
+  entity: Entity,
   recipe: RecipeDefinition,
-  level: number,
 ): boolean {
   const stored = getResourceAmount(runtime.output, recipe.output.resource);
-  return stored + recipe.output.amount <= getRecipeOutputBuffer(recipe, level);
-}
-
-function getRecipeOutputBuffer(recipe: RecipeDefinition, level: number): number {
-  const outputBuffer = getMachine(recipe.machine)?.outputBuffer ?? 0;
-  return outputBuffer * getUpgradeLevel(level);
+  return stored + recipe.output.amount <= getOutputCapacity(entity);
 }
 
 function recipeEntries(recipe: RecipeDefinition): Array<[ResourceId, number]> {

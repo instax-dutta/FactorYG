@@ -27,10 +27,12 @@ Own deterministic Factor-I simulation state and production rules.
 - An unlock purchase validates identity, prior ownership, prerequisites, and cost before any mutation, then commits the currency debit, the unlocked ID, and one success notification in a single state transition, so a purchase can never debit without unlocking or unlock without debiting.
 - Unlock rejection reasons are `unknownUnlock`, `alreadyUnlocked`, `prerequisiteLocked`, and `insufficientCurrency`, and the prerequisite reason is reported before the balance reason. A rejection returns the same state object, so no snapshot and no notification is published.
 - An unlock notification is keyed `unlock-machine-<id>` or `unlock-recipe-<id>` and stamps `createdAt` from the logical `tickCount`, keeping notifications deterministic.
-- An upgrade prices the level being left as `baseCost * level * level` from the machine cost table, validates identity and cost before any mutation, then commits the currency debit and the level increase in a single transition, so an upgrade can never debit without raising the level or raise the level without debiting.
-- Upgrade rejection reasons are `entityNotFound` and `insufficientCurrency`. A rejection returns the same state object, so no snapshot is published.
-- The level scales the extractor rate, the processor effective duration, and the machine output capacity. The effective duration stays a whole number of recipe ticks of at least one, so processor progress remains a discrete counter, inputs are still charged once per run, and an upgrade applied to an in-flight run shortens that run instead of restarting it.
-- Level one is the identity for the level model: an unupgraded machine keeps its table rate, its table recipe duration, and its table output capacity.
+- An upgrade prices the level being left as `baseCost * level * level` from the machine cost table, validates identity, machine type, and cost before any mutation, then commits the currency debit, the level increase, and one success notification in a single state transition, so an upgrade can never debit without raising the level or raise the level without debiting.
+- Upgrade rejection reasons are `entityNotFound`, `unsupportedMachine`, and `insufficientCurrency`, reported in that order. `unsupportedMachine` covers every machine type a level cannot affect, so a machine that only transports or stores can never be bought for nothing. A rejection returns the same state object, so no snapshot and no notification is published.
+- An upgrade notification is keyed `upgrade-<entityId>`, names the new level, and stamps `createdAt` from the logical `tickCount`.
+- The store routes the `upgradeEntity` command to `upgradeEntity` and exposes `canUpgrade(entityId)`, so the ghost preview and the dispatch share one validator.
+- The level scales the extractor rate, the processor effective duration, and the machine output capacity. Both the extractor rate and the effective duration saturate, the rate at one completed cycle per tick and the duration at one tick, so a high level can never inflate the progress accumulator the save stores. The effective duration stays a whole number of recipe ticks, so processor progress remains a discrete counter, inputs are still charged once per run, and an upgrade applied to an in-flight run shortens that run instead of restarting it.
+- Level one is the identity for the level model: an unupgraded machine keeps its table rate, its table recipe duration, and its table output capacity. `canRunRecipe`, `consumeRecipeInputs`, and `completeRecipe` take the entity rather than a level, so no caller can read an unleveled capacity by omitting an argument.
 - Content tables and shared types remain the single source of truth.
 
 ## Work Guidance
@@ -41,6 +43,7 @@ Own deterministic Factor-I simulation state and production rules.
 
 ## Verification
 
+- `npm run test -- tests/unit/upgrades.test.ts`
 - `npm run test`
 - `npm run lint`
 - `npm run typecheck`

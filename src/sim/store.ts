@@ -1,6 +1,13 @@
 import { FixedStepClock } from "./clock";
 import { TICK_MS } from "./constants";
-import { canUnlock, unlockMachine, unlockRecipe, type UnlockTarget } from "./commands";
+import {
+  canUnlock,
+  canUpgrade,
+  unlockMachine,
+  unlockRecipe,
+  upgradeEntity,
+  type UnlockTarget,
+} from "./commands";
 import { applyPlacement, validatePlacement } from "./placement";
 import { createSnapshot } from "./snapshot";
 import { advanceSimulation } from "./tick";
@@ -123,6 +130,10 @@ export class SimulationStore {
 
   public canUnlock(target: UnlockTarget): CommandResult {
     return canUnlock(this.#state, target);
+  }
+
+  public canUpgrade(entityId: string): CommandResult {
+    return canUpgrade(this.#state, entityId);
   }
 
   public dispatch(command: SimulationCommand): CommandResult {
@@ -277,6 +288,9 @@ export class SimulationStore {
       }
       case "unlockRecipe": {
         return unlockRecipe(this.#state, command);
+      }
+      case "upgradeEntity": {
+        return upgradeEntity(this.#state, command.entityId);
       }
       default:
         return {
