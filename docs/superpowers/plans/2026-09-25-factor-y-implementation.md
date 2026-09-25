@@ -47,6 +47,8 @@ src/
   app/App.tsx
   app/GameCanvas.tsx
   content/assetManifest.ts
+  content/types.ts
+  content/freeze.ts
   content/machines.ts
   content/recipes.ts
   content/resources.ts
@@ -477,16 +479,21 @@ git commit -m "feat: add fixed-step simulation store"
 ## Task 0.6: Define Content Tables and Validation
 
 **Files:**
+- Create: `src/content/types.ts`
+- Create: `src/content/freeze.ts`
 - Create: `src/content/resources.ts`
 - Create: `src/content/machines.ts`
 - Create: `src/content/recipes.ts`
 - Create: `src/content/unlocks.ts`
 - Create: `src/content/validation.ts`
+- Modify: `src/sim/types.ts`
+- Modify: `docs/superpowers/specs/2026-09-25-factor-y-design.md`
+- Modify: `docs/superpowers/plans/2026-09-25-factor-y-implementation.md`
 - Create: `tests/unit/content.test.ts`
 
 **Interfaces:**
 - Consumes: the exact resource, machine, recipe, cost, and unlock values in the design document.
-- Produces: `RESOURCES`, `MACHINES`, `RECIPES`, `UNLOCKS`, `getResource(id)`, `getMachine(type)`, `getRecipe(id)`, and `validateContent()`.
+- Produces: canonical `ResourceId`, `MachineType`, `RecipeId`, `ResourceTier`, `ResourceDefinition`, `GridPoint`, `PortDefinition`, `MachineDefinition`, `RecipeDefinition`, and `UnlockTable` types, a typed recursive `deepFreeze` helper, deeply frozen `RESOURCES`, `MACHINES`, `RECIPES`, and `UNLOCKS`, `getResource(id)`, `getMachine(type)`, `getRecipe(id)`, and a total `validateContent(input: unknown)` that returns human-readable errors.
 
 - [ ] **Step 1: Write failing content-integrity tests**
 
@@ -529,14 +536,16 @@ Expected: FAIL because the content modules are missing.
 
 - [ ] **Step 3: Implement the data tables**
 
-Populate all IDs and values from the design document. Every machine has a 1 by 1 footprint, explicit ports, cost, unlock cost, buffer sizes, process ticks, and sprite keys. Every recipe has the exact input quantities, output, duration, unlock cost, and sell value from the design. `validateContent` returns an array of human-readable errors and returns an empty array for the shipped tables.
+Populate all IDs and values from the design document. Move shared content contracts into `src/content/types.ts` and re-export them from `src/sim/types.ts` so there is one source of truth. `src/content/freeze.ts` recursively freezes tables and nested arrays/objects at module initialization. Smelters use one mixed input buffer and their input port accepts all raw resources needed by their recipes; assemblers use two input ports. Silo definitions declare `bufferMode: "shared"` and `storageCapacity: 100`, while other machines use separate buffers. `defaultProcessTicks` is the machine fallback; a selected recipe's `durationTicks` is authoritative. `validateContent(input: unknown)` checks shape before reading fields, canonical resource/recipe ID sets, all cross-references, exact initial unlock consistency, port compatibility, and nested table immutability without throwing.
 
 - [ ] **Step 4: Verify content and full tests**
 
 ```bash
 npm run test -- tests/unit/content.test.ts
 npm run test
+npm run lint
 npm run typecheck
+npm run build
 ```
 
 Expected: PASS.
@@ -544,7 +553,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/content/resources.ts src/content/machines.ts src/content/recipes.ts src/content/unlocks.ts src/content/validation.ts tests/unit/content.test.ts
+git add src/content/types.ts src/content/freeze.ts src/content/resources.ts src/content/machines.ts src/content/recipes.ts src/content/unlocks.ts src/content/validation.ts src/sim/types.ts docs/superpowers/specs/2026-09-25-factor-y-design.md docs/superpowers/plans/2026-09-25-factor-y-implementation.md tests/unit/content.test.ts
 git commit -m "feat: define Factor-Y content tables"
 ```
 
@@ -1863,7 +1872,7 @@ git commit -m "chore: complete Factor-Y release verification"
 ## Plan Self-Review
 
 - **Spec coverage:** Vision and non-goals are covered in the global constraints and Phase 0-4 boundaries. Camera, grid, placement, rotation, connections, machines, resources, recipes, save schema, offline progress, React UI, custom art, VFX, prestige, expansion, and performance each have explicit tasks.
-- **Type consistency:** `ResourceId`, `MachineType`, `Rotation`, `Entity`, `SimulationState`, `SimulationSnapshot`, `SimulationCommand`, `RenderEvent`, and `CommandResult` are introduced in Task 0.3 and reused by later tasks. Content names and costs match the design document.
+- **Type consistency:** Task 0.3 introduces the simulation state contracts, while Task 0.6 makes `ResourceId`, `MachineType`, `RecipeId`, `ResourceTier`, the content definition interfaces, and `UnlockTable` canonical in `src/content/types.ts` and re-exports them through `src/sim/types.ts`. `Rotation`, `Entity`, `SimulationState`, `SimulationSnapshot`, `SimulationCommand`, `RenderEvent`, and `CommandResult` remain simulation-owned. Content names and costs match the design document.
 - **Unresolved-marker scan:** The plan contains no unresolved markers or unspecified implementation shortcuts. Every task names files, behavior, tests, commands, and a commit boundary.
 - **Execution order:** DOX and toolchain precede application code. Pure simulation precedes Phaser and React. Persistence precedes offline progress. Production chains precede prestige. VFX and performance follow the playable loop.
 - **Verification:** Every phase has unit/integration or component coverage, browser coverage where behavior changes, and the required lint, typecheck, test, and build commands.

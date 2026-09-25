@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { deepFreeze } from "../../src/content/freeze";
 import { MACHINES, getMachine, type MachineDefinition } from "../../src/content/machines";
 import { RECIPES, getRecipe } from "../../src/content/recipes";
 import { RESOURCES, getResource, type ResourceId } from "../../src/content/resources";
+import type { MachineDefinition as CanonicalMachineDefinition } from "../../src/content/types";
 import { UNLOCKS } from "../../src/content/unlocks";
 import { validateContent } from "../../src/content/validation";
+import type { MachineDefinition as SimulationMachineDefinition } from "../../src/sim/types";
 
 const ALL_RESOURCES: ResourceId[] = [
   "copperOre",
@@ -25,6 +28,25 @@ const RAW_RESOURCES: ResourceId[] = ["copperOre", "ironOre", "coal", "stone"];
 const PROCESSED_RESOURCES: ResourceId[] = ALL_RESOURCES.filter(
   (resource) => !RAW_RESOURCES.includes(resource),
 );
+
+interface MutableContentSnapshot {
+  resources: Record<string, Record<string, unknown>>;
+  machines: Record<string, Record<string, unknown>>;
+  recipes: Record<string, Record<string, unknown>>;
+  unlocks: {
+    machines: string[];
+    recipes: string[];
+  };
+}
+
+function createMutableContentSnapshot(): MutableContentSnapshot {
+  return structuredClone({
+    resources: RESOURCES,
+    machines: MACHINES,
+    recipes: RECIPES,
+    unlocks: UNLOCKS,
+  }) as unknown as MutableContentSnapshot;
+}
 
 function summarizePorts(machine: MachineDefinition) {
   return machine.ports.map((port) => ({
@@ -74,29 +96,34 @@ describe("Factor-Y content tables", () => {
 
   it("defines all six machines with exact costs, capacities, timings, and sprites", () => {
     expect(
-      Object.values(MACHINES).map(
-        ({
+      Object.values(MACHINES).map((machine: MachineDefinition) => {
+        const {
           type,
           footprint,
           cost,
           unlockCost,
           inputBuffer,
           outputBuffer,
-          processTicks,
+          bufferMode,
+          storageCapacity,
+          defaultProcessTicks,
           spriteKey,
           activeSpriteKey,
-        }) => ({
+        } = machine;
+        return {
           type,
           footprint,
           cost,
           unlockCost,
           inputBuffer,
           outputBuffer,
-          processTicks,
+          bufferMode,
+          storageCapacity,
+          defaultProcessTicks,
           spriteKey,
           activeSpriteKey,
-        }),
-      ),
+        };
+      }),
     ).toEqual([
       {
         type: "extractor",
@@ -105,7 +132,9 @@ describe("Factor-Y content tables", () => {
         unlockCost: 0,
         inputBuffer: 0,
         outputBuffer: 1,
-        processTicks: 20,
+        bufferMode: "separate",
+        storageCapacity: undefined,
+        defaultProcessTicks: 20,
         spriteKey: "machine.extractor.idle",
         activeSpriteKey: "machine.extractor.active",
       },
@@ -116,7 +145,9 @@ describe("Factor-Y content tables", () => {
         unlockCost: 0,
         inputBuffer: 1,
         outputBuffer: 1,
-        processTicks: 10,
+        bufferMode: "separate",
+        storageCapacity: undefined,
+        defaultProcessTicks: 10,
         spriteKey: "machine.belt.idle",
         activeSpriteKey: "machine.belt.active",
       },
@@ -127,7 +158,9 @@ describe("Factor-Y content tables", () => {
         unlockCost: 250,
         inputBuffer: 10,
         outputBuffer: 10,
-        processTicks: 20,
+        bufferMode: "separate",
+        storageCapacity: undefined,
+        defaultProcessTicks: 20,
         spriteKey: "machine.smelter.idle",
         activeSpriteKey: "machine.smelter.active",
       },
@@ -138,7 +171,9 @@ describe("Factor-Y content tables", () => {
         unlockCost: 500,
         inputBuffer: 20,
         outputBuffer: 10,
-        processTicks: 30,
+        bufferMode: "separate",
+        storageCapacity: undefined,
+        defaultProcessTicks: 30,
         spriteKey: "machine.assembler.idle",
         activeSpriteKey: "machine.assembler.active",
       },
@@ -149,7 +184,9 @@ describe("Factor-Y content tables", () => {
         unlockCost: 150,
         inputBuffer: 100,
         outputBuffer: 100,
-        processTicks: 10,
+        bufferMode: "shared",
+        storageCapacity: 100,
+        defaultProcessTicks: 10,
         spriteKey: "machine.silo.idle",
         activeSpriteKey: "machine.silo.active",
       },
@@ -160,7 +197,9 @@ describe("Factor-Y content tables", () => {
         unlockCost: 0,
         inputBuffer: 100,
         outputBuffer: 0,
-        processTicks: 1,
+        bufferMode: "separate",
+        storageCapacity: undefined,
+        defaultProcessTicks: 1,
         spriteKey: "machine.depot.idle",
         activeSpriteKey: "machine.depot.active",
       },
@@ -375,23 +414,219 @@ describe("Factor-Y content tables", () => {
     expect(getRecipe("missing")).toBeUndefined();
   });
 
-  it("validates the shipped tables and reports human-readable integrity errors", () => {
-    const invalidRecipes = {
-      ...RECIPES,
-      copperIngot: {
-        ...RECIPES.copperIngot,
-        inputs: { missingResource: 1 } as Partial<Record<ResourceId, number>>,
+  it("re-exports the canonical machine contract through the simulation types", () => {
+    const canonical: CanonicalMachineDefinition = MACHINES.smelter;
+    const simulation: SimulationMachineDefinition = canonical;
+
+    expect(simulation.defaultProcessTicks).toBe(20);
+    expect(simulation.bufferMode).toBe("separate");
+  });
+
+  it("recursively freezes mutable values and every level of the shipped tables", () => {
+    const nested = deepFreeze({
+      branch: {
+        entries: [{ value: 1 }],
       },
+    });
+
+    expect(Object.isFrozen(nested)).toBe(true);
+    expect(Object.isFrozen(nested.branch)).toBe(true);
+    expect(Object.isFrozen(nested.branch.entries)).toBe(true);
+    expect(Object.isFrozen(nested.branch.entries[0])).toBe(true);
+    expect(nested.branch.entries[0].value).toBe(1);
+
+    expect(Object.isFrozen(RESOURCES)).toBe(true);
+    expect(Object.isFrozen(RESOURCES.copperOre)).toBe(true);
+    expect(Object.isFrozen(MACHINES)).toBe(true);
+    expect(Object.isFrozen(MACHINES.smelter)).toBe(true);
+    expect(Object.isFrozen(MACHINES.smelter.footprint)).toBe(true);
+    expect(Object.isFrozen(MACHINES.smelter.ports)).toBe(true);
+    expect(Object.isFrozen(MACHINES.smelter.ports[0])).toBe(true);
+    expect(Object.isFrozen(MACHINES.smelter.ports[0].offset)).toBe(true);
+    expect(Object.isFrozen(RECIPES)).toBe(true);
+    expect(Object.isFrozen(RECIPES.ironIngot)).toBe(true);
+    expect(Object.isFrozen(RECIPES.ironIngot.inputs)).toBe(true);
+    expect(Object.isFrozen(RECIPES.ironIngot.output)).toBe(true);
+    expect(Object.isFrozen(UNLOCKS)).toBe(true);
+    expect(Object.isFrozen(UNLOCKS.machines)).toBe(true);
+    expect(Object.isFrozen(UNLOCKS.recipes)).toBe(true);
+
+    const smelterInput = MACHINES.smelter.ports.find((port) => port.kind === "input");
+    if (smelterInput?.accepts === undefined) {
+      throw new Error("Expected the smelter input port to accept resources.");
+    }
+
+    expect(Reflect.set(RESOURCES, "copperOre", undefined)).toBe(false);
+    expect(Reflect.set(RESOURCES.copperOre, "label", "Changed")).toBe(false);
+    expect(Reflect.set(MACHINES.smelter.footprint, "width", 2)).toBe(false);
+    expect(Reflect.set(MACHINES.smelter.ports[0].offset, "x", 0)).toBe(false);
+    expect(Reflect.set(smelterInput.accepts, 0, "missingResource")).toBe(false);
+    expect(Reflect.set(RECIPES.ironIngot.inputs, "ironOre", 99)).toBe(false);
+    expect(Reflect.set(RECIPES.ironIngot.output, "amount", 99)).toBe(false);
+    expect(Reflect.set(UNLOCKS.machines, 0, "silo")).toBe(false);
+    expect(RESOURCES.copperOre.label).toBe("Copper Ore");
+    expect(MACHINES.smelter.footprint.width).toBe(1);
+    expect(smelterInput.accepts[0]).toBe("copperOre");
+    expect(RECIPES.ironIngot.inputs.ironOre).toBe(1);
+    expect(RECIPES.ironIngot.output.amount).toBe(1);
+    expect(UNLOCKS.machines[0]).toBe("extractor");
+  });
+
+  it("requires the exact canonical resource and recipe ID sets", () => {
+    const missingResource = createMutableContentSnapshot();
+    delete missingResource.resources.motor;
+    missingResource.resources.scrap = { ...RESOURCES.motor, id: "scrap" };
+    const missingRecipe = createMutableContentSnapshot();
+    delete missingRecipe.recipes.motor;
+    missingRecipe.recipes.scrap = { ...RECIPES.motor, id: "scrap" };
+    const missingResourceErrors = validateContent(missingResource);
+
+    expect(missingResourceErrors.some((error) => error.includes("Resource IDs") && error.includes("motor") && error.includes("scrap"))).toBe(true);
+    expect(missingResourceErrors).toContain('Machine "belt" port "input" references unknown resource "motor".');
+    expect(missingResourceErrors).toContain('Recipe "motor" references unknown output resource "motor".');
+    expect(validateContent(missingRecipe).some((error) => error.includes("Recipe IDs") && error.includes("motor") && error.includes("scrap"))).toBe(true);
+  });
+
+  it("checks resource, machine, and recipe key and ID agreement", () => {
+    const snapshot = createMutableContentSnapshot();
+    snapshot.resources.copperOre = { ...snapshot.resources.copperOre, id: "ironOre" };
+    snapshot.machines.smelter = { ...snapshot.machines.smelter, type: "belt" };
+    snapshot.recipes.motor = { ...snapshot.recipes.motor, id: "frame" };
+    const invalidRecipeReference = createMutableContentSnapshot();
+    invalidRecipeReference.recipes.copperIngot = {
+      ...invalidRecipeReference.recipes.copperIngot,
+      inputs: { missingResource: 1 },
     };
 
-    expect(validateContent()).toEqual([]);
-    expect(
-      validateContent({
-        resources: RESOURCES,
-        machines: MACHINES,
-        recipes: invalidRecipes,
-        unlocks: UNLOCKS,
-      }),
-    ).toContain('Recipe "copperIngot" references unknown resource "missingResource".');
+    const errors = validateContent(snapshot);
+    expect(errors).toContain('Resource key "copperOre" must match id "ironOre".');
+    expect(errors).toContain('Machine key "smelter" must match type "belt".');
+    expect(errors).toContain('Recipe key "motor" must match id "frame".');
+    expect(validateContent(invalidRecipeReference)).toContain(
+      'Recipe "copperIngot" references unknown resource "missingResource".',
+    );
+  });
+
+  it("returns human-readable errors without throwing for malformed snapshots", () => {
+    const malformedPort = createMutableContentSnapshot();
+    malformedPort.machines.smelter = {
+      ...malformedPort.machines.smelter,
+      ports: [{ id: "input", kind: "input", offset: null, accepts: [null] }],
+    };
+    const malformedRecipeInputs = createMutableContentSnapshot();
+    malformedRecipeInputs.recipes.copperIngot = {
+      ...malformedRecipeInputs.recipes.copperIngot,
+      inputs: [],
+    };
+    const missingOutput = createMutableContentSnapshot();
+    delete missingOutput.recipes.copperIngot.output;
+    const malformedSnapshots: unknown[] = [
+      null,
+      [],
+      {},
+      { resources: "invalid", machines: 1, recipes: false, unlocks: null },
+      malformedPort,
+      malformedRecipeInputs,
+      missingOutput,
+    ];
+
+    for (const input of malformedSnapshots) {
+      let errors: string[] = [];
+      expect(() => {
+        errors = validateContent(input);
+      }).not.toThrow();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors.every((error) => typeof error === "string" && error.trim().length > 0)).toBe(true);
+    }
+
+    expect(validateContent(missingOutput)).toContain('Recipe "copperIngot" must define an output.');
+  });
+
+  it("reports mutable content snapshots as a validation error", () => {
+    const errors = validateContent(createMutableContentSnapshot());
+
+    expect(errors.some((error) => error.includes("deeply frozen"))).toBe(true);
+  });
+
+  it("requires initial unlock consistency in both directions and for both tables", () => {
+    const missingInitialMachine = createMutableContentSnapshot();
+    missingInitialMachine.unlocks.machines = ["belt", "depot"];
+    const extraInitialMachine = createMutableContentSnapshot();
+    extraInitialMachine.unlocks.machines.push("smelter");
+    const zeroCostRecipe = createMutableContentSnapshot();
+    zeroCostRecipe.recipes.copperIngot = {
+      ...zeroCostRecipe.recipes.copperIngot,
+      unlockCost: 0,
+    };
+    const extraInitialRecipe = createMutableContentSnapshot();
+    extraInitialRecipe.unlocks.recipes.push("copperIngot");
+
+    expect(validateContent(missingInitialMachine)).toContain(
+      'Machine "extractor" has zero unlock cost but is not initially unlocked.',
+    );
+    expect(validateContent(extraInitialMachine)).toContain(
+      'Initially unlocked machine "smelter" must have a zero unlock cost.',
+    );
+    expect(validateContent(extraInitialMachine).some((error) => error.includes("Initial machine unlocks"))).toBe(true);
+    expect(validateContent(zeroCostRecipe)).toContain(
+      'Recipe "copperIngot" has zero unlock cost but is not initially unlocked.',
+    );
+    expect(validateContent(extraInitialRecipe)).toContain(
+      'Initially unlocked recipe "copperIngot" must have a zero unlock cost.',
+    );
+    expect(validateContent(extraInitialRecipe).some((error) => error.includes("Initial recipe unlocks"))).toBe(true);
+  });
+
+  it("requires every smelter recipe input on the single mixed input port", () => {
+    const snapshot = createMutableContentSnapshot();
+    const smelterPorts = snapshot.machines.smelter.ports as Array<Record<string, unknown>>;
+    smelterPorts[0] = { ...smelterPorts[0], accepts: ["copperOre"] };
+    const assemblerSnapshot = createMutableContentSnapshot();
+    const assemblerPorts = assemblerSnapshot.machines.assembler.ports as Array<Record<string, unknown>>;
+    assemblerPorts[1] = { ...assemblerPorts[1], offset: assemblerPorts[0].offset };
+
+    expect(validateContent(snapshot)).toContain(
+      'Recipe "ironIngot" input "coal" is not accepted by smelter input port "input".',
+    );
+    expect(validateContent(assemblerSnapshot)).toContain(
+      'Machine "assembler" must use unique adjacent port offsets.',
+    );
+  });
+
+  it("allows shared storage only on the 100-unit silo", () => {
+    const separateSilo = createMutableContentSnapshot();
+    separateSilo.machines.silo = { ...separateSilo.machines.silo, bufferMode: "separate" };
+    const wrongCapacity = createMutableContentSnapshot();
+    wrongCapacity.machines.silo = { ...wrongCapacity.machines.silo, storageCapacity: 99 };
+    const sharedBelt = createMutableContentSnapshot();
+    sharedBelt.machines.belt = { ...sharedBelt.machines.belt, bufferMode: "shared", storageCapacity: 10 };
+
+    expect(validateContent(separateSilo)).toContain('Machine "silo" must use shared buffer mode.');
+    expect(validateContent(wrongCapacity)).toContain('Machine "silo" storage capacity must be exactly 100.');
+    expect(validateContent(sharedBelt)).toContain('Machine "belt" must use separate buffer mode.');
+    expect(validateContent(sharedBelt)).toContain('Machine "belt" must not define storageCapacity.');
+  });
+
+  it("keeps recipe duration authoritative over the machine timing fallback", () => {
+    const invalidFallback = createMutableContentSnapshot();
+    invalidFallback.machines.smelter = {
+      ...invalidFallback.machines.smelter,
+      defaultProcessTicks: 0,
+    };
+    const invalidRecipeDuration = createMutableContentSnapshot();
+    invalidRecipeDuration.recipes.copperIngot = {
+      ...invalidRecipeDuration.recipes.copperIngot,
+      durationTicks: 0,
+    };
+
+    expect(MACHINES.assembler.defaultProcessTicks).toBe(30);
+    expect(RECIPES.circuit.durationTicks).toBe(40);
+    expect(validateContent(deepFreeze(createMutableContentSnapshot()))).toEqual([]);
+    expect(validateContent(invalidFallback)).toContain(
+      'Machine "smelter" must have a positive integer defaultProcessTicks.',
+    );
+    expect(validateContent(invalidRecipeDuration)).toContain(
+      'Recipe "copperIngot" must have a positive integer durationTicks.',
+    );
   });
 });

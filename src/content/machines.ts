@@ -1,32 +1,7 @@
-import type { ResourceId } from "./resources";
+import { deepFreeze } from "./freeze";
+import type { MachineDefinition, MachineType, ResourceId } from "./types";
 
-export type MachineType = "extractor" | "belt" | "smelter" | "assembler" | "silo" | "depot";
-
-export interface GridPoint {
-  x: number;
-  y: number;
-}
-
-export interface PortDefinition {
-  id: string;
-  kind: "input" | "output";
-  offset: GridPoint;
-  accepts?: ResourceId[];
-  produces?: ResourceId;
-}
-
-export interface MachineDefinition {
-  type: MachineType;
-  footprint: { width: 1; height: 1 };
-  cost: number;
-  unlockCost: number;
-  inputBuffer: number;
-  outputBuffer: number;
-  processTicks: number;
-  ports: PortDefinition[];
-  spriteKey: string;
-  activeSpriteKey?: string;
-}
+export type { GridPoint, MachineDefinition, MachineType, PortDefinition } from "./types";
 
 const RAW_RESOURCES: ResourceId[] = ["copperOre", "ironOre", "coal", "stone"];
 const PROCESSED_RESOURCES: ResourceId[] = [
@@ -42,7 +17,7 @@ const PROCESSED_RESOURCES: ResourceId[] = [
 ];
 const ALL_RESOURCES: ResourceId[] = [...RAW_RESOURCES, ...PROCESSED_RESOURCES];
 
-export const MACHINES = {
+export const MACHINES = deepFreeze({
   extractor: {
     type: "extractor",
     footprint: { width: 1, height: 1 },
@@ -50,7 +25,8 @@ export const MACHINES = {
     unlockCost: 0,
     inputBuffer: 0,
     outputBuffer: 1,
-    processTicks: 20,
+    bufferMode: "separate",
+    defaultProcessTicks: 20,
     ports: [
       {
         id: "output",
@@ -68,7 +44,8 @@ export const MACHINES = {
     unlockCost: 0,
     inputBuffer: 1,
     outputBuffer: 1,
-    processTicks: 10,
+    bufferMode: "separate",
+    defaultProcessTicks: 10,
     ports: [
       {
         id: "input",
@@ -92,7 +69,8 @@ export const MACHINES = {
     unlockCost: 250,
     inputBuffer: 10,
     outputBuffer: 10,
-    processTicks: 20,
+    bufferMode: "separate",
+    defaultProcessTicks: 20,
     ports: [
       {
         id: "input",
@@ -116,7 +94,8 @@ export const MACHINES = {
     unlockCost: 500,
     inputBuffer: 20,
     outputBuffer: 10,
-    processTicks: 30,
+    bufferMode: "separate",
+    defaultProcessTicks: 30,
     ports: [
       {
         id: "input-1",
@@ -146,7 +125,9 @@ export const MACHINES = {
     unlockCost: 150,
     inputBuffer: 100,
     outputBuffer: 100,
-    processTicks: 10,
+    bufferMode: "shared",
+    storageCapacity: 100,
+    defaultProcessTicks: 10,
     ports: [
       {
         id: "input",
@@ -170,7 +151,8 @@ export const MACHINES = {
     unlockCost: 0,
     inputBuffer: 100,
     outputBuffer: 0,
-    processTicks: 1,
+    bufferMode: "separate",
+    defaultProcessTicks: 1,
     ports: [
       {
         id: "input",
@@ -182,7 +164,7 @@ export const MACHINES = {
     spriteKey: "machine.depot.idle",
     activeSpriteKey: "machine.depot.active",
   },
-} satisfies Record<MachineType, MachineDefinition>;
+} satisfies Record<MachineType, MachineDefinition>);
 
 export function getMachine(type: string): MachineDefinition | undefined {
   return Object.hasOwn(MACHINES, type) ? MACHINES[type as MachineType] : undefined;

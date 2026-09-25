@@ -1,30 +1,9 @@
-export type ResourceId =
-  | "copperOre"
-  | "ironOre"
-  | "coal"
-  | "stone"
-  | "copperIngot"
-  | "ironIngot"
-  | "refinedStone"
-  | "wire"
-  | "gear"
-  | "plate"
-  | "circuit"
-  | "frame"
-  | "motor";
+import { deepFreeze } from "./freeze";
+import type { ResourceDefinition, ResourceId } from "./types";
 
-export type ResourceTier = 0 | 1 | 2 | 3;
+export type { ResourceDefinition, ResourceId, ResourceTier } from "./types";
 
-export interface ResourceDefinition {
-  id: ResourceId;
-  tier: ResourceTier;
-  label: string;
-  sellValue: number;
-  iconKey: string;
-  color: string;
-}
-
-export const RESOURCES = {
+export const RESOURCES = deepFreeze({
   copperOre: {
     id: "copperOre",
     tier: 0,
@@ -129,7 +108,7 @@ export const RESOURCES = {
     iconKey: "resource.motor",
     color: "#d85b3f",
   },
-} satisfies Record<ResourceId, ResourceDefinition>;
+} satisfies Record<ResourceId, ResourceDefinition>);
 
 export function getResource(id: string): ResourceDefinition | undefined {
   return Object.hasOwn(RESOURCES, id) ? RESOURCES[id as ResourceId] : undefined;

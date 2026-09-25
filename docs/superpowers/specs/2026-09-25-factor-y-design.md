@@ -116,7 +116,7 @@ Each directory receives a child `AGENTS.md` through the DOX bootstrap after the 
 
 ## 5. Domain Model
 
-The following types are the public contracts for the first implementation plan:
+The following types are the public contracts for the first implementation plan. The content contracts are canonical in `src/content/types.ts` and are re-exported from `src/sim/types.ts` for compatibility.
 
 ```ts
 export type ResourceId =
@@ -142,51 +142,71 @@ export type MachineType =
   | "silo"
   | "depot";
 
+export type RecipeId =
+  | "copperIngot"
+  | "ironIngot"
+  | "refinedStone"
+  | "wire"
+  | "gear"
+  | "plate"
+  | "circuit"
+  | "frame"
+  | "motor";
+
+export type ResourceTier = 0 | 1 | 2 | 3;
+
 export type Rotation = 0 | 90 | 180 | 270;
 
 export interface GridPoint {
-  x: number;
-  y: number;
+  readonly x: number;
+  readonly y: number;
 }
 
 export interface ResourceDefinition {
-  id: ResourceId;
-  tier: 0 | 1 | 2 | 3;
-  label: string;
-  sellValue: number;
-  iconKey: string;
-  color: string;
+  readonly id: ResourceId;
+  readonly tier: ResourceTier;
+  readonly label: string;
+  readonly sellValue: number;
+  readonly iconKey: string;
+  readonly color: string;
 }
 
 export interface PortDefinition {
-  id: string;
-  kind: "input" | "output";
-  offset: GridPoint;
-  accepts?: ResourceId[];
-  produces?: ResourceId;
+  readonly id: string;
+  readonly kind: "input" | "output";
+  readonly offset: GridPoint;
+  readonly accepts?: readonly ResourceId[];
+  readonly produces?: ResourceId;
 }
 
 export interface MachineDefinition {
-  type: MachineType;
-  footprint: { width: 1; height: 1 };
-  cost: number;
-  unlockCost: number;
-  inputBuffer: number;
-  outputBuffer: number;
-  processTicks: number;
-  ports: PortDefinition[];
-  spriteKey: string;
-  activeSpriteKey?: string;
+  readonly type: MachineType;
+  readonly footprint: { readonly width: 1; readonly height: 1 };
+  readonly cost: number;
+  readonly unlockCost: number;
+  readonly inputBuffer: number;
+  readonly outputBuffer: number;
+  readonly bufferMode: "separate" | "shared";
+  readonly storageCapacity?: number;
+  readonly defaultProcessTicks: number;
+  readonly ports: readonly PortDefinition[];
+  readonly spriteKey: string;
+  readonly activeSpriteKey?: string;
 }
 
 export interface RecipeDefinition {
-  id: string;
-  machine: "smelter" | "assembler";
-  inputs: Partial<Record<ResourceId, number>>;
-  output: { resource: ResourceId; amount: number };
-  durationTicks: number;
-  unlockCost: number;
-  sellValue: number;
+  readonly id: RecipeId;
+  readonly machine: "smelter" | "assembler";
+  readonly inputs: Readonly<Partial<Record<ResourceId, number>>>;
+  readonly output: { readonly resource: ResourceId; readonly amount: number };
+  readonly durationTicks: number;
+  readonly unlockCost: number;
+  readonly sellValue: number;
+}
+
+export interface UnlockTable {
+  readonly machines: readonly MachineType[];
+  readonly recipes: readonly RecipeId[];
 }
 
 export interface Entity {
@@ -324,6 +344,8 @@ export type SimulationCommand =
   | { type: "dismissNotification"; id: string };
 ```
 
+The shipped `RESOURCES`, `MACHINES`, `RECIPES`, and `UNLOCKS` tables are recursively frozen at module initialization. The frozen tables and the total `validateContent(input: unknown)` validator are the content boundary consumed by simulation and presentation layers.
+
 The exact runtime state may contain private indexes, but the serialized `SaveGame` shape remains explicit and validated. Private derived indexes are rebuilt after load. `BeltCell.progress` is a normalized value from 0 to 1 and is reset when an item enters or leaves a belt cell.
 
 ## 6. Content Definition
@@ -350,7 +372,7 @@ Raw resources remain sellable for recovery value, but the higher-tier values mak
 | Storage Silo | 150 | one input, one output | Buffers up to 100 units of one resource type |
 | Shipping Depot | 100 | one input | Sells received resources at the current sell multiplier |
 
-All machines occupy one cell. A port is a rotated cell offset from the entity origin. A connection exists only when an output port faces a compatible input port on the adjacent cell. The Storage Silo accepts any resource on its input port and preserves the first resource type it receives until that buffer is emptied. The v1 graph has no splitter or priority behavior.
+All machines occupy one cell. A port is a rotated cell offset from the entity origin. A connection exists only when an output port faces a compatible input port on the adjacent cell. The Smelter has one mixed input port and buffer that accepts Copper Ore, Iron Ore, Coal, and Stone, so recipes such as Iron Ingot can consume two raw resources on the same port. The Assembler keeps two separate input ports and buffers. The Storage Silo accepts any resource on its input port and preserves the first resource type it receives until that buffer is emptied. Its `bufferMode` is `shared`, and `inputBuffer`, `outputBuffer`, and `storageCapacity` all reference one 100-unit pool; every other machine uses `bufferMode: "separate"` and omits `storageCapacity`. `defaultProcessTicks` is the fallback timing for machines without a selected recipe, while a selected recipe's `durationTicks` is always authoritative. The v1 graph has no splitter or priority behavior.
 
 ### 6.3 Recipes
 

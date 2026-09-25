@@ -1,72 +1,19 @@
-export type ResourceId =
-  | "copperOre"
-  | "ironOre"
-  | "coal"
-  | "stone"
-  | "copperIngot"
-  | "ironIngot"
-  | "refinedStone"
-  | "wire"
-  | "gear"
-  | "plate"
-  | "circuit"
-  | "frame"
-  | "motor";
+import type { MachineType, ResourceId } from "../content/types";
 
-export type MachineType =
-  | "extractor"
-  | "belt"
-  | "smelter"
-  | "assembler"
-  | "silo"
-  | "depot";
+export type {
+  GridPoint,
+  MachineDefinition,
+  MachineType,
+  PortDefinition,
+  RecipeDefinition,
+  RecipeId,
+  ResourceDefinition,
+  ResourceId,
+  ResourceTier,
+  UnlockTable,
+} from "../content/types";
 
 export type Rotation = 0 | 90 | 180 | 270;
-
-export interface GridPoint {
-  x: number;
-  y: number;
-}
-
-export interface ResourceDefinition {
-  id: ResourceId;
-  tier: 0 | 1 | 2 | 3;
-  label: string;
-  sellValue: number;
-  iconKey: string;
-  color: string;
-}
-
-export interface PortDefinition {
-  id: string;
-  kind: "input" | "output";
-  offset: GridPoint;
-  accepts?: ResourceId[];
-  produces?: ResourceId;
-}
-
-export interface MachineDefinition {
-  type: MachineType;
-  footprint: { width: 1; height: 1 };
-  cost: number;
-  unlockCost: number;
-  inputBuffer: number;
-  outputBuffer: number;
-  processTicks: number;
-  ports: PortDefinition[];
-  spriteKey: string;
-  activeSpriteKey?: string;
-}
-
-export interface RecipeDefinition {
-  id: string;
-  machine: "smelter" | "assembler";
-  inputs: Partial<Record<ResourceId, number>>;
-  output: { resource: ResourceId; amount: number };
-  durationTicks: number;
-  unlockCost: number;
-  sellValue: number;
-}
 
 export interface Entity {
   id: string;

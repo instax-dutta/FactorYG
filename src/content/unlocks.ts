@@ -1,12 +1,9 @@
-import type { MachineType } from "./machines";
-import type { RecipeId } from "./recipes";
+import { deepFreeze } from "./freeze";
+import type { UnlockTable } from "./types";
 
-export interface UnlockTable {
-  machines: readonly MachineType[];
-  recipes: readonly RecipeId[];
-}
+export type { UnlockTable } from "./types";
 
-export const UNLOCKS = {
+export const UNLOCKS = deepFreeze({
   machines: ["extractor", "belt", "depot"],
   recipes: [],
-} as const satisfies UnlockTable;
+} satisfies UnlockTable);

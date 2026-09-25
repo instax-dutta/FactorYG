@@ -1,23 +1,52 @@
-import { MACHINES, type MachineDefinition, type MachineType } from "./machines";
-import { RECIPES, type RecipeDefinition } from "./recipes";
-import { RESOURCES, type ResourceDefinition } from "./resources";
-import { UNLOCKS, type UnlockTable } from "./unlocks";
+import { deepFreeze } from "./freeze";
+import { MACHINES } from "./machines";
+import { RECIPES } from "./recipes";
+import { RESOURCES } from "./resources";
+import { UNLOCKS } from "./unlocks";
 
-export interface ContentTables {
-  resources: Readonly<Record<string, ResourceDefinition>>;
-  machines: Readonly<Record<string, MachineDefinition>>;
-  recipes: Readonly<Record<string, RecipeDefinition>>;
-  unlocks: UnlockTable;
+type UnknownRecord = Record<string, unknown>;
+
+interface InputPortValidation {
+  id: string;
+  accepts: ReadonlySet<string>;
 }
 
-const DEFAULT_CONTENT: ContentTables = {
-  resources: RESOURCES,
-  machines: MACHINES,
-  recipes: RECIPES,
-  unlocks: UNLOCKS,
-};
+interface MachineValidation {
+  inputPorts: InputPortValidation[];
+}
 
-const PORT_COUNTS: Record<MachineType, { inputs: number; outputs: number }> = {
+const EXPECTED_RESOURCE_IDS = [
+  "copperOre",
+  "ironOre",
+  "coal",
+  "stone",
+  "copperIngot",
+  "ironIngot",
+  "refinedStone",
+  "wire",
+  "gear",
+  "plate",
+  "circuit",
+  "frame",
+  "motor",
+] as const;
+const EXPECTED_MACHINE_IDS = ["extractor", "belt", "smelter", "assembler", "silo", "depot"] as const;
+const EXPECTED_RECIPE_IDS = [
+  "copperIngot",
+  "ironIngot",
+  "refinedStone",
+  "wire",
+  "gear",
+  "plate",
+  "circuit",
+  "frame",
+  "motor",
+] as const;
+const EXPECTED_INITIAL_MACHINES = ["extractor", "belt", "depot"] as const;
+const EXPECTED_INITIAL_RECIPES: readonly string[] = [];
+const MACHINE_IDS: ReadonlySet<string> = new Set(EXPECTED_MACHINE_IDS);
+const RECIPE_IDS: ReadonlySet<string> = new Set(EXPECTED_RECIPE_IDS);
+const PORT_COUNTS: Readonly<Record<string, { inputs: number; outputs: number }>> = {
   extractor: { inputs: 0, outputs: 1 },
   belt: { inputs: 1, outputs: 1 },
   smelter: { inputs: 1, outputs: 1 },
@@ -26,275 +55,564 @@ const PORT_COUNTS: Record<MachineType, { inputs: number; outputs: number }> = {
   depot: { inputs: 1, outputs: 0 },
 };
 
-function isFiniteNumber(value: number): boolean {
-  return Number.isFinite(value);
+const DEFAULT_CONTENT = deepFreeze({
+  resources: RESOURCES,
+  machines: MACHINES,
+  recipes: RECIPES,
+  unlocks: UNLOCKS,
+});
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isNonNegativeInteger(value: number): boolean {
-  return Number.isInteger(value) && value >= 0;
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
-function isPositiveInteger(value: number): boolean {
-  return Number.isInteger(value) && value > 0;
+function isNonNegativeInteger(value: unknown): value is number {
+  return isFiniteNumber(value) && Number.isInteger(value) && value >= 0;
 }
 
-function isNonEmptyString(value: string): boolean {
-  return value.trim().length > 0;
+function isPositiveInteger(value: unknown): value is number {
+  return isFiniteNumber(value) && Number.isInteger(value) && value > 0;
 }
 
-function isHexColor(value: string): boolean {
-  return /^#[0-9a-f]{6}$/i.test(value);
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
-function isAdjacentPortOffset(machine: MachineDefinition, port: MachineDefinition["ports"][number]): boolean {
-  const { x, y } = port.offset;
-  const isInteger = Number.isInteger(x) && Number.isInteger(y);
-  const isAdjacent = Math.abs(x) + Math.abs(y) === 1;
-
-  return isInteger && isAdjacent && machine.footprint.width === 1 && machine.footprint.height === 1;
+function isHexColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
 }
 
-function validateResources(resources: ContentTables["resources"]): string[] {
-  const errors: string[] = [];
-  const entries = Object.entries(resources);
+function formatList(values: readonly string[]): string {
+  return values.length === 0 ? "no entries" : values.join(", ");
+}
+
+function formatUnknown(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === null || value === undefined || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return typeof value;
+}
+
+function validateExactIdSet(
+  label: string,
+  expected: readonly string[],
+  actual: ReadonlySet<string>,
+  errors: string[],
+): void {
+  const missing = expected.filter((id) => !actual.has(id));
+  const unexpected = [...actual].filter((id) => !expected.includes(id)).sort();
+  if (missing.length === 0 && unexpected.length === 0) {
+    return;
+  }
+
+  const details: string[] = [];
+  if (missing.length > 0) {
+    details.push(`missing: ${formatList(missing)}`);
+  }
+  if (unexpected.length > 0) {
+    details.push(`unexpected: ${formatList(unexpected)}`);
+  }
+  errors.push(`${label} IDs must exactly match the canonical set; ${details.join("; ")}.`);
+}
+
+function validateExactInitialSet(
+  label: string,
+  expected: readonly string[],
+  actual: ReadonlySet<string>,
+  errors: string[],
+): void {
+  const missing = expected.filter((id) => !actual.has(id));
+  const unexpected = [...actual].filter((id) => !expected.includes(id)).sort();
+  if (missing.length === 0 && unexpected.length === 0) {
+    return;
+  }
+
+  const details: string[] = [];
+  if (missing.length > 0) {
+    details.push(`missing: ${formatList(missing)}`);
+  }
+  if (unexpected.length > 0) {
+    details.push(`unexpected: ${formatList(unexpected)}`);
+  }
+  errors.push(`${label} must exactly match ${formatList(expected)}; ${details.join("; ")}.`);
+}
+
+function collectFreezeErrors(
+  value: unknown,
+  path: string,
+  seen: WeakSet<object>,
+  errors: string[],
+): void {
+  if (typeof value !== "object" || value === null) {
+    return;
+  }
+  if (!Object.isFrozen(value)) {
+    errors.push(`Content path "${path || "$"}" must be deeply frozen.`);
+  }
+  if (seen.has(value)) {
+    return;
+  }
+  seen.add(value);
+
+  for (const [key, nested] of Object.entries(value)) {
+    collectFreezeErrors(nested, path === "" ? key : `${path}.${key}`, seen, errors);
+  }
+}
+
+function validateResources(resources: UnknownRecord, errors: string[]): Set<string> {
+  const resourceIds = new Set(Object.keys(resources));
   const iconKeys = new Set<string>();
   const colors = new Set<string>();
 
-  if (entries.length !== 13) {
-    errors.push(`Expected 13 resources, found ${entries.length}.`);
+  validateExactIdSet("Resource", EXPECTED_RESOURCE_IDS, resourceIds, errors);
+
+  for (const [key, value] of Object.entries(resources)) {
+    if (!isRecord(value)) {
+      errors.push(`Resource "${key}" must be an object.`);
+      continue;
+    }
+    if (value.id !== key) {
+      errors.push(`Resource key "${key}" must match id "${String(value.id)}".`);
+    }
+    if (![0, 1, 2, 3].includes(value.tier as number)) {
+      errors.push(`Resource "${key}" must have a tier from 0 through 3.`);
+    }
+    if (!isNonEmptyString(value.label)) {
+      errors.push(`Resource "${key}" must have a label.`);
+    }
+    if (!isFiniteNumber(value.sellValue) || value.sellValue <= 0) {
+      errors.push(`Resource "${key}" must have a positive finite sell value.`);
+    }
+    if (!isNonEmptyString(value.iconKey)) {
+      errors.push(`Resource "${key}" must have an icon key.`);
+    } else if (iconKeys.has(value.iconKey)) {
+      errors.push(`Resource "${key}" duplicates icon key "${value.iconKey}".`);
+    } else {
+      iconKeys.add(value.iconKey);
+    }
+    if (!isHexColor(value.color)) {
+      errors.push(`Resource "${key}" must have a six-digit hexadecimal color.`);
+    } else if (colors.has(value.color)) {
+      errors.push(`Resource "${key}" duplicates color "${value.color}".`);
+    } else {
+      colors.add(value.color);
+    }
   }
 
-  for (const [id, resource] of entries) {
-    if (resource.id !== id) {
-      errors.push(`Resource key "${id}" does not match id "${resource.id}".`);
-    }
-    if (![0, 1, 2, 3].includes(resource.tier)) {
-      errors.push(`Resource "${id}" has invalid tier ${resource.tier}.`);
-    }
-    if (!isNonEmptyString(resource.label)) {
-      errors.push(`Resource "${id}" must have a label.`);
-    }
-    if (!isFiniteNumber(resource.sellValue) || resource.sellValue <= 0) {
-      errors.push(`Resource "${id}" must have a positive finite sell value.`);
-    }
-    if (!isNonEmptyString(resource.iconKey)) {
-      errors.push(`Resource "${id}" must have an icon key.`);
-    } else if (iconKeys.has(resource.iconKey)) {
-      errors.push(`Resource "${id}" duplicates icon key "${resource.iconKey}".`);
+  return resourceIds;
+}
+
+function validatePort(
+  machineKey: string,
+  portValue: unknown,
+  portIndex: number,
+  resourceIds: ReadonlySet<string>,
+  portIds: Set<string>,
+  offsetKeys: Set<string>,
+  errors: string[],
+): InputPortValidation | undefined {
+  if (!isRecord(portValue)) {
+    errors.push(`Machine "${machineKey}" port at index ${portIndex} must be an object.`);
+    return undefined;
+  }
+
+  if (!isNonEmptyString(portValue.id)) {
+    errors.push(`Machine "${machineKey}" must have non-empty port identifiers.`);
+  } else if (portIds.has(portValue.id)) {
+    errors.push(`Machine "${machineKey}" port "${portValue.id}" must have a unique identifier.`);
+  } else {
+    portIds.add(portValue.id);
+  }
+
+  if (portValue.kind !== "input" && portValue.kind !== "output") {
+    errors.push(`Machine "${machineKey}" port "${String(portValue.id)}" must be an input or output.`);
+    return undefined;
+  }
+
+  if (!isRecord(portValue.offset)) {
+    errors.push(`Machine "${machineKey}" port "${String(portValue.id)}" must have an offset object.`);
+  } else {
+    const { x, y } = portValue.offset;
+    const isAdjacent = isFiniteNumber(x) && isFiniteNumber(y) && Math.abs(x) + Math.abs(y) === 1;
+    if (!isFiniteNumber(x) || !isFiniteNumber(y) || !Number.isInteger(x) || !Number.isInteger(y) || !isAdjacent) {
+      errors.push(`Machine "${machineKey}" port "${String(portValue.id)}" must use an adjacent integer offset.`);
     } else {
-      iconKeys.add(resource.iconKey);
-    }
-    if (!isHexColor(resource.color)) {
-      errors.push(`Resource "${id}" must have a six-digit hexadecimal color.`);
-    } else if (colors.has(resource.color)) {
-      errors.push(`Resource "${id}" duplicates color "${resource.color}".`);
-    } else {
-      colors.add(resource.color);
+      const offsetKey = `${x},${y}`;
+      if (offsetKeys.has(offsetKey)) {
+        errors.push(`Machine "${machineKey}" must use unique adjacent port offsets.`);
+      } else {
+        offsetKeys.add(offsetKey);
+      }
     }
   }
 
-  return errors;
+  if (portValue.kind === "output") {
+    if (Object.hasOwn(portValue, "accepts")) {
+      errors.push(`Machine "${machineKey}" output port "${String(portValue.id)}" must not define accepts.`);
+    }
+    if (portValue.produces !== undefined && !resourceIds.has(formatUnknown(portValue.produces))) {
+      errors.push(`Machine "${machineKey}" port "${String(portValue.id)}" references unknown produced resource "${formatUnknown(portValue.produces)}".`);
+    }
+    return undefined;
+  }
+
+  if (!Array.isArray(portValue.accepts)) {
+    errors.push(`Machine "${machineKey}" input port "${String(portValue.id)}" must declare accepted resources.`);
+    return undefined;
+  }
+
+  const accepts = new Set<string>();
+  for (const accepted of portValue.accepts) {
+    if (!resourceIds.has(String(accepted))) {
+      errors.push(`Machine "${machineKey}" port "${String(portValue.id)}" references unknown resource "${String(accepted)}".`);
+      continue;
+    }
+    if (accepts.has(String(accepted))) {
+      errors.push(`Machine "${machineKey}" port "${String(portValue.id)}" duplicates resource "${String(accepted)}".`);
+    }
+    accepts.add(String(accepted));
+  }
+  if (accepts.size === 0) {
+    errors.push(`Machine "${machineKey}" input port "${String(portValue.id)}" must accept at least one resource.`);
+  }
+
+  return isNonEmptyString(portValue.id) ? { id: portValue.id, accepts } : undefined;
 }
 
 function validateMachines(
-  machines: ContentTables["machines"],
+  machines: UnknownRecord,
   resourceIds: ReadonlySet<string>,
-): string[] {
-  const errors: string[] = [];
-  const entries = Object.entries(machines);
+  errors: string[],
+): Map<string, MachineValidation> {
+  const machineIds = new Set(Object.keys(machines));
+  const validations = new Map<string, MachineValidation>();
   const spriteKeys = new Set<string>();
 
-  if (entries.length !== 6) {
-    errors.push(`Expected 6 machines, found ${entries.length}.`);
-  }
+  validateExactIdSet("Machine", EXPECTED_MACHINE_IDS, machineIds, errors);
 
-  for (const [type, machine] of entries) {
-    if (machine.type !== type) {
-      errors.push(`Machine key "${type}" does not match type "${machine.type}".`);
+  for (const [key, value] of Object.entries(machines)) {
+    if (!isRecord(value)) {
+      errors.push(`Machine "${key}" must be an object.`);
+      continue;
     }
-    if (machine.footprint.width !== 1 || machine.footprint.height !== 1) {
-      errors.push(`Machine "${type}" must have a 1 by 1 footprint.`);
+
+    if (value.type !== key) {
+      errors.push(`Machine key "${key}" must match type "${String(value.type)}".`);
+    } else if (!MACHINE_IDS.has(key)) {
+      errors.push(`Machine "${key}" must have a canonical type.`);
     }
-    if (!isFiniteNumber(machine.cost) || machine.cost < 0) {
-      errors.push(`Machine "${type}" must have a non-negative finite cost.`);
+
+    if (!isRecord(value.footprint) || value.footprint.width !== 1 || value.footprint.height !== 1) {
+      errors.push(`Machine "${key}" must have a 1 by 1 footprint.`);
     }
-    if (!isNonNegativeInteger(machine.unlockCost)) {
-      errors.push(`Machine "${type}" must have a non-negative integer unlock cost.`);
+    if (!isFiniteNumber(value.cost) || value.cost < 0) {
+      errors.push(`Machine "${key}" must have a non-negative finite cost.`);
     }
-    if (!isNonNegativeInteger(machine.inputBuffer)) {
-      errors.push(`Machine "${type}" must have a non-negative integer input buffer.`);
+    if (!isNonNegativeInteger(value.unlockCost)) {
+      errors.push(`Machine "${key}" must have a non-negative integer unlock cost.`);
     }
-    if (!isNonNegativeInteger(machine.outputBuffer)) {
-      errors.push(`Machine "${type}" must have a non-negative integer output buffer.`);
+    if (!isNonNegativeInteger(value.inputBuffer)) {
+      errors.push(`Machine "${key}" must have a non-negative integer input buffer.`);
     }
-    if (!isPositiveInteger(machine.processTicks)) {
-      errors.push(`Machine "${type}" must have a positive integer process tick count.`);
+    if (!isNonNegativeInteger(value.outputBuffer)) {
+      errors.push(`Machine "${key}" must have a non-negative integer output buffer.`);
     }
-    if (!isNonEmptyString(machine.spriteKey) || spriteKeys.has(machine.spriteKey)) {
-      errors.push(`Machine "${type}" must have a unique sprite key.`);
+    if (!isPositiveInteger(value.defaultProcessTicks)) {
+      errors.push(`Machine "${key}" must have a positive integer defaultProcessTicks.`);
+    }
+    if (Object.hasOwn(value, "processTicks")) {
+      errors.push(`Machine "${key}" must use defaultProcessTicks instead of processTicks.`);
+    }
+
+    if (key === "silo") {
+      if (value.bufferMode !== "shared") {
+        errors.push(`Machine "silo" must use shared buffer mode.`);
+      }
+      if (value.storageCapacity !== 100) {
+        errors.push('Machine "silo" storage capacity must be exactly 100.');
+      }
+      if (value.inputBuffer !== 100 || value.outputBuffer !== 100) {
+        errors.push('Machine "silo" input and output buffers must reference the shared capacity of 100.');
+      }
     } else {
-      spriteKeys.add(machine.spriteKey);
+      if (value.bufferMode !== "separate") {
+        errors.push(`Machine "${key}" must use separate buffer mode.`);
+      }
+      if (Object.hasOwn(value, "storageCapacity")) {
+        errors.push(`Machine "${key}" must not define storageCapacity.`);
+      }
     }
-    if (machine.activeSpriteKey === undefined || !isNonEmptyString(machine.activeSpriteKey)) {
-      errors.push(`Machine "${type}" must have an active sprite key.`);
-    } else if (spriteKeys.has(machine.activeSpriteKey)) {
-      errors.push(`Machine "${type}" duplicates active sprite key "${machine.activeSpriteKey}".`);
+
+    if (!isNonEmptyString(value.spriteKey)) {
+      errors.push(`Machine "${key}" must have a sprite key.`);
+    } else if (spriteKeys.has(value.spriteKey)) {
+      errors.push(`Machine "${key}" duplicates sprite key "${value.spriteKey}".`);
     } else {
-      spriteKeys.add(machine.activeSpriteKey);
+      spriteKeys.add(value.spriteKey);
     }
-
-    const expectedPortCounts = PORT_COUNTS[machine.type];
-    const inputPorts = machine.ports.filter((port) => port.kind === "input");
-    const outputPorts = machine.ports.filter((port) => port.kind === "output");
-    const portIds = new Set<string>();
-
-    if (expectedPortCounts === undefined) {
-      errors.push(`Machine "${type}" has an unsupported port contract.`);
+    if (!isNonEmptyString(value.activeSpriteKey)) {
+      errors.push(`Machine "${key}" must have an active sprite key.`);
+    } else if (spriteKeys.has(value.activeSpriteKey)) {
+      errors.push(`Machine "${key}" duplicates active sprite key "${value.activeSpriteKey}".`);
     } else {
-      if (inputPorts.length !== expectedPortCounts.inputs) {
-        errors.push(`Machine "${type}" must define ${expectedPortCounts.inputs} input port(s).`);
-      }
-      if (outputPorts.length !== expectedPortCounts.outputs) {
-        errors.push(`Machine "${type}" must define ${expectedPortCounts.outputs} output port(s).`);
-      }
+      spriteKeys.add(value.activeSpriteKey);
     }
 
-    for (const port of machine.ports) {
-      if (!isNonEmptyString(port.id) || portIds.has(port.id)) {
-        errors.push(`Machine "${type}" must have unique port identifiers.`);
-      } else {
-        portIds.add(port.id);
-      }
-      if (port.kind !== "input" && port.kind !== "output") {
-        errors.push(`Machine "${type}" port "${port.id}" has an invalid kind.`);
-      }
-      if (!isAdjacentPortOffset(machine, port)) {
-        errors.push(`Machine "${type}" port "${port.id}" must use an adjacent integer offset.`);
-      }
-      if (port.kind === "input") {
-        if (port.accepts === undefined || port.accepts.length === 0) {
-          errors.push(`Machine "${type}" input port "${port.id}" must declare accepted resources.`);
-        } else {
-          for (const resource of port.accepts) {
-            if (!resourceIds.has(resource)) {
-              errors.push(`Machine "${type}" port "${port.id}" references unknown resource "${resource}".`);
-            }
-          }
+    const inputPorts: InputPortValidation[] = [];
+    if (!Array.isArray(value.ports)) {
+      errors.push(`Machine "${key}" ports must be an array.`);
+    } else {
+      const portIds = new Set<string>();
+      const offsetKeys = new Set<string>();
+      let inputCount = 0;
+      let outputCount = 0;
+
+      for (const [index, port] of value.ports.entries()) {
+        if (isRecord(port) && port.kind === "input") {
+          inputCount += 1;
+        } else if (isRecord(port) && port.kind === "output") {
+          outputCount += 1;
+        }
+        const inputPort = validatePort(key, port, index, resourceIds, portIds, offsetKeys, errors);
+        if (inputPort !== undefined) {
+          inputPorts.push(inputPort);
         }
       }
-      if (port.produces !== undefined && !resourceIds.has(port.produces)) {
-        errors.push(`Machine "${type}" port "${port.id}" references unknown produced resource "${port.produces}".`);
+
+      const expectedCounts = PORT_COUNTS[key];
+      if (expectedCounts === undefined) {
+        errors.push(`Machine "${key}" has an unsupported port contract.`);
+      } else {
+        if (inputCount !== expectedCounts.inputs) {
+          errors.push(`Machine "${key}" must define ${expectedCounts.inputs} input port(s).`);
+        }
+        if (outputCount !== expectedCounts.outputs) {
+          errors.push(`Machine "${key}" must define ${expectedCounts.outputs} output port(s).`);
+        }
       }
     }
+
+    validations.set(key, { inputPorts });
   }
 
-  return errors;
+  return validations;
 }
 
 function validateRecipes(
-  recipes: ContentTables["recipes"],
-  resources: ContentTables["resources"],
-  machines: ContentTables["machines"],
-): string[] {
-  const errors: string[] = [];
-  const entries = Object.entries(recipes);
+  recipes: UnknownRecord,
+  resources: UnknownRecord,
+  machines: ReadonlyMap<string, MachineValidation>,
+  errors: string[],
+): void {
+  const recipeIds = new Set(Object.keys(recipes));
+  validateExactIdSet("Recipe", EXPECTED_RECIPE_IDS, recipeIds, errors);
 
-  if (entries.length !== 9) {
-    errors.push(`Expected 9 recipes, found ${entries.length}.`);
-  }
-
-  for (const [id, recipe] of entries) {
-    if (recipe.id !== id) {
-      errors.push(`Recipe key "${id}" does not match id "${recipe.id}".`);
+  for (const [key, value] of Object.entries(recipes)) {
+    if (!isRecord(value)) {
+      errors.push(`Recipe "${key}" must be an object.`);
+      continue;
     }
-    if (recipe.machine !== "smelter" && recipe.machine !== "assembler") {
-      errors.push(`Recipe "${id}" must run on a smelter or assembler.`);
-    } else if (!Object.hasOwn(machines, recipe.machine)) {
-      errors.push(`Recipe "${id}" references unknown machine "${recipe.machine}".`);
+    if (value.id !== key) {
+      errors.push(`Recipe key "${key}" must match id "${String(value.id)}".`);
     }
-
-    const inputs = Object.entries(recipe.inputs);
-    if (inputs.length === 0) {
-      errors.push(`Recipe "${id}" must define at least one input.`);
-    }
-    for (const [resource, amount] of inputs) {
-      if (!Object.hasOwn(resources, resource)) {
-        errors.push(`Recipe "${id}" references unknown resource "${resource}".`);
-      }
-      if (!isFiniteNumber(amount) || amount <= 0) {
-        errors.push(`Recipe "${id}" input "${resource}" must have a positive finite amount.`);
-      }
+    if (value.machine !== "smelter" && value.machine !== "assembler") {
+      errors.push(`Recipe "${key}" must run on a smelter or assembler.`);
+    } else if (!machines.has(value.machine)) {
+      errors.push(`Recipe "${key}" references unknown machine "${value.machine}".`);
     }
 
-    if (!Object.hasOwn(resources, recipe.output.resource)) {
-      errors.push(`Recipe "${id}" references unknown output resource "${recipe.output.resource}".`);
-    } else if (!isPositiveInteger(recipe.output.amount)) {
-      errors.push(`Recipe "${id}" must produce a positive integer amount.`);
+    const inputIds: string[] = [];
+    if (!isRecord(value.inputs)) {
+      errors.push(`Recipe "${key}" inputs must be an object of resource amounts.`);
     } else {
-      const resource = resources[recipe.output.resource];
-      const expectedSellValue = resource.sellValue * recipe.output.amount;
-      if (recipe.sellValue !== expectedSellValue) {
-        errors.push(`Recipe "${id}" sell value must equal ${expectedSellValue}.`);
+      const inputs = Object.entries(value.inputs);
+      if (inputs.length === 0) {
+        errors.push(`Recipe "${key}" must define at least one input.`);
+      }
+      for (const [resource, amount] of inputs) {
+        inputIds.push(resource);
+        if (!Object.hasOwn(resources, resource)) {
+          errors.push(`Recipe "${key}" references unknown resource "${resource}".`);
+        }
+        if (!isFiniteNumber(amount) || amount <= 0) {
+          errors.push(`Recipe "${key}" input "${resource}" must have a positive finite amount.`);
+        }
       }
     }
 
-    if (!isPositiveInteger(recipe.durationTicks)) {
-      errors.push(`Recipe "${id}" must have a positive integer duration.`);
+    if (!isRecord(value.output)) {
+      errors.push(`Recipe "${key}" must define an output.`);
+    } else {
+      const outputResource = value.output.resource;
+      if (!Object.hasOwn(resources, String(outputResource))) {
+        errors.push(`Recipe "${key}" references unknown output resource "${String(outputResource)}".`);
+      }
+      if (!isPositiveInteger(value.output.amount)) {
+        errors.push(`Recipe "${key}" must produce a positive integer amount.`);
+      }
+      const resource = isRecord(resources[String(outputResource)]) ? resources[String(outputResource)] : undefined;
+      if (isRecord(resource) && isFiniteNumber(resource.sellValue) && isPositiveInteger(value.output.amount)) {
+        const expectedSellValue = resource.sellValue * value.output.amount;
+        if (value.sellValue !== expectedSellValue) {
+          errors.push(`Recipe "${key}" sell value must equal ${expectedSellValue}.`);
+        }
+      }
     }
-    if (!isNonNegativeInteger(recipe.unlockCost)) {
-      errors.push(`Recipe "${id}" must have a non-negative integer unlock cost.`);
+
+    if (!isPositiveInteger(value.durationTicks)) {
+      errors.push(`Recipe "${key}" must have a positive integer durationTicks.`);
     }
-    if (!isFiniteNumber(recipe.sellValue) || recipe.sellValue <= 0) {
-      errors.push(`Recipe "${id}" must have a positive finite sell value.`);
+    if (!isNonNegativeInteger(value.unlockCost)) {
+      errors.push(`Recipe "${key}" must have a non-negative integer unlock cost.`);
+    }
+    if (!isFiniteNumber(value.sellValue) || value.sellValue <= 0) {
+      errors.push(`Recipe "${key}" must have a positive finite sell value.`);
+    }
+
+    if ((value.machine === "smelter" || value.machine === "assembler") && machines.has(value.machine)) {
+      const machine = machines.get(value.machine);
+      for (const resource of inputIds) {
+        const acceptingPort = machine?.inputPorts.find((port) => port.accepts.has(resource));
+        if (acceptingPort === undefined) {
+          const portId = machine?.inputPorts[0]?.id ?? "unknown";
+          errors.push(`Recipe "${key}" input "${resource}" is not accepted by ${value.machine} input port "${portId}".`);
+        }
+      }
     }
   }
+}
 
-  return errors;
+function parseUnlockList(
+  value: unknown,
+  canonicalIds: ReadonlySet<string>,
+  label: string,
+  errors: string[],
+): Set<string> {
+  if (!Array.isArray(value)) {
+    errors.push(`${label} must be an array.`);
+    return new Set();
+  }
+
+  const ids = new Set<string>();
+  for (const id of value) {
+    if (!isNonEmptyString(id) || !canonicalIds.has(id)) {
+      errors.push(`${label} references unknown ID "${String(id)}".`);
+      continue;
+    }
+    if (ids.has(id)) {
+      errors.push(`${label} must not contain duplicate ID "${id}".`);
+    }
+    ids.add(id);
+  }
+  return ids;
 }
 
 function validateUnlocks(
-  unlocks: UnlockTable,
-  machines: ContentTables["machines"],
-  recipes: ContentTables["recipes"],
-): string[] {
+  unlocks: UnknownRecord,
+  machines: UnknownRecord,
+  recipes: UnknownRecord,
+  errors: string[],
+): void {
+  const initialMachines = parseUnlockList(
+    unlocks.machines,
+    MACHINE_IDS,
+    "Initial machine unlocks",
+    errors,
+  );
+  const initialRecipes = parseUnlockList(
+    unlocks.recipes,
+    RECIPE_IDS,
+    "Initial recipe unlocks",
+    errors,
+  );
+
+  validateExactInitialSet(
+    "Initial machine unlocks",
+    EXPECTED_INITIAL_MACHINES,
+    initialMachines,
+    errors,
+  );
+  validateExactInitialSet("Initial recipe unlocks", EXPECTED_INITIAL_RECIPES, initialRecipes, errors);
+
+  for (const [key, value] of Object.entries(machines)) {
+    if (!isRecord(value)) {
+      continue;
+    }
+    if (value.unlockCost === 0 && !initialMachines.has(key)) {
+      errors.push(`Machine "${key}" has zero unlock cost but is not initially unlocked.`);
+    }
+  }
+  for (const key of initialMachines) {
+    const machine = machines[key];
+    if (isRecord(machine) && machine.unlockCost !== 0) {
+      errors.push(`Initially unlocked machine "${key}" must have a zero unlock cost.`);
+    }
+  }
+
+  for (const [key, value] of Object.entries(recipes)) {
+    if (!isRecord(value)) {
+      continue;
+    }
+    if (value.unlockCost === 0 && !initialRecipes.has(key)) {
+      errors.push(`Recipe "${key}" has zero unlock cost but is not initially unlocked.`);
+    }
+  }
+  for (const key of initialRecipes) {
+    const recipe = recipes[key];
+    if (isRecord(recipe) && recipe.unlockCost !== 0) {
+      errors.push(`Initially unlocked recipe "${key}" must have a zero unlock cost.`);
+    }
+  }
+}
+
+function validateContentUnsafe(input: unknown): string[] {
   const errors: string[] = [];
-  const initialMachines = new Set(unlocks.machines);
+  collectFreezeErrors(input, "", new WeakSet<object>(), errors);
 
-  if (initialMachines.size !== unlocks.machines.length) {
-    errors.push("Initial machine unlocks must be unique.");
-  }
-  for (const type of unlocks.machines) {
-    if (!Object.hasOwn(machines, type)) {
-      errors.push(`Initial unlock references unknown machine "${type}".`);
-    } else if (machines[type].unlockCost !== 0) {
-      errors.push(`Initially unlocked machine "${type}" must have a zero unlock cost.`);
-    }
-  }
-  for (const [type, machine] of Object.entries(machines)) {
-    if (!initialMachines.has(type as MachineType) && machine.unlockCost === 0) {
-      errors.push(`Locked machine "${type}" must have a positive unlock cost.`);
-    }
+  if (!isRecord(input)) {
+    errors.push("Content must be an object containing resources, machines, recipes, and unlocks.");
+    return errors;
   }
 
-  if (new Set(unlocks.recipes).size !== unlocks.recipes.length) {
-    errors.push("Initial recipe unlocks must be unique.");
-  }
-  for (const id of unlocks.recipes) {
-    if (!Object.hasOwn(recipes, id)) {
-      errors.push(`Initial unlock references unknown recipe "${id}".`);
-    } else if (recipes[id].unlockCost !== 0) {
-      errors.push(`Initially unlocked recipe "${id}" must have a zero unlock cost.`);
+  const resources = isRecord(input.resources) ? input.resources : undefined;
+  const machines = isRecord(input.machines) ? input.machines : undefined;
+  const recipes = isRecord(input.recipes) ? input.recipes : undefined;
+  const unlocks = isRecord(input.unlocks) ? input.unlocks : undefined;
+
+  for (const field of ["resources", "machines", "recipes", "unlocks"] as const) {
+    if (input[field] === undefined) {
+      errors.push(`Content is missing required field "${field}".`);
+    } else if (!isRecord(input[field])) {
+      errors.push(`Content field "${field}" must be an object.`);
     }
+  }
+
+  const resourceIds = resources === undefined ? new Set<string>() : validateResources(resources, errors);
+  const machineValidations =
+    machines === undefined
+      ? new Map<string, MachineValidation>()
+      : validateMachines(machines, resourceIds, errors);
+  if (recipes !== undefined) {
+    validateRecipes(recipes, resources ?? {}, machineValidations, errors);
+  }
+  if (unlocks !== undefined) {
+    validateUnlocks(unlocks, machines ?? {}, recipes ?? {}, errors);
   }
 
   return errors;
 }
 
-export function validateContent(content: ContentTables = DEFAULT_CONTENT): string[] {
-  return [
-    ...validateResources(content.resources),
-    ...validateMachines(content.machines, new Set(Object.keys(content.resources))),
-    ...validateRecipes(content.recipes, content.resources, content.machines),
-    ...validateUnlocks(content.unlocks, content.machines, content.recipes),
-  ];
+export function validateContent(input: unknown = DEFAULT_CONTENT): string[] {
+  try {
+    return [...new Set(validateContentUnsafe(input))];
+  } catch {
+    return ["Content validation could not inspect the supplied input."];
+  }
 }

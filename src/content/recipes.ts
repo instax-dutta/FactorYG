@@ -1,27 +1,9 @@
-import type { ResourceId } from "./resources";
+import { deepFreeze } from "./freeze";
+import type { RecipeDefinition, RecipeId } from "./types";
 
-export type RecipeId =
-  | "copperIngot"
-  | "ironIngot"
-  | "refinedStone"
-  | "wire"
-  | "gear"
-  | "plate"
-  | "circuit"
-  | "frame"
-  | "motor";
+export type { RecipeDefinition, RecipeId } from "./types";
 
-export interface RecipeDefinition {
-  id: RecipeId;
-  machine: "smelter" | "assembler";
-  inputs: Partial<Record<ResourceId, number>>;
-  output: { resource: ResourceId; amount: number };
-  durationTicks: number;
-  unlockCost: number;
-  sellValue: number;
-}
-
-export const RECIPES = {
+export const RECIPES = deepFreeze({
   copperIngot: {
     id: "copperIngot",
     machine: "smelter",
@@ -103,7 +85,7 @@ export const RECIPES = {
     unlockCost: 12_000,
     sellValue: 600,
   },
-} satisfies Record<RecipeId, RecipeDefinition>;
+} satisfies Record<RecipeId, RecipeDefinition>);
 
 export function getRecipe(id: string): RecipeDefinition | undefined {
   return Object.hasOwn(RECIPES, id) ? RECIPES[id as RecipeId] : undefined;
