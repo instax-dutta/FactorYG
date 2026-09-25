@@ -797,8 +797,8 @@ git commit -m "feat: adopt Factor-I public name"
 ## Task 1.1: Implement Placement Validation and Port Rotation
 
 **Files:**
-- Create: `src/sim/placement.ts`
-- Create: `src/sim/connections.ts`
+- Modify: `src/sim/placement.ts`
+- Modify: `src/sim/connections.ts`
 - Create: `tests/unit/placement.test.ts`
 - Create: `tests/unit/connections.test.ts`
 
