@@ -13,6 +13,7 @@ import {
   getResourceAmount,
   removeResource,
   tickExtractor,
+  tickProcessor,
 } from "./machines";
 import type {
   BeltCell,
@@ -56,7 +57,7 @@ function advanceOneTick(state: SimulationState, events: RenderEvent[], tick: num
 
   let changed = false;
   for (const entity of state.grid.entities) {
-    if (entity.type !== "extractor") {
+    if (entity.type !== "extractor" && entity.type !== "smelter") {
       continue;
     }
 
@@ -65,7 +66,10 @@ function advanceOneTick(state: SimulationState, events: RenderEvent[], tick: num
       continue;
     }
 
-    const nextRuntime = tickExtractor(runtime, entity, state);
+    const nextRuntime =
+      entity.type === "extractor"
+        ? tickExtractor(runtime, entity, state)
+        : tickProcessor(runtime, entity, state);
     if (nextRuntime !== runtime) {
       state.grid.machines[entity.id] = nextRuntime;
       changed = true;

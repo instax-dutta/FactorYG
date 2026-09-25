@@ -1,5 +1,12 @@
 import { getMachine } from "../content/machines";
-import type { Entity, MachineRuntime, ResourceId, SimulationState } from "./types";
+import { getRecipe } from "../content/recipes";
+import type {
+  Entity,
+  MachineRuntime,
+  RecipeDefinition,
+  ResourceId,
+  SimulationState,
+} from "./types";
 
 const CYCLE_COMPLETION_EPSILON = 1e-12;
 
@@ -54,6 +61,108 @@ export function tickExtractor(
     },
     active: false,
   };
+}
+
+export function tickProcessor(
+  runtime: MachineRuntime,
+  entity: Entity,
+  state: SimulationState,
+): MachineRuntime {
+  const recipe = getProcessorRecipe(entity, state);
+  if (recipe === undefined) {
+    return setInactive(runtime);
+  }
+
+  if (runtime.progressTicks > 0) {
+    if (runtime.progressTicks + 1 < recipe.durationTicks) {
+      return { ...runtime, progressTicks: runtime.progressTicks + 1, active: true };
+    }
+
+    return setInactive(completeRecipe(runtime, recipe));
+  }
+
+  const started = consumeRecipeInputs(runtime, recipe);
+  return started === runtime ? runtime : { ...started, progressTicks: 1, active: true };
+}
+
+export function canRunRecipe(runtime: MachineRuntime, recipe: RecipeDefinition): boolean {
+  const outputBuffer = getRecipeOutputBuffer(recipe);
+  if (outputBuffer === undefined) {
+    return false;
+  }
+
+  return hasRecipeInputs(runtime, recipe) && hasOutputCapacity(runtime, recipe, outputBuffer);
+}
+
+export function consumeRecipeInputs(
+  runtime: MachineRuntime,
+  recipe: RecipeDefinition,
+): MachineRuntime {
+  if (!canRunRecipe(runtime, recipe)) {
+    return runtime;
+  }
+
+  let input = runtime.input;
+  for (const [resource, amount] of recipeEntries(recipe)) {
+    input = removeResource(input, resource, amount);
+  }
+
+  return { ...runtime, input };
+}
+
+export function completeRecipe(
+  runtime: MachineRuntime,
+  recipe: RecipeDefinition,
+): MachineRuntime {
+  const outputBuffer = getRecipeOutputBuffer(recipe);
+  if (outputBuffer === undefined || !hasOutputCapacity(runtime, recipe, outputBuffer)) {
+    return runtime;
+  }
+
+  return {
+    ...runtime,
+    progressTicks: 0,
+    output: addResource(runtime.output, recipe.output.resource, recipe.output.amount),
+  };
+}
+
+function getProcessorRecipe(
+  entity: Entity,
+  state: SimulationState,
+): RecipeDefinition | undefined {
+  if (entity.recipeId === undefined || !state.unlocked.recipes.includes(entity.recipeId)) {
+    return undefined;
+  }
+
+  const recipe = getRecipe(entity.recipeId);
+  return recipe !== undefined && recipe.machine === entity.type ? recipe : undefined;
+}
+
+function hasRecipeInputs(runtime: MachineRuntime, recipe: RecipeDefinition): boolean {
+  return recipeEntries(recipe).every(
+    ([resource, amount]) => amount <= 0 || getResourceAmount(runtime.input, resource) >= amount,
+  );
+}
+
+function hasOutputCapacity(
+  runtime: MachineRuntime,
+  recipe: RecipeDefinition,
+  outputBuffer: number,
+): boolean {
+  const stored = getResourceAmount(runtime.output, recipe.output.resource);
+  return stored + recipe.output.amount <= outputBuffer;
+}
+
+function getRecipeOutputBuffer(recipe: RecipeDefinition): number | undefined {
+  return getMachine(recipe.machine)?.outputBuffer;
+}
+
+function recipeEntries(recipe: RecipeDefinition): Array<[ResourceId, number]> {
+  return Object.entries(recipe.inputs) as Array<[ResourceId, number]>;
+}
+
+function setInactive(runtime: MachineRuntime): MachineRuntime {
+  return runtime.active ? { ...runtime, active: false } : runtime;
 }
 
 export function getResourceAmount(
