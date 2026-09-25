@@ -1,5 +1,10 @@
 import { TILE_SIZE_PX } from "./constants";
-import { findConnectedEntity } from "./connections";
+import {
+  arePortsConnected,
+  findConnectedEntity,
+  getEntityAt,
+  getWorldPortCells,
+} from "./connections";
 import { sellResource } from "./economy";
 import {
   addResource,
@@ -9,7 +14,14 @@ import {
   removeResource,
   tickExtractor,
 } from "./machines";
-import type { Entity, MachineRuntime, RenderEvent, ResourceId, SimulationState } from "./types";
+import type {
+  BeltCell,
+  Entity,
+  MachineRuntime,
+  RenderEvent,
+  ResourceId,
+  SimulationState,
+} from "./types";
 
 export function advanceSimulation(
   state: SimulationState,
@@ -62,6 +74,9 @@ function advanceOneTick(state: SimulationState, events: RenderEvent[]): boolean 
     changed = true;
   }
   if (moveBelts(state)) {
+    changed = true;
+  }
+  if (depositBeltItems(state)) {
     changed = true;
   }
   if (sellDepotInputs(state, events)) {
@@ -136,13 +151,13 @@ function transferMachineOutputs(state: SimulationState): boolean {
   return changed;
 }
 
-function moveBelts(state: SimulationState): boolean {
+export function moveBelts(state: SimulationState): boolean {
   const beltEntities = state.grid.entities.filter((entity) => entity.type === "belt");
-  const items = new Map<string, ResourceId>();
+  const items = new Map<string, BeltCell>();
   for (const entity of beltEntities) {
     const belt = state.grid.belts[entity.id];
     if (belt?.item !== undefined) {
-      items.set(entity.id, belt.item);
+      items.set(entity.id, belt);
     }
   }
 
@@ -150,16 +165,9 @@ function moveBelts(state: SimulationState): boolean {
     return false;
   }
 
-  for (const entity of beltEntities) {
-    const belt = state.grid.belts[entity.id];
-    if (belt !== undefined) {
-      state.grid.belts[entity.id] = { ...belt, item: undefined, progress: 0 };
-    }
-  }
-
   const initiallyOccupied = new Set(items.keys());
-  const filled = new Set<string>();
-  let changed = false;
+  const nextOccupancy = new Map<string, BeltCell>();
+  let moved = false;
 
   for (const entity of beltEntities) {
     const item = items.get(entity.id);
@@ -168,49 +176,95 @@ function moveBelts(state: SimulationState): boolean {
     }
 
     const target = findConnectedEntity(entity, state.grid.entities);
-    if (target === undefined) {
-      restoreBeltItem(state, entity.id, item);
+    const targetBelt = target?.type === "belt" ? state.grid.belts[target.id] : undefined;
+    if (
+      target === undefined ||
+      targetBelt === undefined ||
+      initiallyOccupied.has(target.id) ||
+      nextOccupancy.has(target.id)
+    ) {
+      nextOccupancy.set(entity.id, item);
       continue;
     }
 
+    nextOccupancy.set(target.id, {
+      entityId: target.id,
+      item: item.item,
+      progress: 0,
+    });
+    moved = true;
+  }
+
+  if (!moved) {
+    return false;
+  }
+
+  for (const entityId of items.keys()) {
+    const belt = state.grid.belts[entityId];
+    if (belt !== undefined) {
+      state.grid.belts[entityId] = { ...belt, item: undefined, progress: 0 };
+    }
+  }
+
+  for (const [entityId, occupancy] of nextOccupancy) {
+    const belt = state.grid.belts[entityId];
+    if (belt !== undefined) {
+      state.grid.belts[entityId] = {
+        ...belt,
+        item: occupancy.item,
+        progress: occupancy.progress,
+      };
+    }
+  }
+
+  return true;
+}
+
+export function depositBeltItems(state: SimulationState): boolean {
+  let changed = false;
+
+  for (const target of state.grid.entities) {
     if (target.type === "belt") {
-      const targetBelt = state.grid.belts[target.id];
-      if (
-        targetBelt === undefined ||
-        initiallyOccupied.has(target.id) ||
-        filled.has(target.id)
-      ) {
-        restoreBeltItem(state, entity.id, item);
+      continue;
+    }
+
+    let runtime = state.grid.machines[target.id];
+    if (runtime === undefined) {
+      continue;
+    }
+
+    for (const { port, x, y } of getWorldPortCells(target)) {
+      if (port.kind !== "input") {
         continue;
       }
 
-      state.grid.belts[target.id] = { ...targetBelt, item, progress: 0 };
-      filled.add(target.id);
+      const source = getEntityAt(state.grid.entities, x, y);
+      if (source?.type !== "belt") {
+        continue;
+      }
+
+      const belt = state.grid.belts[source.id];
+      const item = belt?.item;
+      if (
+        belt === undefined ||
+        item === undefined ||
+        !arePortsConnected(source, target, item) ||
+        !canStoreInput(target, runtime, item)
+      ) {
+        continue;
+      }
+
+      runtime = {
+        ...runtime,
+        input: addResource(runtime.input, item, 1),
+      };
+      state.grid.machines[target.id] = runtime;
+      state.grid.belts[source.id] = { ...belt, item: undefined, progress: 0 };
       changed = true;
-      continue;
     }
-
-    const targetRuntime = state.grid.machines[target.id];
-    if (targetRuntime === undefined || !canStoreInput(target, targetRuntime, item)) {
-      restoreBeltItem(state, entity.id, item);
-      continue;
-    }
-
-    state.grid.machines[target.id] = {
-      ...targetRuntime,
-      input: addResource(targetRuntime.input, item, 1),
-    };
-    changed = true;
   }
 
   return changed;
-}
-
-function restoreBeltItem(state: SimulationState, entityId: string, item: ResourceId): void {
-  const belt = state.grid.belts[entityId];
-  if (belt !== undefined) {
-    state.grid.belts[entityId] = { ...belt, item, progress: 0 };
-  }
 }
 
 function sellDepotInputs(state: SimulationState, events: RenderEvent[]): boolean {

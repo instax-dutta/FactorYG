@@ -33,7 +33,11 @@ export function getWorldPortCells(entity: Entity): WorldPortCell[] {
   }));
 }
 
-export function arePortsConnected(outputEntity: Entity, inputEntity: Entity): boolean {
+export function arePortsConnected(
+  outputEntity: Entity,
+  inputEntity: Entity,
+  carriedResource?: ResourceId,
+): boolean {
   const outputDefinition = getMachine(outputEntity.type);
   const inputDefinition = getMachine(inputEntity.type);
   if (outputDefinition === undefined || inputDefinition === undefined) {
@@ -56,7 +60,10 @@ export function arePortsConnected(outputEntity: Entity, inputEntity: Entity): bo
         outputPort.offset.y === deltaY &&
         inputPort.offset.x === -deltaX &&
         inputPort.offset.y === -deltaY;
-      const producedResource = getProducedResource(outputEntity, outputPort);
+      const producedResource =
+        carriedResource === undefined
+          ? getProducedResource(outputEntity, outputPort)
+          : carriedResource;
       const hasValidOutput =
         !isProcessorEntity(outputEntity) ||
         outputPort.produces !== undefined ||
