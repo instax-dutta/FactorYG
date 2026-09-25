@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MACHINES } from "../../src/content/machines";
 import { createInitialState } from "../../src/sim/initialState";
 import { createMachineRuntime, tickExtractor } from "../../src/sim/machines";
+import { SimulationStore } from "../../src/sim/store";
 import { advanceSimulation } from "../../src/sim/tick";
 import type {
   Entity,
@@ -18,85 +19,131 @@ const COPPER_NODE = {
   x: 20,
   y: 21,
 };
+const IRON_NODE = {
+  id: "node-iron-test",
+  resource: "ironOre" as ResourceId,
+  x: 24,
+  y: 25,
+};
 
 describe("extractor production", () => {
   it("produces no output before the locked 20-tick interval", () => {
     const entity = createExtractor();
-    let runtime = createMachineRuntime(entity);
+    const runtime = tickExtractorTimes(
+      createMachineRuntime(entity),
+      entity,
+      createState(),
+      EXTRACTOR_INTERVAL - 1,
+    );
 
-    for (let tick = 1; tick < EXTRACTOR_INTERVAL; tick += 1) {
-      runtime = tickExtractor(runtime, entity, createState());
-    }
-
-    expect(runtime.progressTicks).toBe(19);
+    expect(runtime.progressTicks).toBeCloseTo(0.95, 10);
     expect(runtime.output).toEqual({});
   });
 
-  it("produces one configured resource and resets progress at tick 20", () => {
+  it("produces one configured resource and resets normalized progress at tick 20", () => {
     const entity = createExtractor();
-    const runtime = createRuntime(entity, { progressTicks: EXTRACTOR_INTERVAL - 1 });
+    const runtime = createRuntime(entity, { progressTicks: 0.95 });
 
     const result = tickExtractor(runtime, entity, createState());
 
     expect(result.output).toEqual({ copperOre: 1 });
-    expect(result.progressTicks).toBe(0);
+    expect(result.progressTicks).toBeCloseTo(0, 10);
+    expect(result.active).toBe(false);
   });
 
-  it("starts a fresh interval after repeated production", () => {
+  it("starts a fresh normalized interval after repeated production", () => {
     const entity = createExtractor();
-    let runtime = createRuntime(entity, { progressTicks: EXTRACTOR_INTERVAL - 1 });
+    let runtime = createRuntime(entity, { progressTicks: 0.95 });
 
     runtime = tickExtractor(runtime, entity, createState());
     expect(runtime.output).toEqual({ copperOre: 1 });
-    expect(runtime.progressTicks).toBe(0);
+    expect(runtime.progressTicks).toBeCloseTo(0, 10);
     runtime = { ...runtime, output: {} };
 
-    for (let tick = 1; tick < EXTRACTOR_INTERVAL; tick += 1) {
-      runtime = tickExtractor(runtime, entity, createState());
-    }
+    runtime = tickExtractorTimes(runtime, entity, createState(), EXTRACTOR_INTERVAL - 1);
+    expect(runtime.output).toEqual({});
     runtime = tickExtractor(runtime, entity, createState());
 
     expect(runtime.output).toEqual({ copperOre: 1 });
-    expect(runtime.progressTicks).toBe(0);
+    expect(runtime.progressTicks).toBeCloseTo(0, 10);
   });
 
   it("applies the entity level as a production-speed multiplier", () => {
     const entity = createExtractor({ level: 2 });
-    let runtime = createMachineRuntime(entity);
-    const fasterInterval = EXTRACTOR_INTERVAL / 2;
+    let runtime = tickExtractorTimes(
+      createMachineRuntime(entity),
+      entity,
+      createState(),
+      EXTRACTOR_INTERVAL / 2 - 1,
+    );
 
-    for (let tick = 1; tick < fasterInterval; tick += 1) {
-      runtime = tickExtractor(runtime, entity, createState());
-    }
     expect(runtime.output).toEqual({});
+    expect(runtime.progressTicks).toBeCloseTo(0.9, 10);
 
     runtime = tickExtractor(runtime, entity, createState());
 
     expect(runtime.output).toEqual({ copperOre: 1 });
-    expect(runtime.progressTicks).toBe(0);
+    expect(runtime.progressTicks).toBeCloseTo(0, 10);
   });
 
   it("applies the permanent production-speed multiplier", () => {
     const state = createState();
     state.prestige.permanentMultipliers.productionSpeed = 2;
     const entity = createExtractor();
-    let runtime = createMachineRuntime(entity);
-    const fasterInterval = EXTRACTOR_INTERVAL / 2;
+    let runtime = tickExtractorTimes(
+      createMachineRuntime(entity),
+      entity,
+      state,
+      EXTRACTOR_INTERVAL / 2 - 1,
+    );
 
-    for (let tick = 1; tick < fasterInterval; tick += 1) {
-      runtime = tickExtractor(runtime, entity, state);
-    }
     expect(runtime.output).toEqual({});
+    expect(runtime.progressTicks).toBeCloseTo(0.9, 10);
 
     runtime = tickExtractor(runtime, entity, state);
 
     expect(runtime.output).toEqual({ copperOre: 1 });
-    expect(runtime.progressTicks).toBe(0);
+    expect(runtime.progressTicks).toBeCloseTo(0, 10);
+  });
+
+  it("supports a permanent production-speed multiplier of 0.5", () => {
+    const state = createState();
+    state.prestige.permanentMultipliers.productionSpeed = 0.5;
+    const entity = createExtractor();
+    let runtime = tickExtractorTimes(
+      createMachineRuntime(entity),
+      entity,
+      state,
+      EXTRACTOR_INTERVAL * 2 - 1,
+    );
+
+    expect(runtime.output).toEqual({});
+    expect(runtime.progressTicks).toBeCloseTo(0.975, 10);
+
+    runtime = tickExtractor(runtime, entity, state);
+
+    expect(runtime.output).toEqual({ copperOre: 1 });
+    expect(runtime.progressTicks).toBeCloseTo(0, 10);
+  });
+
+  it("combines entity level and permanent decimal speed without losing the remainder", () => {
+    const state = createState();
+    state.prestige.permanentMultipliers.productionSpeed = 0.5;
+    const entity = createExtractor({ level: 3 });
+    let runtime = tickExtractorTimes(createMachineRuntime(entity), entity, state, 13);
+
+    expect(runtime.output).toEqual({});
+    expect(runtime.progressTicks).toBeCloseTo(0.975, 10);
+
+    runtime = tickExtractor(runtime, entity, state);
+
+    expect(runtime.output).toEqual({ copperOre: 1 });
+    expect(runtime.progressTicks).toBeCloseTo(0.05, 10);
   });
 
   it("is a no-op when the extractor has no resource node", () => {
     const entity = createExtractor({ resourceNode: undefined });
-    const runtime = createRuntime(entity, { progressTicks: 7, active: true });
+    const runtime = createRuntime(entity, { progressTicks: 0.7, active: true });
     const state = createState();
     const stateBefore = structuredClone(state);
 
@@ -106,21 +153,109 @@ describe("extractor production", () => {
     expect(state).toEqual(stateBefore);
   });
 
-  it("holds a full output buffer at capacity without duplication", () => {
+  it("produces the resource from a valid iron node", () => {
+    const entity = createExtractor({
+      id: "extractor-iron-test",
+      x: IRON_NODE.x,
+      y: IRON_NODE.y,
+      resourceNode: IRON_NODE.resource,
+    });
+    const state = createState([entity], {
+      [entity.id]: createMachineRuntime(entity),
+    });
+
+    expect(state.grid.nodes).toContainEqual(IRON_NODE);
+
+    const next = advanceSimulation(state, EXTRACTOR_INTERVAL);
+
+    expect(next.grid.machines[entity.id]?.output).toEqual({ ironOre: 1 });
+    expect(next.grid.machines[entity.id]?.output).not.toHaveProperty("copperOre");
+  });
+
+  it.each([
+    ["integer", 19],
+    ["normalized near-threshold", 0.95],
+  ])("blocks without advancing %s progress", (_label, progressTicks) => {
     const entity = createExtractor();
     const runtime = createRuntime(entity, {
-      progressTicks: EXTRACTOR_INTERVAL - 1,
-      output: { copperOre: MACHINES.extractor.outputBuffer, ironOre: 3 },
+      progressTicks,
+      output: {
+        copperOre: MACHINES.extractor.outputBuffer,
+        ironOre: 3,
+      },
       active: true,
     });
 
     const result = tickExtractor(runtime, entity, createState());
 
+    expect(result).not.toBe(runtime);
+    expect(result.progressTicks).toBe(progressTicks);
     expect(result.output).toEqual({
       copperOre: MACHINES.extractor.outputBuffer,
       ironOre: 3,
     });
-    expect(result.progressTicks).toBe(EXTRACTOR_INTERVAL);
+    expect(result.active).toBe(false);
+  });
+
+  it("returns the same references and preserves the snapshot while already blocked", () => {
+    const entity = createExtractor();
+    const runtime = createRuntime(entity, {
+      progressTicks: 0.95,
+      output: { copperOre: MACHINES.extractor.outputBuffer },
+      active: false,
+    });
+    const state = createState([entity], { [entity.id]: runtime });
+    const events: RenderEvent[] = [];
+
+    expect(tickExtractor(runtime, entity, state)).toBe(runtime);
+    expect(advanceSimulation(state, 1, events)).toBe(state);
+    expect(events).toEqual([]);
+
+    const store = new SimulationStore(state);
+    const snapshot = store.getSnapshot();
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    store.advanceTicks(1);
+
+    expect(store.getSnapshot()).toBe(snapshot);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("recovers from a blocked near-threshold accumulator after the buffer clears", () => {
+    const entity = createExtractor();
+    const blocked = createRuntime(entity, {
+      progressTicks: 0.95,
+      output: { copperOre: MACHINES.extractor.outputBuffer },
+      active: false,
+    });
+    const state = createState();
+
+    expect(tickExtractor(blocked, entity, state)).toBe(blocked);
+
+    const available = { ...blocked, output: {} };
+    const result = tickExtractor(available, entity, state);
+
+    expect(result.output).toEqual({ copperOre: 1 });
+    expect(result.progressTicks).toBeCloseTo(0, 10);
+    expect(result.active).toBe(false);
+  });
+
+  it("produces exactly one unit for each completed high-speed cycle", () => {
+    const state = createState();
+    state.prestige.permanentMultipliers.productionSpeed = 5;
+    const entity = createExtractor();
+    let runtime = createMachineRuntime(entity);
+
+    runtime = tickExtractorTimes(runtime, entity, state, 4);
+    expect(runtime.output).toEqual({ copperOre: 1 });
+    expect(runtime.progressTicks).toBeCloseTo(0, 10);
+
+    runtime = { ...runtime, output: {} };
+    runtime = tickExtractorTimes(runtime, entity, state, 4);
+
+    expect(runtime.output).toEqual({ copperOre: 1 });
+    expect(runtime.progressTicks).toBeCloseTo(0, 10);
   });
 
   it("emits machine state events when active transitions through advanceSimulation", () => {
@@ -132,6 +267,7 @@ describe("extractor production", () => {
 
     const started = advanceSimulation(state, 1, events);
     expect(started.grid.machines[entity.id]?.active).toBe(true);
+    expect(started.grid.machines[entity.id]?.progressTicks).toBeCloseTo(0.05, 10);
     expect(events).toEqual([
       { type: "machineStateChanged", entityId: entity.id, active: true },
     ]);
@@ -144,7 +280,8 @@ describe("extractor production", () => {
       { type: "machineStateChanged", entityId: entity.id, active: false },
     ]);
 
-    advanceSimulation(completed, EXTRACTOR_INTERVAL, events);
+    const blocked = advanceSimulation(completed, EXTRACTOR_INTERVAL, events);
+    expect(blocked).toBe(completed);
     expect(events).toHaveLength(2);
   });
 
@@ -166,7 +303,7 @@ describe("extractor production", () => {
       rotation: 0,
       level: 1,
     };
-    const depotRuntime = createRuntime(depot, { progressTicks: 4, active: true });
+    const depotRuntime = createRuntime(depot, { progressTicks: 0.4, active: true });
     const state = createState([extractor, belt, depot], {
       [extractor.id]: createMachineRuntime(extractor),
       [depot.id]: depotRuntime,
@@ -204,7 +341,7 @@ function createState(
   machines: Record<string, MachineRuntime> = {},
 ): SimulationState {
   const state = createInitialState(1337);
-  state.grid.nodes = [COPPER_NODE];
+  state.grid.nodes = [COPPER_NODE, IRON_NODE];
   state.grid.entities = entities;
   state.grid.machines = machines;
   return state;
@@ -231,4 +368,17 @@ function createRuntime(
     ...createMachineRuntime(entity),
     ...overrides,
   };
+}
+
+function tickExtractorTimes(
+  runtime: MachineRuntime,
+  entity: Entity,
+  state: SimulationState,
+  tickCount: number,
+): MachineRuntime {
+  let nextRuntime = runtime;
+  for (let tick = 0; tick < tickCount; tick += 1) {
+    nextRuntime = tickExtractor(nextRuntime, entity, state);
+  }
+  return nextRuntime;
 }

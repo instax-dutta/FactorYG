@@ -348,7 +348,7 @@ export type SimulationCommand =
 
 The shipped `RESOURCES`, `MACHINES`, `RECIPES`, and `UNLOCKS` tables are recursively frozen at module initialization. The frozen tables and the total `validateContent(input: unknown)` validator are the content boundary consumed by simulation and presentation layers.
 
-The exact runtime state may contain private indexes, but the serialized `SaveGame` shape remains explicit and validated. Private derived indexes are rebuilt after load. `BeltCell.progress` is a normalized value from 0 to 1 and is reset when an item enters or leaves a belt cell.
+The exact runtime state may contain private indexes, but the serialized `SaveGame` shape remains explicit and validated. Private derived indexes are rebuilt after load. `MachineRuntime.progressTicks` stores normalized extractor cycles: 0 has no completed cycle ready, 1 has one ready, each logical tick adds the effective multiplier divided by `defaultProcessTicks`, and completion subtracts one while retaining the fractional remainder. A full output buffer holds this accumulator unchanged. `BeltCell.progress` is a normalized value from 0 to 1 and is reset when an item enters or leaves a belt cell.
 
 ## 6. Content Definition
 

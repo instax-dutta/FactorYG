@@ -1,6 +1,8 @@
 import { getMachine } from "../content/machines";
 import type { Entity, MachineRuntime, ResourceId, SimulationState } from "./types";
 
+const CYCLE_COMPLETION_EPSILON = 1e-12;
+
 export function createMachineRuntime(entity: Entity): MachineRuntime {
   return {
     entityId: entity.id,
@@ -25,32 +27,27 @@ export function tickExtractor(
     return runtime;
   }
 
-  const speedMultiplier = Math.max(
-    1,
-    Math.floor(state.prestige.permanentMultipliers.productionSpeed * entity.level),
-  );
-  const processTicks = Math.max(1, Math.floor(definition.defaultProcessTicks / speedMultiplier));
   const outputAmount = getResourceAmount(runtime.output, entity.resourceNode);
   if (outputAmount >= definition.outputBuffer) {
-    return {
-      ...runtime,
-      progressTicks: processTicks,
-      active: false,
-    };
+    return runtime.active ? { ...runtime, active: false } : runtime;
   }
 
-  const progressTicks = runtime.progressTicks + 1;
-  if (progressTicks < processTicks) {
+  const effectiveMultiplier =
+    state.prestige.permanentMultipliers.productionSpeed * entity.level;
+  const accumulatedProgress =
+    runtime.progressTicks + effectiveMultiplier / definition.defaultProcessTicks;
+  if (accumulatedProgress < 1 - CYCLE_COMPLETION_EPSILON) {
     return {
       ...runtime,
-      progressTicks,
+      progressTicks: accumulatedProgress,
       active: true,
     };
   }
 
+  const remainder = accumulatedProgress - 1;
   return {
     ...runtime,
-    progressTicks: 0,
+    progressTicks: Math.abs(remainder) <= CYCLE_COMPLETION_EPSILON ? 0 : remainder,
     output: {
       ...runtime.output,
       [entity.resourceNode]: outputAmount + 1,

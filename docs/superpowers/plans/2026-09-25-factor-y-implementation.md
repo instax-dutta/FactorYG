@@ -859,7 +859,7 @@ npm run test -- tests/unit/extractor.test.ts
 
 - [ ] **Step 3: Implement**
 
-Advance extractor progress by one per logical tick, apply the level and prestige production multiplier at completion, reject a full output buffer, and emit a machine-state render event when active state changes.
+Store extractor progress as normalized completed cycles in `MachineRuntime.progressTicks`. Add `effectiveMultiplier / extractor.defaultProcessTicks` on each logical tick, where the effective multiplier combines level and prestige production speed without integer truncation. At 1, produce one unit, subtract one cycle, retain the fractional remainder, reject a full output buffer without advancing progress, preserve runtime identity while already blocked, and emit a machine-state render event when active state changes.
 
 - [ ] **Step 4: Verify green**
 
