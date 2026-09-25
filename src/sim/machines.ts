@@ -1,4 +1,4 @@
-import { getMachine } from "../content/machines";
+import { getMachine, getMachineUpgradeCost, getUpgradeLevel } from "../content/machines";
 import { getRecipe } from "../content/recipes";
 import type {
   Entity,
@@ -9,12 +9,48 @@ import type {
 } from "./types";
 
 const CYCLE_COMPLETION_EPSILON = 1e-12;
+const MIN_PROCESS_DURATION_TICKS = 1;
 
 export type SiloRejection = "lockedResource" | "storageFull";
 
 export type SiloAcceptance =
   | { accepted: true; runtime: MachineRuntime }
   | { accepted: false; reason: SiloRejection; runtime: MachineRuntime };
+
+export function getUpgradeCost(entity: Entity): number {
+  return getMachineUpgradeCost(entity.type, entity.level);
+}
+
+export function getExtractorRate(entity: Entity, state: SimulationState): number {
+  if (entity.type !== "extractor" || entity.resourceNode === undefined) {
+    return 0;
+  }
+
+  const definition = getMachine(entity.type);
+  if (definition === undefined) {
+    return 0;
+  }
+
+  const effectiveMultiplier =
+    state.prestige.permanentMultipliers.productionSpeed * getUpgradeLevel(entity.level);
+  return effectiveMultiplier / definition.defaultProcessTicks;
+}
+
+export function getProcessDurationTicks(recipe: RecipeDefinition, level = 1): number {
+  return Math.max(
+    MIN_PROCESS_DURATION_TICKS,
+    Math.ceil(recipe.durationTicks / getUpgradeLevel(level)),
+  );
+}
+
+export function getOutputCapacity(entity: Entity): number {
+  const definition = getMachine(entity.type);
+  if (definition === undefined) {
+    return 0;
+  }
+
+  return definition.outputBuffer * getUpgradeLevel(entity.level);
+}
 
 export function createMachineRuntime(entity: Entity): MachineRuntime {
   return {
@@ -41,14 +77,11 @@ export function tickExtractor(
   }
 
   const outputAmount = getResourceAmount(runtime.output, entity.resourceNode);
-  if (outputAmount >= definition.outputBuffer) {
+  if (outputAmount >= getOutputCapacity(entity)) {
     return runtime.active ? { ...runtime, active: false } : runtime;
   }
 
-  const effectiveMultiplier =
-    state.prestige.permanentMultipliers.productionSpeed * entity.level;
-  const accumulatedProgress =
-    runtime.progressTicks + effectiveMultiplier / definition.defaultProcessTicks;
+  const accumulatedProgress = runtime.progressTicks + getExtractorRate(entity, state);
   if (accumulatedProgress < 1 - CYCLE_COMPLETION_EPSILON) {
     return {
       ...runtime,
@@ -79,32 +112,33 @@ export function tickProcessor(
     return abandonRun(runtime);
   }
 
+  const durationTicks = getProcessDurationTicks(recipe, entity.level);
   if (runtime.progressTicks > 0) {
-    if (runtime.progressTicks + 1 < recipe.durationTicks) {
+    if (runtime.progressTicks + 1 < durationTicks) {
       return { ...runtime, progressTicks: runtime.progressTicks + 1, active: true };
     }
 
-    return setInactive(completeRecipe(runtime, recipe));
+    return setInactive(completeRecipe(runtime, recipe, entity.level));
   }
 
-  const started = consumeRecipeInputs(runtime, recipe);
+  const started = consumeRecipeInputs(runtime, recipe, entity.level);
   return started === runtime ? runtime : { ...started, progressTicks: 1, active: true };
 }
 
-export function canRunRecipe(runtime: MachineRuntime, recipe: RecipeDefinition): boolean {
-  const outputBuffer = getRecipeOutputBuffer(recipe);
-  if (outputBuffer === undefined) {
-    return false;
-  }
-
-  return hasRecipeInputs(runtime, recipe) && hasOutputCapacity(runtime, recipe, outputBuffer);
+export function canRunRecipe(
+  runtime: MachineRuntime,
+  recipe: RecipeDefinition,
+  level = 1,
+): boolean {
+  return hasRecipeInputs(runtime, recipe) && hasOutputCapacity(runtime, recipe, level);
 }
 
 export function consumeRecipeInputs(
   runtime: MachineRuntime,
   recipe: RecipeDefinition,
+  level = 1,
 ): MachineRuntime {
-  if (!canRunRecipe(runtime, recipe)) {
+  if (!canRunRecipe(runtime, recipe, level)) {
     return runtime;
   }
 
@@ -119,9 +153,9 @@ export function consumeRecipeInputs(
 export function completeRecipe(
   runtime: MachineRuntime,
   recipe: RecipeDefinition,
+  level = 1,
 ): MachineRuntime {
-  const outputBuffer = getRecipeOutputBuffer(recipe);
-  if (outputBuffer === undefined || !hasOutputCapacity(runtime, recipe, outputBuffer)) {
+  if (!hasOutputCapacity(runtime, recipe, level)) {
     return runtime;
   }
 
@@ -153,14 +187,15 @@ function hasRecipeInputs(runtime: MachineRuntime, recipe: RecipeDefinition): boo
 function hasOutputCapacity(
   runtime: MachineRuntime,
   recipe: RecipeDefinition,
-  outputBuffer: number,
+  level: number,
 ): boolean {
   const stored = getResourceAmount(runtime.output, recipe.output.resource);
-  return stored + recipe.output.amount <= outputBuffer;
+  return stored + recipe.output.amount <= getRecipeOutputBuffer(recipe, level);
 }
 
-function getRecipeOutputBuffer(recipe: RecipeDefinition): number | undefined {
-  return getMachine(recipe.machine)?.outputBuffer;
+function getRecipeOutputBuffer(recipe: RecipeDefinition, level: number): number {
+  const outputBuffer = getMachine(recipe.machine)?.outputBuffer ?? 0;
+  return outputBuffer * getUpgradeLevel(level);
 }
 
 function recipeEntries(recipe: RecipeDefinition): Array<[ResourceId, number]> {

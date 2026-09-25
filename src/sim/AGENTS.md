@@ -9,7 +9,7 @@ Own deterministic Factor-I simulation state and production rules.
 - `grid.ts` and `rotation.ts` own coordinate transforms.
 - `placement.ts` and `connections.ts` own validation and port connectivity.
 - `machines.ts`, `economy.ts`, `tick.ts`, and `offline.ts` own production and sales.
-- `commands.ts` owns unlock purchases for machines and recipes.
+- `commands.ts` owns unlock purchases for machines and recipes and the entity level upgrade.
 - `store.ts` owns private state, commands, snapshots, and the fixed-step driver.
 - `initialState.ts` owns deterministic new-game world creation.
 
@@ -27,6 +27,10 @@ Own deterministic Factor-I simulation state and production rules.
 - An unlock purchase validates identity, prior ownership, prerequisites, and cost before any mutation, then commits the currency debit, the unlocked ID, and one success notification in a single state transition, so a purchase can never debit without unlocking or unlock without debiting.
 - Unlock rejection reasons are `unknownUnlock`, `alreadyUnlocked`, `prerequisiteLocked`, and `insufficientCurrency`, and the prerequisite reason is reported before the balance reason. A rejection returns the same state object, so no snapshot and no notification is published.
 - An unlock notification is keyed `unlock-machine-<id>` or `unlock-recipe-<id>` and stamps `createdAt` from the logical `tickCount`, keeping notifications deterministic.
+- An upgrade prices the level being left as `baseCost * level * level` from the machine cost table, validates identity and cost before any mutation, then commits the currency debit and the level increase in a single transition, so an upgrade can never debit without raising the level or raise the level without debiting.
+- Upgrade rejection reasons are `entityNotFound` and `insufficientCurrency`. A rejection returns the same state object, so no snapshot is published.
+- The level scales the extractor rate, the processor effective duration, and the machine output capacity. The effective duration stays a whole number of recipe ticks of at least one, so processor progress remains a discrete counter, inputs are still charged once per run, and an upgrade applied to an in-flight run shortens that run instead of restarting it.
+- Level one is the identity for the level model: an unupgraded machine keeps its table rate, its table recipe duration, and its table output capacity.
 - Content tables and shared types remain the single source of truth.
 
 ## Work Guidance

@@ -1,7 +1,9 @@
 import { UNLOCKS } from "../content/unlocks";
 import type { UnlockRequirement } from "../content/types";
+import { getUpgradeCost } from "./machines";
 import type {
   CommandResult,
+  Entity,
   MachineType,
   Notification,
   SimulationCommand,
@@ -146,4 +148,56 @@ function createNotification(state: SimulationState, target: UnlockTarget): Notif
     message: `Unlocked recipe: ${target.recipeId}`,
     createdAt: state.tickCount,
   };
+}
+
+export interface UpgradeApplication {
+  state: SimulationState;
+  changed: boolean;
+  result: CommandResult;
+}
+
+export function canUpgrade(state: SimulationState, entityId: string): CommandResult {
+  const entity = findEntity(state, entityId);
+  if (entity === undefined) {
+    return { ok: false, reason: "entityNotFound" };
+  }
+
+  if (state.currency < getUpgradeCost(entity)) {
+    return { ok: false, reason: "insufficientCurrency" };
+  }
+
+  return { ok: true };
+}
+
+export function upgradeEntity(state: SimulationState, entityId: string): UpgradeApplication {
+  const result = canUpgrade(state, entityId);
+  if (!result.ok) {
+    return { state, changed: false, result };
+  }
+
+  const entity = findEntity(state, entityId);
+  if (entity === undefined) {
+    return { state, changed: false, result: { ok: false, reason: "entityNotFound" } };
+  }
+
+  const upgraded: Entity = { ...entity, level: entity.level + 1 };
+
+  return {
+    state: {
+      ...state,
+      currency: state.currency - getUpgradeCost(entity),
+      grid: {
+        ...state.grid,
+        entities: state.grid.entities.map((candidate) =>
+          candidate.id === entityId ? upgraded : candidate,
+        ),
+      },
+    },
+    changed: true,
+    result: { ok: true },
+  };
+}
+
+function findEntity(state: SimulationState, entityId: string): Entity | undefined {
+  return state.grid.entities.find((candidate) => candidate.id === entityId);
 }

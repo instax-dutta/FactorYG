@@ -169,3 +169,12 @@ export const MACHINES = deepFreeze({
 export function getMachine(type: string): MachineDefinition | undefined {
   return Object.hasOwn(MACHINES, type) ? MACHINES[type as MachineType] : undefined;
 }
+
+export function getUpgradeLevel(level: number): number {
+  return Number.isFinite(level) && level >= 1 ? Math.floor(level) : 1;
+}
+
+export function getMachineUpgradeCost(type: MachineType, level: number): number {
+  const effectiveLevel = getUpgradeLevel(level);
+  return MACHINES[type].cost * effectiveLevel * effectiveLevel;
+}
