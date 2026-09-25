@@ -1003,11 +1003,15 @@ git commit -m "feat: add versioned local save and migration"
 **Files:**
 - Create: `src/sim/offline.ts`
 - Modify: `src/persistence/save.ts`
+- Modify: `src/sim/types.ts`
+- Modify: `src/sim/initialState.ts`
+- Modify: `src/sim/snapshot.ts`
+- Modify: `src/sim/store.ts`
 - Create: `tests/unit/offline.test.ts`
 
 **Interfaces:**
 - Consumes: `productionChains`, `lastSavedAt`, current time, sell multipliers, and the 12-hour cap.
-- Produces: `calculateOfflineProgress(save, now)`, `applyOfflineProgress(state, summary)`, and `shouldShowOfflineSummary(summary)`.
+- Produces: `calculateOfflineProgress(save, now)`, `applyOfflineProgress(state, summary)`, `shouldShowOfflineSummary(summary)`, an explicit `loadSaveWithOfflineResult(storage, now)`, and a runtime-only offline summary in the simulation snapshot.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1021,7 +1025,7 @@ npm run test -- tests/unit/offline.test.ts
 
 - [ ] **Step 3: Implement**
 
-Compute `elapsedSeconds`, `cappedSeconds`, `earnedCurrency`, and per-resource `chainUnits` without simulating belt items. Apply currency and lifetime earnings once during load and retain the summary until `dismissOfflineSummary`.
+Compute `elapsedSeconds`, `cappedSeconds`, `earnedCurrency`, and per-resource `chainUnits` without simulating belt items. Treat `NEW_GAME_TIMESTAMP` as zero elapsed, cap at 43,200 seconds, apply currency/lifetime earnings exactly once through the explicit offline-load path, retain the summary in runtime state/snapshot, and clear it only on `dismissOfflineSummary`. Keep offline summary fields out of the serialized SaveGame projection.
 
 - [ ] **Step 4: Verify green**
 
@@ -1033,7 +1037,7 @@ npm run test
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/sim/offline.ts src/persistence/save.ts tests/unit/offline.test.ts
+git add src/sim/offline.ts src/persistence/save.ts src/sim/types.ts src/sim/initialState.ts src/sim/snapshot.ts src/sim/store.ts tests/unit/offline.test.ts
 git commit -m "feat: calculate capped offline production"
 ```
 
