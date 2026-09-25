@@ -72,13 +72,13 @@ function advanceOneTick(state: SimulationState, events: RenderEvent[], tick: num
     }
   }
 
-  if (transferMachineOutputs(state)) {
+  if (transferMachineOutputs(state, events)) {
     changed = true;
   }
-  if (moveBelts(state)) {
+  if (moveBelts(state, events)) {
     changed = true;
   }
-  if (depositBeltItems(state)) {
+  if (depositBeltItems(state, events)) {
     changed = true;
   }
   if (sellDepotInputs(state, events, tick)) {
@@ -100,7 +100,7 @@ function advanceOneTick(state: SimulationState, events: RenderEvent[], tick: num
   return changed;
 }
 
-function transferMachineOutputs(state: SimulationState): boolean {
+function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): boolean {
   let changed = false;
   for (const entity of state.grid.entities) {
     if (entity.type === "belt" || entity.type === "depot") {
@@ -130,6 +130,7 @@ function transferMachineOutputs(state: SimulationState): boolean {
         }
 
         state.grid.belts[target.id] = { ...belt, item: resource, progress: 0 };
+        emitBeltItemChanged(events, target.id, resource);
       } else {
         const targetRuntime = state.grid.machines[target.id];
         if (targetRuntime === undefined || !canStoreInput(target, targetRuntime, resource)) {
@@ -153,7 +154,7 @@ function transferMachineOutputs(state: SimulationState): boolean {
   return changed;
 }
 
-export function moveBelts(state: SimulationState): boolean {
+export function moveBelts(state: SimulationState, events: RenderEvent[] = []): boolean {
   const beltEntities = state.grid.entities.filter((entity) => entity.type === "belt");
   const items = new Map<string, BeltCell>();
   for (const entity of beltEntities) {
@@ -169,11 +170,13 @@ export function moveBelts(state: SimulationState): boolean {
 
   const initiallyOccupied = new Set(items.keys());
   const nextOccupancy = new Map<string, BeltCell>();
+  const movedSources: string[] = [];
+  const movedTargets: Array<{ entityId: string; item: ResourceId }> = [];
   let moved = false;
 
   for (const entity of beltEntities) {
     const item = items.get(entity.id);
-    if (item === undefined) {
+    if (item === undefined || item.item === undefined) {
       continue;
     }
 
@@ -194,11 +197,20 @@ export function moveBelts(state: SimulationState): boolean {
       item: item.item,
       progress: 0,
     });
+    movedSources.push(entity.id);
+    movedTargets.push({ entityId: target.id, item: item.item });
     moved = true;
   }
 
   if (!moved) {
     return false;
+  }
+
+  for (const entityId of movedSources) {
+    emitBeltItemChanged(events, entityId, undefined);
+  }
+  for (const target of movedTargets) {
+    emitBeltItemChanged(events, target.entityId, target.item);
   }
 
   for (const entityId of items.keys()) {
@@ -222,7 +234,7 @@ export function moveBelts(state: SimulationState): boolean {
   return true;
 }
 
-export function depositBeltItems(state: SimulationState): boolean {
+export function depositBeltItems(state: SimulationState, events: RenderEvent[] = []): boolean {
   let changed = false;
 
   for (const target of state.grid.entities) {
@@ -262,11 +274,20 @@ export function depositBeltItems(state: SimulationState): boolean {
       };
       state.grid.machines[target.id] = runtime;
       state.grid.belts[source.id] = { ...belt, item: undefined, progress: 0 };
+      emitBeltItemChanged(events, source.id, undefined);
       changed = true;
     }
   }
 
   return changed;
+}
+
+function emitBeltItemChanged(
+  events: RenderEvent[],
+  entityId: string,
+  item: ResourceId | undefined,
+): void {
+  events.push({ type: "beltItemChanged", entityId, item });
 }
 
 function sellDepotInputs(state: SimulationState, events: RenderEvent[], tick: number): boolean {

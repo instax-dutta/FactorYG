@@ -7,11 +7,27 @@ import { SimulationStore } from "../sim/store";
 import { createCameraConfig } from "./cameraConfig";
 import { createInputAdapter, type CameraInputAdapter } from "./inputAdapter";
 import { createPrimaryCanvasCommand } from "./primaryInteraction";
-import { createSceneTelemetry, type SceneTelemetry } from "./telemetry";
+import {
+  createBeltItemRenderer,
+  type BeltItemRenderer,
+  type BeltItemView,
+  type BeltItemViewFactory,
+} from "./render/BeltItemRenderer";
+import {
+  frameTextureKey,
+  reportMissingMachineTexture,
+  resolveActiveFrameTextureKeys,
+  resolveIdleTextureKey,
+} from "./render/textureKeys";
+import { createSceneTelemetry, type SceneTelemetry, type SceneRenderTelemetry } from "./telemetry";
 
 const GRID_WIDTH = 64;
 const GRID_HEIGHT = 64;
 const TILE_SIZE_PX = 64;
+const ACTIVE_FRAME_INTERVAL_MS = 160;
+const BELT_GLOW_SCALE = 3.4;
+const BELT_GLOW_ALPHA = 0.6;
+const BELT_ITEM_SCALE = 1.5;
 
 export class FactoryScene extends Phaser.Scene {
   private readonly store: SimulationStore;
@@ -19,9 +35,11 @@ export class FactoryScene extends Phaser.Scene {
   private readonly onTelemetry: (telemetry: SceneTelemetry) => void;
   private machineLayer!: Phaser.GameObjects.Layer;
   private beltLayer!: Phaser.GameObjects.Layer;
+  private beltItemLayer!: Phaser.GameObjects.Layer;
   private ghostLayer!: Phaser.GameObjects.Layer;
   private vfxLayer!: Phaser.GameObjects.Layer;
   private ghost!: Phaser.GameObjects.Sprite;
+  private beltItemRenderer!: BeltItemRenderer;
   private inputAdapter: CameraInputAdapter | undefined;
   private snapshot!: SimulationSnapshot;
   private ghostCell: { x: number; y: number } | undefined;
@@ -31,7 +49,16 @@ export class FactoryScene extends Phaser.Scene {
   private cleaned = false;
   private readonly entitySprites = new Map<string, Phaser.GameObjects.Sprite>();
   private readonly placedEntities = new Map<string, Entity>();
-  private readonly activeExtractors = new Set<string>();
+  private readonly activeEntityIds = new Set<string>();
+  private renderTelemetry: SceneRenderTelemetry = {
+    entityIds: [],
+    activeEntityIds: [],
+    activeFrameKeys: [],
+    beltItemIds: [],
+    beltGlowCount: 0,
+    beltItemEventCount: 0,
+  };
+  private renderDirty = true;
   private unsubscribeSnapshot: (() => void) | undefined;
   private unsubscribeEvents: (() => void) | undefined;
 
@@ -74,6 +101,7 @@ export class FactoryScene extends Phaser.Scene {
     this.createFloor();
     this.machineLayer = this.add.layer().setName("machine-layer").setDepth(10);
     this.beltLayer = this.add.layer().setName("belt-layer").setDepth(11);
+    this.beltItemLayer = this.add.layer().setName("belt-item-layer").setDepth(12);
     this.ghostLayer = this.add.layer().setName("ghost-layer").setDepth(20);
     this.vfxLayer = this.add.layer().setName("vfx-layer").setDepth(30);
     this.ghost = this.add
@@ -81,6 +109,17 @@ export class FactoryScene extends Phaser.Scene {
       .setAlpha(0.55)
       .setVisible(false);
     this.ghostLayer.add(this.ghost);
+    this.beltItemRenderer = createBeltItemRenderer({
+      factory: this.createBeltItemViewFactory(),
+      resolvePosition: (entityId) => {
+        const entity = this.placedEntities.get(entityId);
+        if (entity === undefined) {
+          return undefined;
+        }
+        const world = cellToWorld({ x: entity.x, y: entity.y }, TILE_SIZE_PX);
+        return { x: world.x + TILE_SIZE_PX / 2, y: world.y + TILE_SIZE_PX / 2 };
+      },
+    });
 
     this.snapshot = this.store.getSnapshot();
     this.unsubscribeSnapshot = this.store.subscribe((snapshot) => {
@@ -100,6 +139,8 @@ export class FactoryScene extends Phaser.Scene {
     this.events.once("shutdown", this.cleanup);
     this.events.once("destroy", this.cleanup);
 
+    this.syncExistingWorld();
+    this.updateActiveFrames();
     this.ready = true;
     this.publishTelemetry();
     this.notifyReady();
@@ -110,7 +151,7 @@ export class FactoryScene extends Phaser.Scene {
       return;
     }
     this.inputAdapter?.update(delta);
-    this.updateActiveExtractorFrames();
+    this.updateActiveFrames();
     this.publishTelemetry();
   }
 
@@ -139,6 +180,24 @@ export class FactoryScene extends Phaser.Scene {
     }
     const floorLayer = map.createLayer(0, tileset, 0, 0);
     floorLayer?.setDepth(0);
+  }
+
+  private syncExistingWorld(): void {
+    for (const entity of this.store.getEntities()) {
+      this.renderEntity(entity);
+    }
+
+    for (const [entityId, runtime] of Object.entries(this.store.getSaveGame().grid.machines)) {
+      if (runtime.active) {
+        this.setEntityActive(entityId);
+      }
+    }
+
+    const carriedItems = this.store.getBeltItems();
+    this.beltItemRenderer.sync(carriedItems);
+    for (const entityId of Object.keys(carriedItems)) {
+      this.setEntityActive(entityId);
+    }
   }
 
   private handlePrimaryClick(cell: { x: number; y: number }): void {
@@ -173,8 +232,9 @@ export class FactoryScene extends Phaser.Scene {
       return;
     }
 
-    const textureKey = idleTextureKey(machine);
+    const textureKey = resolveIdleTextureKey(machine);
     if (textureKey === undefined) {
+      reportMissingMachineTexture(machine, getMachine(machine)?.spriteKey);
       this.hideGhost();
       return;
     }
@@ -223,15 +283,25 @@ export class FactoryScene extends Phaser.Scene {
         sprite?.destroy();
         this.entitySprites.delete(event.entityId);
         this.placedEntities.delete(event.entityId);
-        this.activeExtractors.delete(event.entityId);
+        this.activeEntityIds.delete(event.entityId);
+        this.beltItemRenderer.remove(event.entityId);
+        this.renderDirty = true;
         break;
       }
       case "machineStateChanged":
         if (event.active) {
-          this.activeExtractors.add(event.entityId);
+          this.setEntityActive(event.entityId);
         } else {
-          this.activeExtractors.delete(event.entityId);
           this.setEntityIdle(event.entityId);
+        }
+        break;
+      case "beltItemChanged":
+        this.beltItemRenderer.apply(event);
+        this.renderDirty = true;
+        if (event.item === undefined) {
+          this.setEntityIdle(event.entityId);
+        } else {
+          this.setEntityActive(event.entityId);
         }
         break;
       case "saleCompleted":
@@ -241,8 +311,9 @@ export class FactoryScene extends Phaser.Scene {
   }
 
   private renderEntity(entity: Entity): void {
-    const textureKey = idleTextureKey(entity.type);
+    const textureKey = resolveIdleTextureKey(entity.type);
     if (textureKey === undefined) {
+      reportMissingMachineTexture(entity.type, getMachine(entity.type)?.spriteKey);
       return;
     }
 
@@ -259,44 +330,127 @@ export class FactoryScene extends Phaser.Scene {
     }
     this.entitySprites.set(entity.id, sprite);
     this.placedEntities.set(entity.id, { ...entity });
+    this.renderDirty = true;
   }
 
-  private updateActiveExtractorFrames(): void {
-    const activeFrames = ASSET_MANIFEST["machine.extractor.active"].framePaths;
-    const frameIndex = Math.floor(this.time.now / 160) % activeFrames.length;
-    for (const entityId of this.activeExtractors) {
-      this.setEntityFrame(entityId, frameIndex);
-    }
-  }
-
-  private setEntityIdle(entityId: string): void {
+  private setEntityActive(entityId: string): void {
     const sprite = this.entitySprites.get(entityId);
     if (sprite === undefined) {
       return;
     }
-    const entityType = sprite.getData("machineType") as MachineType | undefined;
-    if (entityType === undefined) {
+
+    const machine = this.getEntityMachine(entityId);
+    if (machine === undefined) {
       return;
     }
-    const textureKey = idleTextureKey(entityType);
+
+    if (!this.activeEntityIds.has(entityId)) {
+      this.activeEntityIds.add(entityId);
+      this.renderDirty = true;
+    }
+
+    if (resolveActiveFrameTextureKeys(machine).length === 0) {
+      const idleTextureKey = resolveIdleTextureKey(machine);
+      if (idleTextureKey !== undefined) {
+        sprite.setTexture(idleTextureKey);
+      }
+    }
+  }
+
+  private updateActiveFrames(): void {
+    if (this.cleaned) {
+      return;
+    }
+
+    let frameBucket = -1;
+    for (const entityId of this.activeEntityIds) {
+      const machine = this.getEntityMachine(entityId);
+      if (machine === undefined) {
+        continue;
+      }
+
+      const frameKeys = resolveActiveFrameTextureKeys(machine);
+      if (frameKeys.length === 0) {
+        this.setEntityIdle(entityId);
+        continue;
+      }
+
+      const bucket = Math.floor(this.time.now / ACTIVE_FRAME_INTERVAL_MS);
+      if (bucket !== frameBucket) {
+        frameBucket = bucket;
+        this.renderDirty = true;
+      }
+
+      const frameKey = frameKeys[bucket % frameKeys.length];
+      if (frameKey !== undefined && this.textures.exists(frameKey)) {
+        this.entitySprites.get(entityId)?.setTexture(frameKey);
+      }
+    }
+  }
+
+  private setEntityIdle(entityId: string): void {
+    if (this.activeEntityIds.delete(entityId)) {
+      this.renderDirty = true;
+    }
+
+    const sprite = this.entitySprites.get(entityId);
+    if (sprite === undefined) {
+      return;
+    }
+
+    const machine = this.getEntityMachine(entityId);
+    if (machine === undefined) {
+      return;
+    }
+
+    const textureKey = resolveIdleTextureKey(machine);
     if (textureKey !== undefined) {
       sprite.setTexture(textureKey);
     }
   }
 
-  private setEntityFrame(entityId: string, frameIndex: number): void {
-    const sprite = this.entitySprites.get(entityId);
-    if (sprite === undefined) {
-      return;
+  private getEntityMachine(entityId: string): MachineType | undefined {
+    const placedType = this.placedEntities.get(entityId)?.type;
+    if (placedType !== undefined) {
+      return placedType;
     }
-    const entityType = sprite.getData("machineType") as MachineType | undefined;
-    if (entityType !== "extractor") {
-      return;
-    }
-    const frameKey = frameTextureKey("machine.extractor.active", frameIndex);
-    if (this.textures.exists(frameKey)) {
-      sprite.setTexture(frameKey);
-    }
+    return this.entitySprites.get(entityId)?.getData("machineType") as MachineType | undefined;
+  }
+
+  private createBeltItemViewFactory(): BeltItemViewFactory {
+    return {
+      hasTexture: (textureKey) => this.textures.exists(textureKey),
+      createView: (descriptor, worldX, worldY) => {
+        const glow = this.add
+          .sprite(worldX, worldY, frameTextureKey("vfx.spark", 0))
+          .setBlendMode(Phaser.BlendModes.ADD)
+          .setScale(BELT_GLOW_SCALE)
+          .setAlpha(BELT_GLOW_ALPHA)
+          .setTint(descriptor.glowColor);
+        const icon = this.add
+          .sprite(worldX, worldY, descriptor.textureKey)
+          .setScale(BELT_ITEM_SCALE);
+        this.beltItemLayer.add(glow);
+        this.beltItemLayer.add(icon);
+        return this.createBeltItemView(glow, icon);
+      },
+    };
+  }
+
+  private createBeltItemView(
+    glow: Phaser.GameObjects.Sprite,
+    icon: Phaser.GameObjects.Sprite,
+  ): BeltItemView {
+    return {
+      setPosition: (x, y) => {
+        glow.setPosition(x, y);
+        icon.setPosition(x, y);
+      },
+      destroy: () => {
+        glow.destroy();
+        icon.destroy();
+      },
+    };
   }
 
   private renderSale(worldX: number, worldY: number): void {
@@ -323,6 +477,30 @@ export class FactoryScene extends Phaser.Scene {
     this.onReady();
   }
 
+  private refreshRenderTelemetry(): SceneRenderTelemetry {
+    if (!this.renderDirty) {
+      return this.renderTelemetry;
+    }
+
+    this.renderDirty = false;
+    this.renderTelemetry = Object.freeze({
+      entityIds: Object.freeze([...this.placedEntities.keys()]),
+      activeEntityIds: Object.freeze(
+        [...this.activeEntityIds].sort((first, second) => (first < second ? -1 : 1)),
+      ),
+      activeFrameKeys: Object.freeze(
+        [...this.activeEntityIds]
+          .sort((first, second) => (first < second ? -1 : 1))
+          .map((entityId) => this.entitySprites.get(entityId)?.texture.key)
+          .filter((key): key is string => typeof key === "string"),
+      ),
+      beltItemIds: Object.freeze([...this.beltItemRenderer.getRenderedEntityIds()].sort()),
+      beltGlowCount: this.beltItemRenderer.getRendered().length,
+      beltItemEventCount: this.beltItemRenderer.getChangedEventCount(),
+    });
+    return this.renderTelemetry;
+  }
+
   private publishTelemetry(): void {
     if (this.cleaned || this.snapshot === undefined) {
       return;
@@ -341,6 +519,7 @@ export class FactoryScene extends Phaser.Scene {
           valid: this.ghostValid,
           rotation: this.snapshot.pendingRotation,
         },
+        render: this.refreshRenderTelemetry(),
       }),
     );
   }
@@ -359,29 +538,7 @@ export class FactoryScene extends Phaser.Scene {
     this.unsubscribeEvents = undefined;
     this.inputAdapter?.dispose();
     this.inputAdapter = undefined;
+    this.beltItemRenderer?.destroy();
+    this.activeEntityIds.clear();
   };
-}
-
-function frameTextureKey(assetKey: AssetKey, frameIndex: number): string {
-  return `factor-y:${assetKey}:${frameIndex}`;
-}
-
-function idleTextureKey(machine: MachineType): string | undefined {
-  const definition = getMachine(machine);
-  if (definition === undefined) {
-    reportMissingTexture(machine, machine);
-    return undefined;
-  }
-  const assetKey = definition.spriteKey;
-  if (!Object.hasOwn(ASSET_MANIFEST, assetKey)) {
-    reportMissingTexture(machine, assetKey);
-    return undefined;
-  }
-  return frameTextureKey(assetKey as AssetKey, 0);
-}
-
-function reportMissingTexture(machine: MachineType, assetKey: string): void {
-  if (import.meta.env.DEV) {
-    console.error(`Missing machine texture for ${machine}: ${assetKey}`);
-  }
 }

@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
   <defs>
-    <radialGradient id="belt-light" cx="50%" cy="50%" r="72%">
+    <radialGradient id="belt-idle-light" cx="50%" cy="50%" r="72%">
       <stop offset="0" stop-color="#4d6875" stop-opacity="0.4" />
       <stop offset="1" stop-color="#4d6875" stop-opacity="0" />
     </radialGradient>
   </defs>
   <rect x="5" y="5" width="54" height="54" rx="9" fill="#263746" stroke="#101820" stroke-width="3" />
-  <rect x="9" y="9" width="46" height="46" rx="7" fill="url(#belt-light)" stroke="#4d6875" stroke-width="1.5" />
+  <rect x="9" y="9" width="46" height="46" rx="7" fill="url(#belt-idle-light)" stroke="#4d6875" stroke-width="1.5" />
   <rect x="12" y="19" width="40" height="26" rx="7" fill="#101820" stroke="#4d6875" stroke-width="2" />
   <path d="M14 23H50M14 41H50" fill="none" stroke="#4d6875" stroke-width="2" stroke-linecap="round" />
   <path d="M21 20V44M30 20V44M39 20V44" fill="none" stroke="#4d6875" stroke-width="2" />

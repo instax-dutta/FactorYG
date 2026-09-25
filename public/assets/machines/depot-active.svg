@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="depot-active-0-light" cx="50%" cy="50%" r="72%">
+      <stop offset="0" stop-color="#4d6875" stop-opacity="0.5" />
+      <stop offset="1" stop-color="#4d6875" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <path d="M12 12H52L58 18V52L52 58H12L6 52V18Z" fill="#263746" stroke="#101820" stroke-width="3" stroke-linejoin="round" />
+  <path d="M16 16H48L54 22V48L48 54H16L10 48V22Z" fill="url(#depot-active-0-light)" stroke="#4d6875" stroke-width="1.5" />
+  <rect x="15" y="15" width="34" height="34" rx="5" fill="#101820" stroke="#f2c14e" stroke-width="2" />
+  <path d="M21 22H43V42H21Z" fill="#263746" stroke="#c98245" stroke-width="2" />
+  <path d="M25 27H39M25 32H39" stroke="#e0a458" stroke-width="2" stroke-linecap="round" />
+  <path d="M25 37H32" stroke="#4d6875" stroke-width="2" stroke-linecap="round" />
+  <rect x="34" y="35" width="7" height="7" rx="1.5" fill="#c98245" stroke="#101820" stroke-width="1" />
+  <path d="M18 18L25 25M46 18L39 25M18 46L25 39M46 46L39 39" stroke="#f2c14e" stroke-width="1.5" stroke-linecap="round" />
+  <circle cx="32" cy="48" r="3" fill="#36c5b5" stroke="#101820" stroke-width="1.5" />
+  <circle cx="48" cy="32" r="3" fill="#f2c14e" stroke="#101820" stroke-width="1.5" />
+  <path d="M32 9V15M9 32H15M55 32H49" stroke="#f2c14e" stroke-width="2" stroke-linecap="round" />
+</svg>

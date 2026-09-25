@@ -5,7 +5,10 @@ import { createSnapshot } from "./snapshot";
 import { advanceSimulation } from "./tick";
 import type {
   CommandResult,
+  Entity,
   RenderEvent,
+  ResourceId,
+  SaveGame,
   SimulationCommand,
   SimulationSnapshot,
   SimulationState,
@@ -54,6 +57,35 @@ export class SimulationStore {
 
   public getSnapshot(): SimulationSnapshot {
     return this.#snapshot;
+  }
+
+  public getSaveGame(): SaveGame {
+    return structuredClone(this.#state);
+  }
+
+  public getEntities(): readonly Entity[] {
+    const entities = this.#state.grid.entities.map((entity) => Object.freeze({ ...entity }));
+    return Object.freeze(entities);
+  }
+
+  public getBeltItems(): Readonly<Record<string, ResourceId>> {
+    const items: Record<string, ResourceId> = {};
+    for (const entity of this.#state.grid.entities) {
+      if (entity.type !== "belt") {
+        continue;
+      }
+
+      const item = this.#state.grid.belts[entity.id]?.item;
+      if (item !== undefined) {
+        Object.defineProperty(items, entity.id, {
+          configurable: true,
+          enumerable: true,
+          value: item,
+          writable: false,
+        });
+      }
+    }
+    return Object.freeze(items);
   }
 
   public subscribe(listener: SnapshotListener): () => void {

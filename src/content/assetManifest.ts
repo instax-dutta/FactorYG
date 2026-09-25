@@ -34,11 +34,21 @@ const ASSET_ENTRIES = {
     frameCount: 2,
   },
   "machine.belt.idle": {
-    path: "assets/machines/belt.svg",
-    framePaths: ["assets/machines/belt.svg"],
+    path: "assets/machines/belt-idle.svg",
+    framePaths: ["assets/machines/belt-idle.svg"],
     width: 64,
     height: 64,
     frameCount: 1,
+  },
+  "machine.belt.active": {
+    path: "assets/machines/belt-active.svg",
+    framePaths: [
+      "assets/machines/belt-active.svg",
+      "assets/machines/belt-active-1.svg",
+    ],
+    width: 64,
+    height: 64,
+    frameCount: 2,
   },
   "machine.depot.idle": {
     path: "assets/machines/depot-idle.svg",
@@ -46,6 +56,16 @@ const ASSET_ENTRIES = {
     width: 64,
     height: 64,
     frameCount: 1,
+  },
+  "machine.depot.active": {
+    path: "assets/machines/depot-active.svg",
+    framePaths: [
+      "assets/machines/depot-active.svg",
+      "assets/machines/depot-active-1.svg",
+    ],
+    width: 64,
+    height: 64,
+    frameCount: 2,
   },
   "resource.copperOre": {
     path: "assets/resources/copper-ore.svg",

@@ -38,6 +38,7 @@ export function App() {
           return;
         }
         activeRuntime.stop();
+        activeRuntime.autosave?.dispose();
         if (runtimeRef.current === activeRuntime) {
           runtimeRef.current = null;
         }

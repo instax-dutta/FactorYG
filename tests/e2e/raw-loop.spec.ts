@@ -1,0 +1,390 @@
+import { expect, test, type Page } from "@playwright/test";
+import { SAVE_KEY } from "../../src/sim/constants";
+import { createInitialState } from "../../src/sim/initialState";
+import type { ResourceId } from "../../src/sim/types";
+
+interface CommandResult {
+  ok: boolean;
+  reason?: string;
+}
+
+interface RuntimeBridge {
+  dispatch(command: Record<string, unknown>): CommandResult;
+  advanceTicks(count: number): void;
+  getSnapshot(): { currency: number };
+}
+
+interface RenderTelemetry {
+  entityIds: readonly string[];
+  activeEntityIds: readonly string[];
+  activeFrameKeys: readonly string[];
+  beltItemIds: readonly string[];
+  beltGlowCount: number;
+  beltItemEventCount: number;
+}
+
+interface SceneTelemetry {
+  ready: boolean;
+  render: RenderTelemetry;
+}
+
+interface TelemetryBridge {
+  getSnapshot(): SceneTelemetry;
+}
+
+interface RuntimeWindow {
+  __FACTOR_Y__?: RuntimeBridge;
+  __FACTOR_Y_TELEMETRY__?: TelemetryBridge;
+}
+
+const COPPER_NODE = { x: 20, y: 21 };
+const IRON_NODE = { x: 40, y: 11 };
+const MAX_SCAN_TICKS = 80;
+
+test.use({ viewport: { width: 1000, height: 800 } });
+
+async function waitForReady(page: Page): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const runtime = window as unknown as RuntimeWindow;
+        return (
+          runtime.__FACTOR_Y__ !== undefined &&
+          runtime.__FACTOR_Y_TELEMETRY__?.getSnapshot().ready === true
+        );
+      }),
+    )
+    .toBe(true);
+}
+
+async function openWithClearedSave(page: Page): Promise<number> {
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForReady(page);
+  expect(await page.evaluate((key) => window.localStorage.getItem(key), SAVE_KEY)).toBeNull();
+  return bridgeCurrency(page);
+}
+
+function bridgeCurrency(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const bridge = (window as unknown as RuntimeWindow).__FACTOR_Y__;
+    if (bridge === undefined) {
+      throw new Error("Factor-Y runtime bridge unavailable");
+    }
+    return bridge.getSnapshot().currency;
+  });
+}
+
+async function buildChain(
+  page: Page,
+  node: { x: number; y: number },
+  resource: ResourceId,
+  beltCount: number,
+): Promise<void> {
+  const results = await page.evaluate(
+    ({ node, resource, beltCount }) => {
+      const bridge = (window as unknown as RuntimeWindow).__FACTOR_Y__;
+      if (bridge === undefined) {
+        throw new Error("Factor-Y runtime bridge unavailable");
+      }
+
+      const placed: CommandResult[] = [
+        bridge.dispatch({
+          type: "placeEntity",
+          machine: "extractor",
+          x: node.x,
+          y: node.y,
+          rotation: 0,
+          resourceNode: resource,
+        }),
+      ];
+      for (let index = 0; index < beltCount; index += 1) {
+        placed.push(
+          bridge.dispatch({
+            type: "placeEntity",
+            machine: "belt",
+            x: node.x + index + 1,
+            y: node.y,
+            rotation: 0,
+          }),
+        );
+      }
+      placed.push(
+        bridge.dispatch({
+          type: "placeEntity",
+          machine: "depot",
+          x: node.x + beltCount + 1,
+          y: node.y,
+          rotation: 0,
+        }),
+      );
+      return placed;
+    },
+    { node, resource, beltCount },
+  );
+
+  expect(results).toHaveLength(beltCount + 2);
+  expect(results.every((result) => result.ok)).toBe(true);
+  expect(results.filter((result) => !result.ok)).toEqual([]);
+}
+
+async function hudCurrency(page: Page): Promise<number> {
+  const text = await page.getByTestId("hud-currency").innerText();
+  const parsed = Number(text.replace(/[^0-9.-]/g, ""));
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Unexpected HUD currency text: ${text}`);
+  }
+  return parsed;
+}
+
+async function advanceUntilCurrencyGrows(
+  page: Page,
+  baseline: number,
+  maxTicks = MAX_SCAN_TICKS,
+): Promise<number> {
+  const observed = await page.evaluate(
+    ({ baseline, maxTicks }) => {
+      const bridge = (window as unknown as RuntimeWindow).__FACTOR_Y__;
+      if (bridge === undefined) {
+        throw new Error("Factor-Y runtime bridge unavailable");
+      }
+
+      for (let tick = 0; tick < maxTicks; tick += 1) {
+        bridge.advanceTicks(1);
+        const currency = bridge.getSnapshot().currency;
+        if (currency > baseline) {
+          return { tick: tick + 1, currency };
+        }
+      }
+      return { tick: -1, currency: bridge.getSnapshot().currency };
+    },
+    { baseline, maxTicks },
+  );
+
+  expect(observed.tick).toBeGreaterThan(0);
+  return observed.currency;
+}
+
+async function advanceUntilBeltGlow(page: Page): Promise<RenderTelemetry> {
+  const observed = await page.evaluate(async (maxTicks) => {
+    const runtime = window as unknown as RuntimeWindow;
+    const bridge = runtime.__FACTOR_Y__;
+    const telemetry = runtime.__FACTOR_Y_TELEMETRY__;
+    if (bridge === undefined || telemetry === undefined) {
+      throw new Error("Factor-Y bridges unavailable");
+    }
+    const isBeltFrame = (key: string): boolean => /^factor-y:machine\.belt\.active:[01]$/.test(key);
+
+    for (let tick = 0; tick < maxTicks; tick += 1) {
+      bridge.advanceTicks(1);
+      if (telemetry.getSnapshot().render.beltGlowCount === 0) {
+        continue;
+      }
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+      const render = telemetry.getSnapshot().render;
+      if (render.beltGlowCount > 0 && render.activeFrameKeys.some(isBeltFrame)) {
+        return { ticks: tick + 1, render };
+      }
+    }
+    return { ticks: -1, render: telemetry.getSnapshot().render };
+  }, MAX_SCAN_TICKS);
+
+  expect(observed.ticks).toBeGreaterThan(0);
+  expect(observed.render.beltGlowCount).toBe(1);
+  expect(observed.render.beltItemIds).toHaveLength(1);
+  return observed.render;
+}
+
+async function renderTelemetry(page: Page): Promise<RenderTelemetry> {
+  return page.evaluate(() => {
+    const telemetry = (window as unknown as RuntimeWindow).__FACTOR_Y_TELEMETRY__;
+    if (telemetry === undefined) {
+      throw new Error("Factor-Y telemetry unavailable");
+    }
+    return telemetry.getSnapshot().render;
+  });
+}
+
+async function persistedEntityTypes(page: Page): Promise<string[]> {
+  return page.evaluate((key) => {
+    const raw = window.localStorage.getItem(key);
+    if (raw === null) {
+      throw new Error("Expected a persisted save");
+    }
+    const save = JSON.parse(raw) as { grid?: { entities?: Array<{ type: string }> } };
+    return (save.grid?.entities ?? []).map((entity) => entity.type);
+  }, SAVE_KEY);
+}
+
+async function persistedSave(page: Page): Promise<{
+  currency: number;
+  lifetimeCurrency: number;
+  lastSavedAt: number;
+  entityTypes: string[];
+  raw: string;
+}> {
+  return page.evaluate((key) => {
+    const raw = window.localStorage.getItem(key);
+    if (raw === null) {
+      throw new Error("Expected a persisted save");
+    }
+    const save = JSON.parse(raw) as {
+      currency: number;
+      lifetimeCurrency: number;
+      lastSavedAt: number;
+      grid?: { entities?: Array<{ type: string }> };
+    };
+    return {
+      currency: save.currency,
+      lifetimeCurrency: save.lifetimeCurrency,
+      lastSavedAt: save.lastSavedAt,
+      entityTypes: (save.grid?.entities ?? []).map((entity) => entity.type),
+      raw,
+    };
+  }, SAVE_KEY);
+}
+
+test("sells copper through a raw chain and restores it after a reload", async ({ page }) => {
+  const browserErrors: string[] = [];
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      browserErrors.push(message.text());
+    }
+  });
+
+  const startingCurrency = await openWithClearedSave(page);
+  expect(startingCurrency).toBe(500);
+  expect(await hudCurrency(page)).toBe(500);
+
+  await buildChain(page, COPPER_NODE, "copperOre", 1);
+  const baseline = await bridgeCurrency(page);
+  expect(baseline).toBe(340);
+  await expect.poll(() => hudCurrency(page)).toBe(340);
+
+  await expect.poll(() => persistedEntityTypes(page)).toEqual(["extractor", "belt", "depot"]);
+
+  const soldCurrency = await advanceUntilCurrencyGrows(page, baseline);
+  expect(soldCurrency).toBeGreaterThan(baseline);
+  await expect.poll(() => hudCurrency(page)).toBeGreaterThan(baseline);
+
+  const extractorActive = await page.evaluate(async (maxTicks) => {
+    const runtime = window as unknown as RuntimeWindow;
+    const bridge = runtime.__FACTOR_Y__;
+    const telemetry = runtime.__FACTOR_Y_TELEMETRY__;
+    if (bridge === undefined || telemetry === undefined) {
+      throw new Error("Factor-Y bridges unavailable");
+    }
+    const isExtractorFrame = (key: string): boolean =>
+      /^factor-y:machine\.extractor\.active:[01]$/.test(key);
+
+    for (let tick = 0; tick < maxTicks; tick += 1) {
+      bridge.advanceTicks(1);
+      if (!telemetry.getSnapshot().render.activeEntityIds.includes("entity-1")) {
+        continue;
+      }
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+      const render = telemetry.getSnapshot().render;
+      if (render.activeFrameKeys.some(isExtractorFrame)) {
+        return render;
+      }
+    }
+    return telemetry.getSnapshot().render;
+  }, MAX_SCAN_TICKS);
+
+  expect(
+    extractorActive.activeFrameKeys.some((key) => /^factor-y:machine\.extractor\.active:[01]$/.test(key)),
+  ).toBe(true);
+  expect(extractorActive.activeFrameKeys.every((key) => key.startsWith("factor-y:machine."))).toBe(true);
+  expect(extractorActive.beltItemEventCount).toBeGreaterThanOrEqual(2);
+  expect(extractorActive.entityIds).toEqual(["entity-1", "entity-2", "entity-3"]);
+
+  await expect.poll(async () => (await persistedSave(page)).currency).toBeGreaterThan(baseline);
+  const beforeReload = await persistedSave(page);
+  expect(beforeReload.entityTypes).toEqual(["extractor", "belt", "depot"]);
+  expect(beforeReload.lifetimeCurrency).toBeGreaterThan(0);
+  expect(beforeReload.lastSavedAt).toBeGreaterThan(0);
+  expect(beforeReload.raw).not.toContain("tickCount");
+  expect(beforeReload.raw).not.toContain("currencySamples");
+  expect(beforeReload.raw).not.toContain("selectedEntityId");
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForReady(page);
+
+  expect(await bridgeCurrency(page)).toBeGreaterThanOrEqual(beforeReload.currency);
+  expect(await hudCurrency(page)).toBeGreaterThanOrEqual(baseline);
+  await expect.poll(() => renderTelemetry(page).then((render) => render.entityIds)).toEqual([
+    "entity-1",
+    "entity-2",
+    "entity-3",
+  ]);
+  expect(await persistedEntityTypes(page)).toEqual(["extractor", "belt", "depot"]);
+  expect(browserErrors).toEqual([]);
+});
+
+test("carries a glowing iron item across a belt line and sells it", async ({ page }) => {
+  const browserErrors: string[] = [];
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      browserErrors.push(message.text());
+    }
+  });
+
+  const startingCurrency = await openWithClearedSave(page);
+  expect(startingCurrency).toBe(500);
+
+  const beltCount = 5;
+  await buildChain(page, IRON_NODE, "ironOre", beltCount);
+  const baseline = await bridgeCurrency(page);
+  expect(baseline).toBe(300);
+  await expect.poll(() => persistedEntityTypes(page)).toEqual([
+    "extractor",
+    "belt",
+    "belt",
+    "belt",
+    "belt",
+    "belt",
+    "depot",
+  ]);
+
+  const glow = await advanceUntilBeltGlow(page);
+
+  expect(glow.beltItemIds[0]).toMatch(/^entity-[2-6]$/);
+  expect(glow.activeEntityIds).toContain(glow.beltItemIds[0]);
+  expect(
+    glow.activeFrameKeys.some((key) => /^factor-y:machine\.belt\.active:[01]$/.test(key)),
+  ).toBe(true);
+  expect(glow.activeFrameKeys.every((key) => key.startsWith("factor-y:machine."))).toBe(true);
+  expect(glow.beltItemEventCount).toBeGreaterThanOrEqual(2);
+
+  const soldCurrency = await advanceUntilCurrencyGrows(page, baseline);
+  expect(soldCurrency).toBeGreaterThan(baseline);
+  await expect.poll(() => hudCurrency(page)).toBeGreaterThan(baseline);
+  await expect.poll(() => persistedSave(page).then((save) => save.lifetimeCurrency)).toBeGreaterThan(0);
+
+  const settled = await renderTelemetry(page);
+  expect(settled.beltGlowCount).toBe(0);
+  expect(settled.beltItemIds).toEqual([]);
+  expect(browserErrors).toEqual([]);
+});
+
+test("keeps deterministic copper and iron node coordinates for the raw loop", () => {
+  const state = createInitialState(1337);
+  const copper = state.grid.nodes.find((node) => node.resource === "copperOre");
+  const iron = state.grid.nodes.find((node) => node.resource === "ironOre");
+
+  expect(copper).toMatchObject(COPPER_NODE);
+  expect(iron).toMatchObject(IRON_NODE);
+  expect(COPPER_NODE.x + 6).toBeLessThan(state.grid.width);
+  expect(IRON_NODE.x + 6).toBeLessThan(state.grid.width);
+});

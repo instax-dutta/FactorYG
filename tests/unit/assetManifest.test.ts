@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ASSET_MANIFEST, getAssetPath, getAssetPaths } from "../../src/content/assetManifest";
+import { getMachine } from "../../src/content/machines";
 
 const LOCKED_PALETTE = new Set([
   "#101820",
@@ -20,11 +21,27 @@ const EXPECTED_FRAME_PATHS = {
     "assets/machines/extractor-active.svg",
     "assets/machines/extractor-active-1.svg",
   ],
-  "machine.belt.idle": ["assets/machines/belt.svg"],
+  "machine.belt.idle": ["assets/machines/belt-idle.svg"],
+  "machine.belt.active": [
+    "assets/machines/belt-active.svg",
+    "assets/machines/belt-active-1.svg",
+  ],
   "machine.depot.idle": ["assets/machines/depot-idle.svg"],
+  "machine.depot.active": [
+    "assets/machines/depot-active.svg",
+    "assets/machines/depot-active-1.svg",
+  ],
   "resource.copperOre": ["assets/resources/copper-ore.svg"],
   "resource.ironOre": ["assets/resources/iron-ore.svg"],
   "vfx.spark": ["assets/vfx/spark.svg"],
+} as const;
+
+const RAW_MACHINES = ["extractor", "belt", "depot"] as const;
+
+const EXPECTED_RAW_MACHINE_FRAMES = {
+  extractor: { idle: 1, active: 2 },
+  belt: { idle: 1, active: 2 },
+  depot: { idle: 1, active: 2 },
 } as const;
 
 function readAsset(path: string): string {
@@ -74,8 +91,39 @@ describe("asset manifest", () => {
       "assets/machines/extractor-active.svg",
       "assets/machines/extractor-active-1.svg",
     ]);
-    expect(getAssetPath("machine.belt.idle")).toBe("assets/machines/belt.svg");
+    expect(getAssetPath("machine.belt.idle")).toBe("assets/machines/belt-idle.svg");
     expect(getAssetPath("machine.depot.idle")).toBe("assets/machines/depot-idle.svg");
+  });
+
+  it("registers an idle frame and an animated active frame set for every raw machine", () => {
+    for (const machine of RAW_MACHINES) {
+      const definition = getMachine(machine);
+      if (definition === undefined) {
+        throw new Error(`Missing machine definition for ${machine}`);
+      }
+
+      const idle = ASSET_MANIFEST[definition.spriteKey as keyof typeof ASSET_MANIFEST];
+      const active = ASSET_MANIFEST[(definition.activeSpriteKey ?? "") as keyof typeof ASSET_MANIFEST];
+      const expected = EXPECTED_RAW_MACHINE_FRAMES[machine];
+
+      expect(idle, `${machine} idle art`).toBeDefined();
+      expect(active, `${machine} active art`).toBeDefined();
+      expect(idle.frameCount).toBe(expected.idle);
+      expect(active.frameCount).toBe(expected.active);
+      expect(active.path).not.toBe(idle.path);
+      expect(active.framePaths[0]).not.toBe(idle.path);
+      expect(new Set([...idle.framePaths, ...active.framePaths]).size).toBe(
+        idle.frameCount + active.frameCount,
+      );
+    }
+  });
+
+  it("registers one distinct icon per raw resource", () => {
+    expect(ASSET_MANIFEST["resource.copperOre"].frameCount).toBe(1);
+    expect(ASSET_MANIFEST["resource.ironOre"].frameCount).toBe(1);
+    expect(ASSET_MANIFEST["resource.copperOre"].path).not.toBe(
+      ASSET_MANIFEST["resource.ironOre"].path,
+    );
   });
 
   it("deeply freezes the manifest and every frame path list", () => {
@@ -94,6 +142,8 @@ describe("asset manifest", () => {
       "assets/machines/extractor-active.svg",
       "assets/machines/extractor-active-1.svg",
     ]);
+    expect(getAssetPath("machine.belt.active")).toBe("assets/machines/belt-active.svg");
+    expect(getAssetPath("machine.depot.active")).toBe("assets/machines/depot-active.svg");
     expect(getAssetPath("missing.asset")).toBeUndefined();
     expect(getAssetPaths("missing.asset")).toBeUndefined();
   });
