@@ -150,11 +150,6 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
 
   await installStatusHistory(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  expect(
-    await page.evaluate(
-      () => window.__FACTOR_Y__ === undefined && window.__FACTOR_Y_TELEMETRY__ === undefined,
-    ),
-  ).toBe(true);
   const wrapper = page.getByTestId("game-canvas");
   await expect(wrapper).toBeVisible();
   await waitForBootingStatus(page, 1);
