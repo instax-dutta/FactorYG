@@ -26,7 +26,6 @@ export function GameHeader() {
           marginTop: "8px",
           fontSize: "1rem",
           letterSpacing: "0.18em",
-          textTransform: "uppercase",
         }}
       >
         {PRODUCT_SHORT_NAME}

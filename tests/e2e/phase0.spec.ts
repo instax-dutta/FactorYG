@@ -161,6 +161,11 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
 
   await installStatusHistory(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
+  expect(await page.title()).toBe("Factor-I");
+  expect(await page.locator('meta[name="description"]').getAttribute("content")).toBe(
+    "Build, optimize, and grow your Factor-I factory.",
+  );
+  await expect(page.getByRole("heading", { name: "Factor-I" })).toBeVisible();
   const wrapper = page.getByTestId("game-canvas");
   await expect(wrapper).toBeVisible();
   await waitForBootingStatus(page, 1);
