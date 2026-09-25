@@ -63,6 +63,16 @@ export class SimulationStore {
     return structuredClone(this.#state);
   }
 
+  public getActiveMachineIds(): readonly string[] {
+    const active: string[] = [];
+    for (const entity of this.#state.grid.entities) {
+      if (this.#state.grid.machines[entity.id]?.active === true) {
+        active.push(entity.id);
+      }
+    }
+    return Object.freeze(active);
+  }
+
   public getEntities(): readonly Entity[] {
     const entities = this.#state.grid.entities.map((entity) => Object.freeze({ ...entity }));
     return Object.freeze(entities);

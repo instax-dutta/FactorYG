@@ -144,7 +144,7 @@ describe("runtime autosave", () => {
     const storage = createMemoryStorage();
     const store = createStore();
     const autosave = createRuntimeAutosave(store, storage, () => 1_000, {
-      listenForPageHide: false,
+      listenForLifecycleEvents: false,
     });
 
     store.dispatch({
@@ -171,7 +171,7 @@ describe("runtime autosave", () => {
     const storage = createMemoryStorage();
     const store = createStore();
     const autosave = createRuntimeAutosave(store, storage, () => 1_000, {
-      listenForPageHide: false,
+      listenForLifecycleEvents: false,
     });
 
     store.dispatch({ type: "setPlacementMode", machine: "extractor" });
@@ -192,7 +192,7 @@ describe("runtime autosave", () => {
     let clock = 2_000;
     const autosave = createRuntimeAutosave(store, storage, () => clock, {
       minimumIntervalMs: 1_000,
-      listenForPageHide: false,
+      listenForLifecycleEvents: false,
     });
 
     buildChain(store, "copperOre");
@@ -220,7 +220,7 @@ describe("runtime autosave", () => {
     let clock = 5_000;
     const autosave = createRuntimeAutosave(store, storage, () => clock, {
       minimumIntervalMs: 60_000,
-      listenForPageHide: true,
+      listenForLifecycleEvents: true,
     });
 
     store.advanceTicks(1);
@@ -248,15 +248,52 @@ describe("runtime autosave", () => {
     autosave.dispose();
   });
 
+  it("flushes when the tab becomes hidden and stops after disposal", () => {
+    const storage = createMemoryStorage();
+    const store = createStore();
+    let clock = 9_000;
+    const autosave = createRuntimeAutosave(store, storage, () => clock, {
+      minimumIntervalMs: 60_000,
+      listenForLifecycleEvents: true,
+    });
+    const restoreVisibility = setVisibilityState("visible");
+
+    try {
+      buildChain(store, "copperOre");
+      expect(autosave.getWriteCount()).toBe(3);
+
+      clock = 9_400;
+      store.advanceTicks(1);
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(autosave.getWriteCount()).toBe(3);
+
+      setVisibilityState("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(autosave.getWriteCount()).toBe(4);
+      expect(readSave(storage).lastSavedAt).toBe(9_400);
+
+      clock = 9_800;
+      store.advanceTicks(1);
+      autosave.dispose();
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("pagehide"));
+      expect(autosave.getWriteCount()).toBe(4);
+      expect(readSave(storage).lastSavedAt).toBe(9_400);
+    } finally {
+      restoreVisibility();
+      autosave.dispose();
+    }
+  });
+
   it("keeps one subscription per store and stops writing after disposal", () => {
     const storage = createMemoryStorage();
     const store = createStore();
     const subscribe = vi.spyOn(store, "subscribe");
     const autosave = createRuntimeAutosave(store, storage, () => 1_000, {
-      listenForPageHide: false,
+      listenForLifecycleEvents: false,
     });
     const repeated = createRuntimeAutosave(store, storage, () => 1_000, {
-      listenForPageHide: false,
+      listenForLifecycleEvents: false,
     });
 
     expect(repeated).toBe(autosave);
@@ -276,7 +313,7 @@ describe("runtime autosave", () => {
   it("does nothing when the storage adapter is unavailable", () => {
     const store = createStore();
     const autosave = createRuntimeAutosave(store, undefined, () => 1_000, {
-      listenForPageHide: false,
+      listenForLifecycleEvents: false,
     });
 
     buildChain(store, "copperOre");
@@ -287,3 +324,16 @@ describe("runtime autosave", () => {
     autosave.dispose();
   });
 });
+
+function setVisibilityState(value: string): () => void {
+  const hadOwn = Object.hasOwn(document, "visibilityState");
+  const previous = Object.getOwnPropertyDescriptor(document, "visibilityState");
+  Object.defineProperty(document, "visibilityState", { configurable: true, value });
+  return () => {
+    if (hadOwn && previous !== undefined) {
+      Object.defineProperty(document, "visibilityState", previous);
+    } else {
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+  };
+}

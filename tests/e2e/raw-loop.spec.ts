@@ -166,38 +166,121 @@ async function advanceUntilCurrencyGrows(
   return observed.currency;
 }
 
-async function advanceUntilBeltGlow(page: Page): Promise<RenderTelemetry> {
-  const observed = await page.evaluate(async (maxTicks) => {
+interface BeltLineObservation {
+  readonly glowTicks: number;
+  readonly glow: RenderTelemetry;
+  readonly drainedTicks: number;
+  readonly settled: RenderTelemetry;
+}
+
+async function observeBeltLine(page: Page, beltCount: number): Promise<BeltLineObservation> {
+  const observed = await page.evaluate(
+    async ({ maxTicks, beltCount }) => {
+      const runtime = window as unknown as RuntimeWindow;
+      const bridge = runtime.__FACTOR_Y__;
+      const telemetry = runtime.__FACTOR_Y_TELEMETRY__;
+      if (bridge === undefined || telemetry === undefined) {
+        throw new Error("Factor-Y bridges unavailable");
+      }
+      const isBeltFrame = (key: string): boolean =>
+        /^factor-y:machine\.belt\.active:[01]$/.test(key);
+      const nextFrame = (): Promise<void> =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => resolve());
+          });
+        });
+
+      let glowTicks = 0;
+      let glow: ReturnType<typeof telemetry.getSnapshot>["render"] | undefined;
+      for (let tick = 0; tick < maxTicks && glow === undefined; tick += 1) {
+        bridge.advanceTicks(1);
+        if (telemetry.getSnapshot().render.beltGlowCount === 0) {
+          continue;
+        }
+        await nextFrame();
+        const framed = telemetry.getSnapshot().render;
+        if (framed.beltGlowCount > 0 && framed.activeFrameKeys.some(isBeltFrame)) {
+          glowTicks = tick + 1;
+          glow = framed;
+        }
+      }
+
+      if (glow === undefined) {
+        const current = telemetry.getSnapshot().render;
+        return { glowTicks: -1, glow: current, drainedTicks: -1, settled: current };
+      }
+
+      const drainLimit = beltCount + 2;
+      let drainedTicks = 0;
+      while (drainedTicks < drainLimit) {
+        bridge.advanceTicks(1);
+        drainedTicks += 1;
+        if (telemetry.getSnapshot().render.beltGlowCount === 0) {
+          break;
+        }
+      }
+
+      return { glowTicks, glow, drainedTicks, settled: telemetry.getSnapshot().render };
+    },
+    { maxTicks: MAX_SCAN_TICKS, beltCount },
+  );
+
+  expect(observed.glowTicks).toBeGreaterThan(0);
+  expect(observed.glow.beltGlowCount).toBe(1);
+  expect(observed.glow.beltItemIds).toHaveLength(1);
+  expect(observed.drainedTicks).toBeGreaterThan(0);
+  expect(observed.drainedTicks).toBeLessThanOrEqual(beltCount + 2);
+  expect(observed.settled.beltGlowCount).toBe(0);
+  expect(observed.settled.beltItemIds).toEqual([]);
+  return observed;
+}
+
+interface TelemetryRebuildSample {
+  readonly frames: number;
+  readonly rebuilds: number;
+  readonly elapsedMs: number;
+  readonly sawActiveEntity: boolean;
+}
+
+async function measureRenderTelemetryRebuilds(
+  page: Page,
+  frames = 24,
+): Promise<TelemetryRebuildSample> {
+  return page.evaluate(async (frameCount) => {
     const runtime = window as unknown as RuntimeWindow;
     const bridge = runtime.__FACTOR_Y__;
     const telemetry = runtime.__FACTOR_Y_TELEMETRY__;
     if (bridge === undefined || telemetry === undefined) {
       throw new Error("Factor-Y bridges unavailable");
     }
-    const isBeltFrame = (key: string): boolean => /^factor-y:machine\.belt\.active:[01]$/.test(key);
 
-    for (let tick = 0; tick < maxTicks; tick += 1) {
-      bridge.advanceTicks(1);
-      if (telemetry.getSnapshot().render.beltGlowCount === 0) {
-        continue;
+    for (let tick = 0; tick < 8; tick += 1) {
+      if (telemetry.getSnapshot().render.activeEntityIds.length > 0) {
+        break;
       }
+      bridge.advanceTicks(1);
+    }
+
+    const seen = new Set<object>();
+    let sawActiveEntity = false;
+    const started = performance.now();
+    for (let frame = 0; frame < frameCount; frame += 1) {
       await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => resolve());
-        });
+        requestAnimationFrame(() => resolve());
       });
       const render = telemetry.getSnapshot().render;
-      if (render.beltGlowCount > 0 && render.activeFrameKeys.some(isBeltFrame)) {
-        return { ticks: tick + 1, render };
-      }
+      seen.add(render);
+      sawActiveEntity = sawActiveEntity || render.activeEntityIds.length > 0;
     }
-    return { ticks: -1, render: telemetry.getSnapshot().render };
-  }, MAX_SCAN_TICKS);
 
-  expect(observed.ticks).toBeGreaterThan(0);
-  expect(observed.render.beltGlowCount).toBe(1);
-  expect(observed.render.beltItemIds).toHaveLength(1);
-  return observed.render;
+    return {
+      frames: frameCount,
+      rebuilds: seen.size,
+      elapsedMs: performance.now() - started,
+      sawActiveEntity,
+    };
+  }, frames);
 }
 
 async function renderTelemetry(page: Page): Promise<RenderTelemetry> {
@@ -309,6 +392,13 @@ test("sells copper through a raw chain and restores it after a reload", async ({
   expect(extractorActive.entityIds).toEqual(["entity-1", "entity-2", "entity-3"]);
 
   await expect.poll(async () => (await persistedSave(page)).currency).toBeGreaterThan(baseline);
+  const telemetrySample = await measureRenderTelemetryRebuilds(page);
+  expect(telemetrySample.sawActiveEntity).toBe(true);
+  expect(telemetrySample.rebuilds).toBeLessThan(telemetrySample.frames);
+  expect(telemetrySample.rebuilds).toBeLessThanOrEqual(
+    Math.ceil(telemetrySample.elapsedMs / 160) + 6,
+  );
+
   const beforeReload = await persistedSave(page);
   expect(beforeReload.entityTypes).toEqual(["extractor", "belt", "depot"]);
   expect(beforeReload.lifetimeCurrency).toBeGreaterThan(0);
@@ -357,24 +447,21 @@ test("carries a glowing iron item across a belt line and sells it", async ({ pag
     "depot",
   ]);
 
-  const glow = await advanceUntilBeltGlow(page);
+  const line = await observeBeltLine(page, beltCount);
 
-  expect(glow.beltItemIds[0]).toMatch(/^entity-[2-6]$/);
-  expect(glow.activeEntityIds).toContain(glow.beltItemIds[0]);
+  expect(line.glow.beltItemIds[0]).toMatch(/^entity-[2-6]$/);
+  expect(line.glow.activeEntityIds).toContain(line.glow.beltItemIds[0]);
   expect(
-    glow.activeFrameKeys.some((key) => /^factor-y:machine\.belt\.active:[01]$/.test(key)),
+    line.glow.activeFrameKeys.some((key) => /^factor-y:machine\.belt\.active:[01]$/.test(key)),
   ).toBe(true);
-  expect(glow.activeFrameKeys.every((key) => key.startsWith("factor-y:machine."))).toBe(true);
-  expect(glow.beltItemEventCount).toBeGreaterThanOrEqual(2);
+  expect(line.glow.activeFrameKeys.every((key) => key.startsWith("factor-y:machine."))).toBe(true);
+  expect(line.glow.beltItemEventCount).toBeGreaterThanOrEqual(2);
+  expect(line.settled.beltItemEventCount).toBeGreaterThanOrEqual(line.glow.beltItemEventCount);
 
   const soldCurrency = await advanceUntilCurrencyGrows(page, baseline);
   expect(soldCurrency).toBeGreaterThan(baseline);
   await expect.poll(() => hudCurrency(page)).toBeGreaterThan(baseline);
   await expect.poll(() => persistedSave(page).then((save) => save.lifetimeCurrency)).toBeGreaterThan(0);
-
-  const settled = await renderTelemetry(page);
-  expect(settled.beltGlowCount).toBe(0);
-  expect(settled.beltItemIds).toEqual([]);
   expect(browserErrors).toEqual([]);
 });
 

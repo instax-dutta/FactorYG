@@ -19,7 +19,13 @@ import {
   resolveActiveFrameTextureKeys,
   resolveIdleTextureKey,
 } from "./render/textureKeys";
-import { createSceneTelemetry, type SceneTelemetry, type SceneRenderTelemetry } from "./telemetry";
+import {
+  createRenderTelemetryCache,
+  createSceneRenderTelemetry,
+  createSceneTelemetry,
+  type SceneRenderTelemetry,
+  type SceneTelemetry,
+} from "./telemetry";
 
 const GRID_WIDTH = 64;
 const GRID_HEIGHT = 64;
@@ -50,15 +56,17 @@ export class FactoryScene extends Phaser.Scene {
   private readonly entitySprites = new Map<string, Phaser.GameObjects.Sprite>();
   private readonly placedEntities = new Map<string, Entity>();
   private readonly activeEntityIds = new Set<string>();
-  private renderTelemetry: SceneRenderTelemetry = {
-    entityIds: [],
-    activeEntityIds: [],
-    activeFrameKeys: [],
-    beltItemIds: [],
-    beltGlowCount: 0,
-    beltItemEventCount: 0,
-  };
-  private renderDirty = true;
+  private readonly renderTelemetry = createRenderTelemetryCache(
+    createSceneRenderTelemetry({
+      entityIds: [],
+      activeEntityIds: [],
+      activeFrameKeys: [],
+      beltItemIds: [],
+      beltGlowCount: 0,
+      beltItemEventCount: 0,
+    }),
+  );
+  private activeFrameBucket = -1;
   private unsubscribeSnapshot: (() => void) | undefined;
   private unsubscribeEvents: (() => void) | undefined;
 
@@ -139,6 +147,7 @@ export class FactoryScene extends Phaser.Scene {
     this.events.once("shutdown", this.cleanup);
     this.events.once("destroy", this.cleanup);
 
+    this.renderTelemetry.markDirty();
     this.syncExistingWorld();
     this.updateActiveFrames();
     this.ready = true;
@@ -187,10 +196,8 @@ export class FactoryScene extends Phaser.Scene {
       this.renderEntity(entity);
     }
 
-    for (const [entityId, runtime] of Object.entries(this.store.getSaveGame().grid.machines)) {
-      if (runtime.active) {
-        this.setEntityActive(entityId);
-      }
+    for (const entityId of this.store.getActiveMachineIds()) {
+      this.setEntityActive(entityId);
     }
 
     const carriedItems = this.store.getBeltItems();
@@ -285,7 +292,7 @@ export class FactoryScene extends Phaser.Scene {
         this.placedEntities.delete(event.entityId);
         this.activeEntityIds.delete(event.entityId);
         this.beltItemRenderer.remove(event.entityId);
-        this.renderDirty = true;
+        this.renderTelemetry.markDirty();
         break;
       }
       case "machineStateChanged":
@@ -297,7 +304,7 @@ export class FactoryScene extends Phaser.Scene {
         break;
       case "beltItemChanged":
         this.beltItemRenderer.apply(event);
-        this.renderDirty = true;
+        this.renderTelemetry.markDirty();
         if (event.item === undefined) {
           this.setEntityIdle(event.entityId);
         } else {
@@ -330,7 +337,7 @@ export class FactoryScene extends Phaser.Scene {
     }
     this.entitySprites.set(entity.id, sprite);
     this.placedEntities.set(entity.id, { ...entity });
-    this.renderDirty = true;
+    this.renderTelemetry.markDirty();
   }
 
   private setEntityActive(entityId: string): void {
@@ -346,7 +353,8 @@ export class FactoryScene extends Phaser.Scene {
 
     if (!this.activeEntityIds.has(entityId)) {
       this.activeEntityIds.add(entityId);
-      this.renderDirty = true;
+      this.activeFrameBucket = -1;
+      this.renderTelemetry.markDirty();
     }
 
     if (resolveActiveFrameTextureKeys(machine).length === 0) {
@@ -362,7 +370,6 @@ export class FactoryScene extends Phaser.Scene {
       return;
     }
 
-    let frameBucket = -1;
     for (const entityId of this.activeEntityIds) {
       const machine = this.getEntityMachine(entityId);
       if (machine === undefined) {
@@ -376,9 +383,9 @@ export class FactoryScene extends Phaser.Scene {
       }
 
       const bucket = Math.floor(this.time.now / ACTIVE_FRAME_INTERVAL_MS);
-      if (bucket !== frameBucket) {
-        frameBucket = bucket;
-        this.renderDirty = true;
+      if (bucket !== this.activeFrameBucket) {
+        this.activeFrameBucket = bucket;
+        this.renderTelemetry.markDirty();
       }
 
       const frameKey = frameKeys[bucket % frameKeys.length];
@@ -390,7 +397,8 @@ export class FactoryScene extends Phaser.Scene {
 
   private setEntityIdle(entityId: string): void {
     if (this.activeEntityIds.delete(entityId)) {
-      this.renderDirty = true;
+      this.activeFrameBucket = -1;
+      this.renderTelemetry.markDirty();
     }
 
     const sprite = this.entitySprites.get(entityId);
@@ -477,28 +485,21 @@ export class FactoryScene extends Phaser.Scene {
     this.onReady();
   }
 
-  private refreshRenderTelemetry(): SceneRenderTelemetry {
-    if (!this.renderDirty) {
-      return this.renderTelemetry;
-    }
-
-    this.renderDirty = false;
-    this.renderTelemetry = Object.freeze({
-      entityIds: Object.freeze([...this.placedEntities.keys()]),
-      activeEntityIds: Object.freeze(
-        [...this.activeEntityIds].sort((first, second) => (first < second ? -1 : 1)),
-      ),
-      activeFrameKeys: Object.freeze(
-        [...this.activeEntityIds]
-          .sort((first, second) => (first < second ? -1 : 1))
-          .map((entityId) => this.entitySprites.get(entityId)?.texture.key)
-          .filter((key): key is string => typeof key === "string"),
-      ),
-      beltItemIds: Object.freeze([...this.beltItemRenderer.getRenderedEntityIds()].sort()),
-      beltGlowCount: this.beltItemRenderer.getRendered().length,
-      beltItemEventCount: this.beltItemRenderer.getChangedEventCount(),
-    });
-    return this.renderTelemetry;
+  private readRenderTelemetry(): SceneRenderTelemetry {
+    return this.renderTelemetry.read(
+      () =>
+        createSceneRenderTelemetry({
+          entityIds: [...this.placedEntities.keys()],
+          activeEntityIds: [...this.activeEntityIds].sort(compareEntityIds),
+          activeFrameKeys: [...this.activeEntityIds]
+            .sort(compareEntityIds)
+            .map((entityId) => this.entitySprites.get(entityId)?.texture.key)
+            .filter((key): key is string => typeof key === "string"),
+          beltItemIds: [...this.beltItemRenderer.getRenderedEntityIds()].sort(),
+          beltGlowCount: this.beltItemRenderer.getRendered().length,
+          beltItemEventCount: this.beltItemRenderer.getChangedEventCount(),
+        }),
+    );
   }
 
   private publishTelemetry(): void {
@@ -519,7 +520,7 @@ export class FactoryScene extends Phaser.Scene {
           valid: this.ghostValid,
           rotation: this.snapshot.pendingRotation,
         },
-        render: this.refreshRenderTelemetry(),
+        render: this.readRenderTelemetry(),
       }),
     );
   }
@@ -540,5 +541,10 @@ export class FactoryScene extends Phaser.Scene {
     this.inputAdapter = undefined;
     this.beltItemRenderer?.destroy();
     this.activeEntityIds.clear();
+    this.activeFrameBucket = -1;
   };
+}
+
+function compareEntityIds(first: string, second: string): number {
+  return first < second ? -1 : 1;
 }

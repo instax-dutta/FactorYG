@@ -565,7 +565,7 @@ git commit -m "feat: define Factor-Y content tables"
 - Create: `public/assets/machines/extractor-idle.svg`
 - Create: `public/assets/machines/extractor-active.svg`
 - Create: `public/assets/machines/extractor-active-1.svg`
-- Create: `public/assets/machines/belt.svg`
+- Create: `public/assets/machines/belt-idle.svg`
 - Create: `public/assets/resources/copper-ore.svg`
 - Create: `public/assets/resources/iron-ore.svg`
 - Create: `public/assets/vfx/spark.svg`

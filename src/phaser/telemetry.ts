@@ -37,17 +37,48 @@ export interface SceneTelemetryInput {
   render: SceneRenderTelemetry;
 }
 
+export interface SceneRenderTelemetryCache {
+  markDirty(): void;
+  read(refresh: () => SceneRenderTelemetry): SceneRenderTelemetry;
+}
+
+export function createSceneRenderTelemetry(input: SceneRenderTelemetry): SceneRenderTelemetry {
+  return Object.freeze({
+    entityIds: Object.freeze([...input.entityIds]),
+    activeEntityIds: Object.freeze([...input.activeEntityIds]),
+    activeFrameKeys: Object.freeze([...input.activeFrameKeys]),
+    beltItemIds: Object.freeze([...input.beltItemIds]),
+    beltGlowCount: input.beltGlowCount,
+    beltItemEventCount: input.beltItemEventCount,
+  });
+}
+
+export function createRenderTelemetryCache(
+  initial: SceneRenderTelemetry,
+): SceneRenderTelemetryCache {
+  let current = initial;
+  let dirty = false;
+
+  return {
+    markDirty: (): void => {
+      dirty = true;
+    },
+    read: (refresh: () => SceneRenderTelemetry): SceneRenderTelemetry => {
+      if (dirty) {
+        current = createSceneRenderTelemetry(refresh());
+        dirty = false;
+      }
+      return current;
+    },
+  };
+}
+
 export function createSceneTelemetry(input: SceneTelemetryInput): SceneTelemetry {
   const camera = Object.freeze({ ...input.camera });
   const ghost = Object.freeze({ ...input.ghost });
-  const render = Object.freeze({
-    entityIds: Object.freeze([...input.render.entityIds]),
-    activeEntityIds: Object.freeze([...input.render.activeEntityIds]),
-    activeFrameKeys: Object.freeze([...input.render.activeFrameKeys]),
-    beltItemIds: Object.freeze([...input.render.beltItemIds]),
-    beltGlowCount: input.render.beltGlowCount,
-    beltItemEventCount: input.render.beltItemEventCount,
-  });
+  const render = Object.isFrozen(input.render)
+    ? input.render
+    : createSceneRenderTelemetry(input.render);
   return Object.freeze({
     ready: input.ready,
     camera,
@@ -60,12 +91,12 @@ export const INITIAL_SCENE_TELEMETRY = createSceneTelemetry({
   ready: false,
   camera: { scrollX: 0, scrollY: 0, zoom: 1 },
   ghost: { visible: false, valid: false, rotation: 0 },
-  render: {
+  render: createSceneRenderTelemetry({
     entityIds: [],
     activeEntityIds: [],
     activeFrameKeys: [],
     beltItemIds: [],
     beltGlowCount: 0,
     beltItemEventCount: 0,
-  },
+  }),
 });

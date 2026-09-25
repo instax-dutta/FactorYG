@@ -38,7 +38,7 @@ export interface SimulationRuntimeAutosave {
 
 export interface RuntimeAutosaveOptions {
   readonly minimumIntervalMs?: number;
-  readonly listenForPageHide?: boolean;
+  readonly listenForLifecycleEvents?: boolean;
 }
 
 export interface SimulationRuntime {
@@ -92,7 +92,7 @@ export function createRuntimeAutosave(
   }
 
   const minimumIntervalMs = options.minimumIntervalMs ?? DEFAULT_MINIMUM_WRITE_INTERVAL_MS;
-  const listenForPageHide = options.listenForPageHide ?? true;
+  const listenForLifecycleEvents = options.listenForLifecycleEvents ?? true;
   let lastWriteAt = now();
   let writeCount = 0;
   let disposed = false;
@@ -151,6 +151,12 @@ export function createRuntimeAutosave(
     flush();
   };
 
+  const handleVisibilityChange = (): void => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      flush();
+    }
+  };
+
   const autosave: SimulationRuntimeAutosave = {
     sync,
     flush,
@@ -161,8 +167,11 @@ export function createRuntimeAutosave(
       }
       disposed = true;
       unsubscribe();
-      if (listenForPageHide && typeof window !== "undefined") {
+      if (listenForLifecycleEvents && typeof window !== "undefined") {
         window.removeEventListener("pagehide", handlePageHide);
+      }
+      if (listenForLifecycleEvents && typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
       }
       if (autosaves.get(store) === autosave) {
         autosaves.delete(store);
@@ -171,8 +180,11 @@ export function createRuntimeAutosave(
   };
 
   const unsubscribe = store.subscribe(sync);
-  if (listenForPageHide && typeof window !== "undefined") {
+  if (listenForLifecycleEvents && typeof window !== "undefined") {
     window.addEventListener("pagehide", handlePageHide);
+  }
+  if (listenForLifecycleEvents && typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", handleVisibilityChange);
   }
   autosaves.set(store, autosave);
 
