@@ -421,7 +421,11 @@ describe("Factor-Y content tables", () => {
         refinedStone: { cost: 600, requiresMachines: ["smelter"], requiresRecipes: [] },
         wire: { cost: 900, requiresMachines: ["assembler"], requiresRecipes: ["copperIngot"] },
         gear: { cost: 1_200, requiresMachines: ["assembler"], requiresRecipes: ["ironIngot"] },
-        plate: { cost: 1_600, requiresMachines: ["assembler"], requiresRecipes: ["refinedStone"] },
+        plate: {
+          cost: 1_600,
+          requiresMachines: ["assembler"],
+          requiresRecipes: ["ironIngot", "refinedStone"],
+        },
         circuit: {
           cost: 4_000,
           requiresMachines: ["assembler"],
@@ -438,6 +442,15 @@ describe("Factor-Y content tables", () => {
           requiresRecipes: ["circuit", "frame"],
         },
       },
+    });
+  });
+
+  it("pins the plate prerequisites to every recipe that produces its inputs", () => {
+    expect(RECIPES.plate.inputs).toEqual({ ironIngot: 1, refinedStone: 1 });
+    expect(UNLOCKS.recipeUnlocks.plate).toEqual({
+      cost: 1_600,
+      requiresMachines: ["assembler"],
+      requiresRecipes: ["ironIngot", "refinedStone"],
     });
   });
 
@@ -720,6 +733,75 @@ describe("Factor-Y content tables", () => {
     expect(validateContent(malformed)).toContain(
       'Machine unlock requirements "silo" requiresMachines must be an array.',
     );
+  });
+
+  it("requires a recipe to unlock every recipe that produces one of its inputs", () => {
+    const shipped = validateContent(deepFreeze(createMutableContentSnapshot()));
+    expect(shipped).toEqual([]);
+
+    const missingIronIngot = createMutableContentSnapshot();
+    missingIronIngot.unlocks.recipeUnlocks.plate = {
+      ...missingIronIngot.unlocks.recipeUnlocks.plate,
+      requiresRecipes: ["refinedStone"],
+    };
+    const missingPlate = createMutableContentSnapshot();
+    missingPlate.unlocks.recipeUnlocks.frame = {
+      ...missingPlate.unlocks.recipeUnlocks.frame,
+      requiresRecipes: ["gear"],
+    };
+    const missingGear = createMutableContentSnapshot();
+    missingGear.unlocks.recipeUnlocks.circuit = {
+      ...missingGear.unlocks.recipeUnlocks.circuit,
+      requiresRecipes: ["wire"],
+    };
+
+    expect(validateContent(missingIronIngot)).toContain(
+      'Recipe unlock requirements for "plate" must require "ironIngot" to produce input "ironIngot".',
+    );
+    expect(validateContent(missingPlate)).toContain(
+      'Recipe unlock requirements for "frame" must require "plate" to produce input "plate".',
+    );
+    expect(validateContent(deepFreeze(missingGear))).toEqual([
+      'Recipe unlock requirements for "circuit" must require "gear" to produce input "gear".',
+    ]);
+  });
+
+  it("accepts a recipe input with no producer recipe", () => {
+    expect(UNLOCKS.recipeUnlocks.copperIngot?.requiresRecipes).toEqual([]);
+    expect(UNLOCKS.recipeUnlocks.ironIngot?.requiresRecipes).toEqual([]);
+    expect(UNLOCKS.recipeUnlocks.refinedStone?.requiresRecipes).toEqual([]);
+    expect(validateContent(deepFreeze(createMutableContentSnapshot()))).toEqual([]);
+  });
+
+  it("accepts a recipe that consumes its own output without requiring itself", () => {
+    const selfConsuming = createMutableContentSnapshot();
+    selfConsuming.recipes.wire = {
+      ...selfConsuming.recipes.wire,
+      inputs: { wire: 1 },
+    };
+
+    expect(validateContent(deepFreeze(selfConsuming))).toEqual([]);
+  });
+
+  it("reports no producer gap for a declared cycle between two recipes", () => {
+    const cycle = createMutableContentSnapshot();
+    cycle.recipes.wire = { ...cycle.recipes.wire, inputs: { gear: 1 } };
+    cycle.recipes.gear = { ...cycle.recipes.gear, inputs: { wire: 1 } };
+    cycle.unlocks.recipeUnlocks.wire = {
+      ...cycle.unlocks.recipeUnlocks.wire,
+      requiresRecipes: ["copperIngot", "gear"],
+    };
+    cycle.unlocks.recipeUnlocks.gear = {
+      ...cycle.unlocks.recipeUnlocks.gear,
+      requiresRecipes: ["ironIngot", "wire"],
+    };
+
+    const errors = validateContent(deepFreeze(cycle));
+
+    expect(errors.some((error) => error.includes("to produce input"))).toBe(false);
+    expect(errors).toEqual([
+      'Recipe unlock requirements "wire" cost must exceed prerequisite cost 1200 of "gear".',
+    ]);
   });
 
   it("requires every smelter recipe input on the single mixed input port", () => {

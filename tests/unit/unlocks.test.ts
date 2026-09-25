@@ -46,28 +46,53 @@ describe("locked entries", () => {
     const state = fundedState();
 
     expect(validatePlacement(state, beltCommand())).toEqual({ ok: true });
-    expect(
-      validatePlacement(state, {
-        type: "placeEntity",
-        machine: "silo",
-        x: SMELTER_CELL.x,
-        y: SMELTER_CELL.y,
-        rotation: 0,
-      }),
-    ).toEqual({ ok: false, reason: "lockedMachine" });
+    expect(validatePlacement(state, siloCommand())).toEqual({
+      ok: false,
+      reason: "lockedMachine",
+    });
+
+    const purchased = unlockMachine(state, { type: "unlockMachine", machine: "silo" });
+
+    expect(purchased.result).toEqual({ ok: true });
+    expect(validatePlacement(purchased.state, siloCommand())).toEqual({ ok: true });
   });
 
   it("refuses an entry that is already free or unknown", () => {
     const state = fundedState();
+    const freeMachine = unlockMachine(state, { type: "unlockMachine", machine: "belt" });
+    const unknownRecipe = unlockRecipe(state, { type: "unlockRecipe", recipeId: "not-a-recipe" });
 
-    expect(unlockMachine(state, { type: "unlockMachine", machine: "belt" }).result).toEqual({
+    expect(freeMachine.result).toEqual({ ok: false, reason: "unknownUnlock" });
+    expect(freeMachine.changed).toBe(false);
+    expect(freeMachine.state).toBe(state);
+    expect(freeMachine.notification).toBeUndefined();
+    expect(unknownRecipe.result).toEqual({ ok: false, reason: "unknownUnlock" });
+    expect(unknownRecipe.changed).toBe(false);
+    expect(unknownRecipe.state).toBe(state);
+    expect(unknownRecipe.notification).toBeUndefined();
+    expect(state.currency).toBe(10_000);
+    expect(state.unlocked.machines).toEqual(["extractor", "belt", "depot"]);
+    expect(state.unlocked.recipes).toEqual([]);
+  });
+
+  it("publishes no snapshot for an unknown unlock", () => {
+    const store = new SimulationStore(fundedState());
+    const listener = vi.fn();
+    const before = store.getSnapshot();
+    store.subscribe(listener);
+
+    expect(store.dispatch({ type: "unlockMachine", machine: "extractor" })).toEqual({
       ok: false,
       reason: "unknownUnlock",
     });
-    expect(unlockRecipe(state, { type: "unlockRecipe", recipeId: "not-a-recipe" }).result).toEqual({
+    expect(store.dispatch({ type: "unlockRecipe", recipeId: "not-a-recipe" })).toEqual({
       ok: false,
       reason: "unknownUnlock",
     });
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(store.getSnapshot()).toBe(before);
+    expect(store.getSnapshot().notifications).toEqual([]);
   });
 });
 
@@ -195,6 +220,58 @@ describe("prerequisites", () => {
     expect(state.unlocked.recipes).toEqual(["gear"]);
   });
 
+  it("keeps every paid entry reachable from a new game", () => {
+    let state = fundedState(1_000_000);
+    const targets: UnlockTarget[] = [
+      machineTarget("silo"),
+      machineTarget("smelter"),
+      machineTarget("assembler"),
+      recipeTarget("copperIngot"),
+      recipeTarget("ironIngot"),
+      recipeTarget("refinedStone"),
+      recipeTarget("wire"),
+      recipeTarget("gear"),
+      recipeTarget("plate"),
+      recipeTarget("circuit"),
+      recipeTarget("frame"),
+      recipeTarget("motor"),
+    ];
+    let purchased = 0;
+
+    for (let pass = 0; pass < targets.length && purchased < targets.length; pass += 1) {
+      for (const target of targets) {
+        const application = applyUnlock(state, target);
+        if (!application.changed) {
+          continue;
+        }
+        state = application.state;
+        purchased += 1;
+      }
+    }
+
+    expect(purchased).toBe(targets.length);
+    expect(state.unlocked.machines.sort()).toEqual([
+      "assembler",
+      "belt",
+      "depot",
+      "extractor",
+      "silo",
+      "smelter",
+    ]);
+    expect(state.unlocked.recipes.sort()).toEqual([
+      "circuit",
+      "copperIngot",
+      "frame",
+      "gear",
+      "ironIngot",
+      "motor",
+      "plate",
+      "refinedStone",
+      "wire",
+    ]);
+    expect(state.notifications).toHaveLength(targets.length);
+  });
+
   it("allows a recipe once every prerequisite is unlocked", () => {
     const state = withMachine("assembler", ["copperIngot"]);
 
@@ -270,11 +347,22 @@ describe("affordability", () => {
 });
 
 describe("canUnlock", () => {
-  it("agrees with dispatch for an affordable entry with unlocked prerequisites", () => {
-    const state = fundedState();
+  it("shares one validator between the store preflight and dispatch", () => {
+    const store = new SimulationStore(fundedState());
 
-    expect(canUnlock(state, machineTarget("silo"))).toEqual({ ok: true });
-    expect(unlockMachine(state, { type: "unlockMachine", machine: "silo" }).result).toEqual({ ok: true });
+    expect(store.canUnlock(machineTarget("silo"))).toEqual({ ok: true });
+    expect(store.canUnlock(machineTarget("assembler"))).toEqual({
+      ok: false,
+      reason: "prerequisiteLocked",
+    });
+    expect(store.dispatch({ type: "unlockMachine", machine: "silo" })).toEqual({ ok: true });
+
+    expect(store.canUnlock(machineTarget("silo"))).toEqual({ ok: false, reason: "alreadyUnlocked" });
+    expect(store.getSnapshot().unlockedMachines).toEqual(["extractor", "belt", "depot", "silo"]);
+    expect(store.getSnapshot().currency).toBe(9_850);
+
+    store.dispatch({ type: "unlockMachine", machine: "silo" });
+    expect(store.getSnapshot().currency).toBe(9_850);
   });
 
   it("agrees with dispatch for every rejection reason", () => {
@@ -444,6 +532,16 @@ function beltCommand(): PlaceEntityCommand {
   return {
     type: "placeEntity",
     machine: "belt",
+    x: SMELTER_CELL.x,
+    y: SMELTER_CELL.y,
+    rotation: 0,
+  };
+}
+
+function siloCommand(): PlaceEntityCommand {
+  return {
+    type: "placeEntity",
+    machine: "silo",
     x: SMELTER_CELL.x,
     y: SMELTER_CELL.y,
     rotation: 0,

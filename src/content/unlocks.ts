@@ -17,7 +17,11 @@ export const UNLOCKS = deepFreeze({
     refinedStone: { cost: 600, requiresMachines: ["smelter"], requiresRecipes: [] },
     wire: { cost: 900, requiresMachines: ["assembler"], requiresRecipes: ["copperIngot"] },
     gear: { cost: 1_200, requiresMachines: ["assembler"], requiresRecipes: ["ironIngot"] },
-    plate: { cost: 1_600, requiresMachines: ["assembler"], requiresRecipes: ["refinedStone"] },
+    plate: {
+      cost: 1_600,
+      requiresMachines: ["assembler"],
+      requiresRecipes: ["ironIngot", "refinedStone"],
+    },
     circuit: {
       cost: 4_000,
       requiresMachines: ["assembler"],

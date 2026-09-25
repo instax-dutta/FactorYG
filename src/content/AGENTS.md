@@ -18,6 +18,7 @@ Own immutable Factor-I content definitions.
 - Smelters and assemblers use mixed input ports, silos use shared storage, and recipe duration overrides machine fallback timing.
 - An unlock requirement cost must equal the machine or recipe `unlockCost` it prices, every paid entry must declare a requirement, and an initially unlocked entry must not.
 - Unlock prerequisites are canonical IDs, never self-referential or duplicated, always cheaper than the entry that requires them so the tree stays purchasable in order, and a recipe always requires the machine that runs it.
+- A recipe must require every recipe that produces one of its inputs. An input with no producer recipe, such as a raw resource, requires nothing, and a recipe that consumes its own output is exempt because it can never unlock itself. A declared cycle is a cost error, not a producer gap, because only one direction of a cycle can be cheaper.
 
 ## Work Guidance
 

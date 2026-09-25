@@ -520,6 +520,53 @@ interface PrerequisiteContract {
   costOf: (key: string) => number | undefined;
 }
 
+function indexInputProducers(recipes: UnknownRecord): Map<string, string[]> {
+  const producers = new Map<string, string[]>();
+  for (const [key, value] of Object.entries(recipes)) {
+    if (!isRecord(value) || !isRecord(value.output) || !isNonEmptyString(value.output.resource)) {
+      continue;
+    }
+
+    const resource = value.output.resource;
+    const existing = producers.get(resource);
+    if (existing === undefined) {
+      producers.set(resource, [key]);
+    } else {
+      existing.push(key);
+    }
+  }
+  return producers;
+}
+
+function missingInputProducers(
+  recipeKey: string,
+  recipe: UnknownRecord,
+  producers: ReadonlyMap<string, readonly string[]>,
+  requirement: UnknownRecord,
+): { producer: string; input: string }[] {
+  if (!isRecord(recipe.inputs) || !Array.isArray(requirement.requiresRecipes)) {
+    return [];
+  }
+
+  const declared = new Set(requirement.requiresRecipes.map((entry) => String(entry)));
+  const missing = new Map<string, string>();
+
+  for (const input of Object.keys(recipe.inputs)) {
+    for (const producer of producers.get(input) ?? []) {
+      if (producer === recipeKey || declared.has(producer)) {
+        continue;
+      }
+      if (!missing.has(producer)) {
+        missing.set(producer, input);
+      }
+    }
+  }
+
+  return [...missing.entries()]
+    .sort(([left], [right]) => (left < right ? -1 : 1))
+    .map(([producer, input]) => ({ producer, input }));
+}
+
 function unlockCostOf(table: UnknownRecord, key: string): number | undefined {
   const entry = table[key];
   return isRecord(entry) && isFiniteNumber(entry.unlockCost) ? entry.unlockCost : undefined;
@@ -686,6 +733,7 @@ function validateUnlocks(
     "Recipe unlock requirements",
     errors,
   );
+  const inputProducers = indexInputProducers(recipes);
 
   for (const [key, value] of Object.entries(machines)) {
     if (!isRecord(value)) {
@@ -721,6 +769,11 @@ function validateUnlocks(
       if (!requirement.requiresMachines.some((prerequisite) => String(prerequisite) === value.machine)) {
         errors.push(`Recipe unlock requirements for "${key}" must require its machine "${value.machine}".`);
       }
+    }
+    for (const gap of missingInputProducers(key, value, inputProducers, requirement)) {
+      errors.push(
+        `Recipe unlock requirements for "${key}" must require "${gap.producer}" to produce input "${gap.input}".`,
+      );
     }
   }
 
