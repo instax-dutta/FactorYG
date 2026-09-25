@@ -5,7 +5,6 @@ import { SimulationStore } from "../../src/sim/store";
 import type {
   Entity,
   MachineType,
-  ResourceId,
   ResourceNode,
   Rotation,
   SimulationState,
@@ -94,21 +93,7 @@ describe("placement validation", () => {
     ).toEqual({ ok: true });
   });
 
-  it("accepts an extractor when the command matches the node id", () => {
-    expect(
-      validatePlacement(
-        createState(),
-        placeCommand({
-          machine: "extractor",
-          x: NODE.x,
-          y: NODE.y,
-          resourceNode: NODE.id as unknown as ResourceId,
-        }),
-      ),
-    ).toEqual({ ok: true });
-  });
-
-  it("rejects an extractor when the command names a different node", () => {
+  it("rejects an extractor when resourceNode mismatches the node resource", () => {
     expect(
       validatePlacement(
         createState(),
@@ -120,6 +105,33 @@ describe("placement validation", () => {
         }),
       ),
     ).toEqual({ ok: false, reason: "missingResourceNode" });
+  });
+
+  it.each(["belt", "silo"] as const)("rejects a recipe supplied to %s", (machine) => {
+    const state = createState();
+    state.currency = 1_000;
+    state.unlocked.machines = [machine];
+
+    expect(validatePlacement(state, placeCommand({ machine, recipeId: "copperIngot" }))).toEqual({
+      ok: false,
+      reason: "unexpectedRecipe",
+    });
+  });
+
+  it("does not create a non-processor entity with a recipe", () => {
+    const state = createState();
+    const rejected = applyPlacement(
+      state,
+      placeCommand({ machine: "belt", recipeId: "copperIngot" }),
+    );
+
+    expect(rejected.changed).toBe(false);
+    expect(rejected.result).toEqual({ ok: false, reason: "unexpectedRecipe" });
+    expect(rejected.state).toBe(state);
+    expect(rejected.entity).toBeUndefined();
+
+    const accepted = applyPlacement(state, placeCommand({ machine: "belt" }));
+    expect(accepted.entity).not.toHaveProperty("recipeId");
   });
 
   it("rejects a smelter or assembler without a selected recipe", () => {

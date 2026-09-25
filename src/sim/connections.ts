@@ -9,6 +9,10 @@ export interface WorldPortCell {
   y: number;
 }
 
+function isProcessorEntity(entity: Entity): boolean {
+  return entity.type === "smelter" || entity.type === "assembler";
+}
+
 export function rotatePorts(ports: readonly PortDefinition[], rotation: Rotation): PortDefinition[] {
   return ports.map((port) => ({
     ...port,
@@ -53,7 +57,11 @@ export function arePortsConnected(outputEntity: Entity, inputEntity: Entity): bo
         inputPort.offset.x === -deltaX &&
         inputPort.offset.y === -deltaY;
       const producedResource = getProducedResource(outputEntity, outputPort);
-      return facesTarget && portAcceptsResource(outputPort, inputPort, producedResource);
+      const hasValidOutput =
+        !isProcessorEntity(outputEntity) ||
+        outputPort.produces !== undefined ||
+        producedResource !== undefined;
+      return facesTarget && hasValidOutput && portAcceptsResource(outputPort, inputPort, producedResource);
     }),
   );
 }
@@ -90,7 +98,11 @@ function getProducedResource(
   if (entity.type === "extractor") {
     return entity.resourceNode;
   }
-  return entity.recipeId === undefined ? undefined : getRecipe(entity.recipeId)?.output.resource;
+  if (!isProcessorEntity(entity) || entity.recipeId === undefined) {
+    return undefined;
+  }
+  const recipe = getRecipe(entity.recipeId);
+  return recipe?.machine === entity.type ? recipe.output.resource : undefined;
 }
 
 export function getDefinition(type: string): MachineDefinition | undefined {

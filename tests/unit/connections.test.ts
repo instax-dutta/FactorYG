@@ -83,6 +83,40 @@ describe("port rotation and connections", () => {
     expect(arePortsConnected(output, input)).toBe(false);
   });
 
+  it("does not produce output for a processor without a selected recipe", () => {
+    const output = createEntity("smelter-1", "smelter", 4, 4);
+    const input = createEntity("assembler-1", "assembler", 5, 4);
+
+    expect(arePortsConnected(output, input)).toBe(false);
+  });
+
+  it("does not produce output for a processor with an unknown recipe", () => {
+    const output = createEntity("smelter-1", "smelter", 4, 4, 0, {
+      recipeId: "not-a-recipe",
+    });
+    const input = createEntity("assembler-1", "assembler", 5, 4);
+
+    expect(arePortsConnected(output, input)).toBe(false);
+  });
+
+  it("does not produce output for a processor with an incompatible recipe", () => {
+    const output = createEntity("assembler-1", "assembler", 4, 4, 0, {
+      recipeId: "copperIngot",
+    });
+    const input = createEntity("assembler-2", "assembler", 5, 4);
+
+    expect(arePortsConnected(output, input)).toBe(false);
+  });
+
+  it("does not resolve a recipe attached to a belt as its output resource", () => {
+    const output = createEntity("belt-1", "belt", 4, 4, 0, {
+      recipeId: "copperIngot",
+    });
+    const input = createEntity("smelter-1", "smelter", 5, 4);
+
+    expect(arePortsConnected(output, input)).toBe(true);
+  });
+
   it("uses an explicit output resource when filtering a port pair", () => {
     const outputPort: PortDefinition = {
       id: "output",

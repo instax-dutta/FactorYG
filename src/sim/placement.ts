@@ -15,6 +15,10 @@ export interface PlacementApplication {
 
 const VALID_ROTATIONS = new Set([0, 90, 180, 270]);
 
+function isProcessorMachine(machine: PlaceEntityCommand["machine"]): boolean {
+  return machine === "smelter" || machine === "assembler";
+}
+
 export function validatePlacement(state: SimulationState, command: PlaceEntityCommand): CommandResult {
   const definition = getMachine(command.machine);
   if (definition === undefined || !state.unlocked.machines.includes(command.machine)) {
@@ -41,22 +45,22 @@ export function validatePlacement(state: SimulationState, command: PlaceEntityCo
     return { ok: false, reason: "invalidRotation" };
   }
 
+  if (command.recipeId !== undefined && !isProcessorMachine(command.machine)) {
+    return { ok: false, reason: "unexpectedRecipe" };
+  }
+
   if (command.machine === "extractor") {
     const node = state.grid.nodes.find((candidate) => candidate.x === command.x && candidate.y === command.y);
     if (node === undefined) {
       return { ok: false, reason: "missingResourceNode" };
     }
 
-    if (
-      command.resourceNode !== undefined &&
-      command.resourceNode !== node.resource &&
-      command.resourceNode !== node.id
-    ) {
+    if (command.resourceNode !== undefined && command.resourceNode !== node.resource) {
       return { ok: false, reason: "missingResourceNode" };
     }
   }
 
-  if (command.machine === "smelter" || command.machine === "assembler") {
+  if (isProcessorMachine(command.machine)) {
     const recipe = command.recipeId === undefined ? undefined : getRecipe(command.recipeId);
     if (
       recipe === undefined ||
@@ -93,7 +97,9 @@ export function applyPlacement(
     rotation: command.rotation,
     level: 1,
     ...(command.machine === "extractor" && node !== undefined ? { resourceNode: node.resource } : {}),
-    ...(command.recipeId === undefined ? {} : { recipeId: command.recipeId }),
+    ...(isProcessorMachine(command.machine) && command.recipeId !== undefined
+      ? { recipeId: command.recipeId }
+      : {}),
   };
 
   const machines = { ...state.grid.machines };
