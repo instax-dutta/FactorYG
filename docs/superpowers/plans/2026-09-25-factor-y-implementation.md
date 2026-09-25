@@ -374,12 +374,14 @@ git commit -m "feat: add grid and rotation math"
 - Create: `src/sim/clock.ts`
 - Create: `src/sim/snapshot.ts`
 - Create: `src/sim/store.ts`
+- Create: `src/sim/tick.ts`
 - Create: `tests/unit/clock.test.ts`
+- Create: `tests/unit/tick.test.ts`
 - Create: `tests/integration/store.test.ts`
 
 **Interfaces:**
 - Consumes: `SimulationState`, `SimulationCommand`, `SimulationSnapshot`, `CommandResult`, and `TICK_MS`.
-- Produces: `FixedStepClock`, `createSnapshot(state)`, and `SimulationStore` with `getSnapshot()`, `subscribe(listener)`, `dispatch(command)`, `start()`, `stop()`, and `advanceTicks(count)`.
+- Produces: `FixedStepClock`, `createSnapshot(state)`, `advanceSimulation(state, tickCount)`, and `SimulationStore` with `getSnapshot()`, `subscribe(listener)`, `dispatch(command)`, `start()`, `stop()`, and `advanceTicks(count)`.
 
 - [ ] **Step 1: Write failing clock and subscription tests**
 
@@ -388,6 +390,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FixedStepClock } from "../../src/sim/clock";
 import { createInitialState } from "../../src/sim/initialState";
 import { SimulationStore } from "../../src/sim/store";
+import { advanceSimulation } from "../../src/sim/tick";
 
 describe("FixedStepClock", () => {
   it("runs no more than one logical tick before 100 ms", () => {
@@ -408,6 +411,14 @@ describe("FixedStepClock", () => {
     clock.advance();
 
     expect(tick).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("advanceSimulation", () => {
+  it("returns the same state until machine behavior is added", () => {
+    const state = createInitialState();
+
+    expect(advanceSimulation(state, 1)).toBe(state);
   });
 });
 
@@ -437,19 +448,19 @@ describe("SimulationStore", () => {
 - [ ] **Step 2: Run the tests to verify red**
 
 ```bash
-npm run test -- tests/unit/clock.test.ts tests/integration/store.test.ts
+npm run test -- tests/unit/clock.test.ts tests/unit/tick.test.ts tests/integration/store.test.ts
 ```
 
-Expected: FAIL because the clock and store modules are missing.
+Expected: FAIL because the clock, tick, and store modules are missing.
 
 - [ ] **Step 3: Implement the clock and store contracts**
 
-`FixedStepClock` accepts `tickMs`, `onTick`, and an injected `now` function. It carries elapsed time and caps catch-up at 120 ticks per call. `createSnapshot` returns a frozen object containing the fields in `SimulationSnapshot`. `SimulationStore` keeps the current state private, returns a cached frozen snapshot, dispatches commands through a command handler, and publishes only after a successful state mutation. `advanceTicks` is the only method that calls the pure simulation tick function.
+`FixedStepClock` accepts `tickMs`, `onTick`, and an injected `now` function. It carries elapsed time and caps catch-up at 120 ticks per call. `createSnapshot` returns a frozen object containing the fields in `SimulationSnapshot`. `advanceSimulation(state, tickCount)` is a pure seam that returns the same state until machine behavior is introduced in Phase 1. `SimulationStore` keeps the current state private, returns a cached frozen snapshot, dispatches commands through a command handler, and publishes only after a successful state mutation. `advanceTicks` is the only method that calls `advanceSimulation`.
 
 - [ ] **Step 4: Verify red-to-green and full tests**
 
 ```bash
-npm run test -- tests/unit/clock.test.ts tests/integration/store.test.ts
+npm run test -- tests/unit/clock.test.ts tests/unit/tick.test.ts tests/integration/store.test.ts
 npm run test
 npm run typecheck
 ```
@@ -459,7 +470,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/sim/clock.ts src/sim/snapshot.ts src/sim/store.ts tests/unit/clock.test.ts tests/integration/store.test.ts
+git add src/sim/clock.ts src/sim/snapshot.ts src/sim/store.ts src/sim/tick.ts tests/unit/clock.test.ts tests/unit/tick.test.ts tests/integration/store.test.ts
 git commit -m "feat: add fixed-step simulation store"
 ```
 
