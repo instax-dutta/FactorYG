@@ -1,22 +1,22 @@
 import { useEffect, useRef } from "react";
 import { createFactoryGame } from "../phaser/createGame";
 import {
-  createBrowserSimulationRuntime,
   installRuntimeBridge,
   type SimulationRuntime,
 } from "./runtime";
 
-export function GameCanvas() {
+export interface GameCanvasProps {
+  runtime: SimulationRuntime;
+}
+
+export function GameCanvas({ runtime }: GameCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const runtimeRef = useRef<SimulationRuntime | null>(null);
 
   useEffect(() => {
     const container = canvasRef.current;
     if (container === null) {
       return undefined;
     }
-    const runtime = runtimeRef.current ?? createBrowserSimulationRuntime();
-    runtimeRef.current = runtime;
 
     let disposed = false;
     let cleaned = false;
@@ -51,7 +51,7 @@ export function GameCanvas() {
       game.destroy(true);
       container.setAttribute("data-factor-y-status", "booting");
     };
-  }, []);
+  }, [runtime]);
 
   return (
     <div

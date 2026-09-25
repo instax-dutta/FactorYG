@@ -1,6 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GameCanvas } from "./GameCanvas";
+import {
+  createBrowserSimulationRuntime,
+  type SimulationRuntime,
+} from "./runtime";
 import { GameHeader } from "../ui/components/GameHeader";
+import { Hud } from "../ui/components/Hud";
+import { BuildDock } from "../ui/components/BuildDock";
+import { EntityInspector } from "../ui/components/EntityInspector";
+import { NotificationStack } from "../ui/components/NotificationStack";
+import { OfflineSummaryModal } from "../ui/components/OfflineSummaryModal";
 
 export const LIFECYCLE_TOGGLE_EVENT = "factor-y:lifecycle-toggle";
 
@@ -10,6 +19,31 @@ function lifecycleToggleEnabled(): boolean {
 
 export function App() {
   const [canvasMounted, setCanvasMounted] = useState(true);
+  const [runtime, setRuntime] = useState<SimulationRuntime | null>(null);
+  const runtimeRef = useRef<SimulationRuntime | null>(null);
+  const appMountedRef = useRef(false);
+
+  useEffect(() => {
+    appMountedRef.current = true;
+    if (runtimeRef.current === null) {
+      runtimeRef.current = createBrowserSimulationRuntime();
+    }
+    setRuntime(runtimeRef.current);
+
+    return () => {
+      appMountedRef.current = false;
+      const activeRuntime = runtimeRef.current;
+      queueMicrotask(() => {
+        if (appMountedRef.current || activeRuntime === null) {
+          return;
+        }
+        activeRuntime.stop();
+        if (runtimeRef.current === activeRuntime) {
+          runtimeRef.current = null;
+        }
+      });
+    };
+  }, []);
 
   useEffect(() => {
     if (!lifecycleToggleEnabled()) {
@@ -29,7 +63,16 @@ export function App() {
   return (
     <main style={{ position: "relative", width: "100vw", height: "100vh", overflow: "hidden" }}>
       <GameHeader />
-      {canvasMounted ? <GameCanvas /> : null}
+      {runtime !== null && canvasMounted ? <GameCanvas runtime={runtime} /> : null}
+      {runtime !== null ? (
+        <>
+          <Hud store={runtime.store} />
+          <BuildDock store={runtime.store} />
+          <EntityInspector store={runtime.store} />
+          <NotificationStack store={runtime.store} />
+          <OfflineSummaryModal store={runtime.store} />
+        </>
+      ) : null}
     </main>
   );
 }
