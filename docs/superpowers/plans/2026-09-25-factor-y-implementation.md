@@ -229,7 +229,7 @@ git commit -m "chore: scaffold Factor-Y browser toolchain"
 
 **Interfaces:**
 - Consumes: the domain model in `docs/superpowers/specs/2026-09-25-factor-y-design.md`.
-- Produces: `ResourceId`, `MachineType`, `Rotation`, `GridPoint`, `Entity`, `ResourceNode`, `GridState`, `SaveGame`, `SimulationState`, `SimulationSnapshot`, `Notification`, `RenderEvent`, `CommandResult`, `SimulationCommand`, `createInitialState()`, and the constants `GRID_WIDTH`, `GRID_HEIGHT`, `TILE_SIZE_PX`, `TICKS_PER_SECOND`, `TICK_MS`, `STARTING_CURRENCY`, and `SAVE_KEY`.
+- Produces: `ResourceId`, `MachineType`, `Rotation`, `GridPoint`, `Entity`, `ResourceNode`, `GridState`, `SaveGame`, `SimulationState`, `SimulationSnapshot`, `Notification`, `RenderEvent`, `CommandResult`, `SimulationCommand` including `unlockMachine`, `createInitialState()`, and the constants `GRID_WIDTH`, `GRID_HEIGHT`, `TILE_SIZE_PX`, `TICKS_PER_SECOND`, `TICK_MS`, `STARTING_CURRENCY`, and `SAVE_KEY`.
 
 - [ ] **Step 1: Write the failing initial-state test**
 

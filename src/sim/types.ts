@@ -196,6 +196,7 @@ export type SimulationCommand =
   | { type: "setPlacementMode"; machine?: MachineType }
   | { type: "upgradeEntity"; entityId: string }
   | { type: "unlockRecipe"; recipeId: string }
+  | { type: "unlockMachine"; machine: MachineType }
   | { type: "prestige" }
   | { type: "expandGrid"; width: number; height: number }
   | { type: "dismissOfflineSummary" }

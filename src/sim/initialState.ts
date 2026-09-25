@@ -1,4 +1,10 @@
-import { GRID_HEIGHT, GRID_WIDTH, STARTING_CURRENCY, TILE_SIZE_PX } from "./constants";
+import {
+  GRID_HEIGHT,
+  GRID_WIDTH,
+  NEW_GAME_TIMESTAMP,
+  STARTING_CURRENCY,
+  TILE_SIZE_PX,
+} from "./constants";
 import type { ResourceId, ResourceNode, SimulationState } from "./types";
 
 const RAW_RESOURCES: ResourceId[] = ["copperOre", "ironOre", "coal", "stone"];
@@ -63,7 +69,7 @@ type GridPointTuple = [number, number];
 export function createInitialState(seed = 1337): SimulationState {
   return {
     version: 1,
-    lastSavedAt: 0,
+    lastSavedAt: NEW_GAME_TIMESTAMP,
     currency: STARTING_CURRENCY,
     lifetimeCurrency: 0,
     prestige: {
