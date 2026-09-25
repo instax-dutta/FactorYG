@@ -1,4 +1,5 @@
 import { getMachine } from "../content/machines";
+import { getRecipe } from "../content/recipes";
 import { isInsideGrid } from "./grid";
 import { createMachineRuntime } from "./machines";
 import type { CommandResult, Entity, SimulationCommand, SimulationState } from "./types";
@@ -55,11 +56,15 @@ export function validatePlacement(state: SimulationState, command: PlaceEntityCo
     }
   }
 
-  if (
-    (command.machine === "smelter" || command.machine === "assembler") &&
-    (command.recipeId === undefined || !state.unlocked.recipes.includes(command.recipeId))
-  ) {
-    return { ok: false, reason: "missingRecipe" };
+  if (command.machine === "smelter" || command.machine === "assembler") {
+    const recipe = command.recipeId === undefined ? undefined : getRecipe(command.recipeId);
+    if (
+      recipe === undefined ||
+      recipe.machine !== command.machine ||
+      !state.unlocked.recipes.includes(recipe.id)
+    ) {
+      return { ok: false, reason: "missingRecipe" };
+    }
   }
 
   return { ok: true };

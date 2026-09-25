@@ -1,4 +1,5 @@
 import { getMachine } from "../content/machines";
+import { getRecipe } from "../content/recipes";
 import { rotateGridPoint } from "./rotation";
 import type { Entity, MachineDefinition, PortDefinition, ResourceId, Rotation } from "./types";
 
@@ -86,7 +87,10 @@ function getProducedResource(
   if (port.produces !== undefined) {
     return port.produces;
   }
-  return entity.type === "extractor" ? entity.resourceNode : undefined;
+  if (entity.type === "extractor") {
+    return entity.resourceNode;
+  }
+  return entity.recipeId === undefined ? undefined : getRecipe(entity.recipeId)?.output.resource;
 }
 
 export function getDefinition(type: string): MachineDefinition | undefined {
