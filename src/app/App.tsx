@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { GameCanvas } from "./GameCanvas";
+import { GameHeader } from "../ui/components/GameHeader";
 
 export const LIFECYCLE_TOGGLE_EVENT = "factor-y:lifecycle-toggle";
 
@@ -25,7 +26,12 @@ export function App() {
     };
   }, []);
 
-  return <main>{canvasMounted ? <GameCanvas /> : null}</main>;
+  return (
+    <main style={{ position: "relative", width: "100vw", height: "100vh", overflow: "hidden" }}>
+      <GameHeader />
+      {canvasMounted ? <GameCanvas /> : null}
+    </main>
+  );
 }
 
 export default App;
