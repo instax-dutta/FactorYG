@@ -1,23 +1,32 @@
 import { FixedStepClock } from "./clock";
 import { TICK_MS } from "./constants";
+import { applyPlacement, validatePlacement } from "./placement";
 import { createSnapshot } from "./snapshot";
 import { advanceSimulation } from "./tick";
 import type {
   CommandResult,
+  RenderEvent,
   SimulationCommand,
   SimulationSnapshot,
   SimulationState,
 } from "./types";
 
 type SnapshotListener = (snapshot: SimulationSnapshot) => void;
+type RenderEventListener = (event: RenderEvent) => void;
 
 type CommandApplication = {
   state: SimulationState;
   changed: boolean;
   result: CommandResult;
+  events?: RenderEvent[];
 };
 
-type SimulationTick = typeof advanceSimulation;
+type SimulationTick = (
+  state: SimulationState,
+  tickCount: number,
+  events?: RenderEvent[],
+) => SimulationState;
+
 
 function defaultNow(): number {
   return globalThis.performance?.now() ?? Date.now();
@@ -27,6 +36,7 @@ export class SimulationStore {
   #state: SimulationState;
   #snapshot: SimulationSnapshot;
   #listeners = new Set<SnapshotListener>();
+  #eventListeners = new Set<RenderEventListener>();
   #clock: FixedStepClock;
   #advanceSimulation: SimulationTick;
   #timer: ReturnType<typeof setInterval> | undefined;
@@ -54,6 +64,20 @@ export class SimulationStore {
     };
   }
 
+  public subscribeEvents(listener: RenderEventListener): () => void {
+    this.#eventListeners.add(listener);
+
+    return () => {
+      this.#eventListeners.delete(listener);
+    };
+  }
+
+  public validatePlacement(
+    command: Extract<SimulationCommand, { type: "placeEntity" }>,
+  ): CommandResult {
+    return validatePlacement(this.#state, command);
+  }
+
   public dispatch(command: SimulationCommand): CommandResult {
     const application = this.#applyCommand(command);
     if (!application.changed) {
@@ -63,6 +87,7 @@ export class SimulationStore {
     this.#state = application.state;
     this.#snapshot = createSnapshot(this.#state);
     this.#publish();
+    this.#publishEvents(application.events ?? []);
     return application.result;
   }
 
@@ -89,7 +114,8 @@ export class SimulationStore {
       return;
     }
 
-    const nextState = this.#advanceSimulation(this.#state, count);
+    const events: RenderEvent[] = [];
+    const nextState = this.#advanceSimulation(this.#state, count, events);
     if (nextState === this.#state) {
       return;
     }
@@ -97,10 +123,22 @@ export class SimulationStore {
     this.#state = nextState;
     this.#snapshot = createSnapshot(this.#state);
     this.#publish();
+    this.#publishEvents(events);
   }
 
   #applyCommand(command: SimulationCommand): CommandApplication {
     switch (command.type) {
+      case "placeEntity": {
+        const application = applyPlacement(this.#state, command);
+        if (!application.changed || application.entity === undefined) {
+          return application;
+        }
+
+        return {
+          ...application,
+          events: [{ type: "entityPlaced", entity: freezeEntity(application.entity) }],
+        };
+      }
       case "setPlacementMode": {
         if (this.#state.placementMode === command.machine) {
           return { state: this.#state, changed: false, result: { ok: true } };
@@ -138,6 +176,7 @@ export class SimulationStore {
           },
           changed: true,
           result: { ok: true },
+          events: [{ type: "entityRemoved", entityId: entity.id }],
         };
       }
       case "rotatePlacement": {
@@ -189,4 +228,16 @@ export class SimulationStore {
       listener(this.#snapshot);
     }
   }
+
+  #publishEvents(events: readonly RenderEvent[]): void {
+    for (const event of events) {
+      for (const listener of this.#eventListeners) {
+        listener(event);
+      }
+    }
+  }
+}
+
+function freezeEntity(entity: SimulationState["grid"]["entities"][number]): SimulationState["grid"]["entities"][number] {
+  return Object.freeze({ ...entity });
 }
