@@ -18,6 +18,7 @@ Own deterministic Factor-I simulation state and production rules.
 - Production advances on a fixed 10 Hz logical clock, never Phaser render frames.
 - Runtime-only fields such as tick samples and offline summaries are not save data.
 - Extractor progress is a normalized fractional cycle accumulator; blocked output pauses progress.
+- Processor progress is a discrete recipe-tick counter; inputs are charged once when a run starts, a blocked completion holds the counter only while the recipe remains valid, and an unresolvable recipe discards the run so a later run must pay again.
 - Content tables and shared types remain the single source of truth.
 
 ## Work Guidance

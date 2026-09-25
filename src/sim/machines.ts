@@ -70,7 +70,7 @@ export function tickProcessor(
 ): MachineRuntime {
   const recipe = getProcessorRecipe(entity, state);
   if (recipe === undefined) {
-    return setInactive(runtime);
+    return abandonRun(runtime);
   }
 
   if (runtime.progressTicks > 0) {
@@ -163,6 +163,18 @@ function recipeEntries(recipe: RecipeDefinition): Array<[ResourceId, number]> {
 
 function setInactive(runtime: MachineRuntime): MachineRuntime {
   return runtime.active ? { ...runtime, active: false } : runtime;
+}
+
+function abandonRun(runtime: MachineRuntime): MachineRuntime {
+  if (runtime.progressTicks === 0 && !runtime.active) {
+    return runtime;
+  }
+
+  return {
+    ...runtime,
+    progressTicks: 0,
+    active: false,
+  };
 }
 
 export function getResourceAmount(

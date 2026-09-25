@@ -324,15 +324,99 @@ describe("smelter production", () => {
     expect(events).toEqual([]);
   });
 
-  it("deactivates a runtime that carries stale progress for a runnable recipe", () => {
+  it("clears stale progress and deactivates a runtime whose recipe is locked", () => {
     const entity = createSmelter({ recipeId: "copperIngot" });
-    const runtime = createRuntime({ progressTicks: 5, active: true });
+    const runtime = createRuntime({ progressTicks: 5, input: { stone: 2 }, active: true });
     const state = createState([entity], { [entity.id]: runtime }, []);
 
-    expect(tickProcessor(runtime, entity, state)).toEqual({
+    const result = tickProcessor(runtime, entity, state);
+
+    expect(result).not.toBe(runtime);
+    expect(result).toEqual({
       ...runtime,
+      progressTicks: 0,
       active: false,
     });
+    expect(runtime.progressTicks).toBe(5);
+  });
+
+  it.each([
+    ["locked", createSmelter({ recipeId: "copperIngot" }), []],
+    ["assembler-only", createSmelter({ recipeId: "wire" }), ["copperIngot", "wire"]],
+    ["unknown", createSmelter({ recipeId: "unobtanium" }), ["copperIngot", "unobtanium"]],
+    ["missing", createSmelter({ recipeId: undefined }), ["copperIngot"]],
+  ])(
+    "discards an in-flight run for a %s recipe without touching buffers",
+    (_label, entity, unlocked) => {
+      const runtime = createRuntime({
+        progressTicks: 7,
+        input: { copperOre: 1, stone: 2 },
+        output: { copperIngot: 3 },
+        active: true,
+      });
+      const state = createState([entity], { [entity.id]: runtime }, unlocked);
+
+      const result = tickProcessor(runtime, entity, state);
+
+      expect(result).not.toBe(runtime);
+      expect(result.progressTicks).toBe(0);
+      expect(result.active).toBe(false);
+      expect(result.input).toEqual({ copperOre: 1, stone: 2 });
+      expect(result.output).toEqual({ copperIngot: 3 });
+      expect(runtime.progressTicks).toBe(7);
+    },
+  );
+
+  it("discards an in-flight run once the selected recipe becomes unresolvable", () => {
+    const entity = createSmelter({ recipeId: "copperIngot" });
+    const state = createState([entity], {
+      [entity.id]: createRuntime({ input: { copperOre: 2, stone: 1 } }),
+    });
+    const events: RenderEvent[] = [];
+
+    const started = advanceSimulation(state, 6, events);
+
+    expect(started.grid.machines[entity.id]?.progressTicks).toBe(6);
+    expect(started.grid.machines[entity.id]?.input).toEqual({ copperOre: 1, stone: 1 });
+    expect(started.grid.machines[entity.id]?.active).toBe(true);
+
+    const unresolved: SimulationState = {
+      ...started,
+      unlocked: { ...started.unlocked, recipes: [] },
+    };
+    const abandoned = advanceSimulation(unresolved, 40, events);
+
+    expect(abandoned.grid.machines[entity.id]?.progressTicks).toBe(0);
+    expect(abandoned.grid.machines[entity.id]?.active).toBe(false);
+    expect(abandoned.grid.machines[entity.id]?.output).toEqual({});
+    expect(abandoned.grid.machines[entity.id]?.input).toEqual({ copperOre: 1, stone: 1 });
+    expect(events).toEqual([
+      { type: "machineStateChanged", entityId: entity.id, active: true },
+      { type: "machineStateChanged", entityId: entity.id, active: false },
+    ]);
+
+    const relocked: SimulationState = {
+      ...abandoned,
+      unlocked: { ...abandoned.unlocked, recipes: ["copperIngot"] },
+    };
+    const restarted = advanceSimulation(relocked, 1, events);
+
+    expect(restarted.grid.machines[entity.id]?.progressTicks).toBe(1);
+    expect(restarted.grid.machines[entity.id]?.active).toBe(true);
+    expect(restarted.grid.machines[entity.id]?.input).toEqual({ stone: 1 });
+    expect(restarted.grid.machines[entity.id]?.output).toEqual({});
+    expect(events).toEqual([
+      { type: "machineStateChanged", entityId: entity.id, active: true },
+      { type: "machineStateChanged", entityId: entity.id, active: false },
+      { type: "machineStateChanged", entityId: entity.id, active: true },
+    ]);
+
+    const completed = advanceSimulation(restarted, RECIPES.copperIngot.durationTicks - 1, events);
+
+    expect(completed.grid.machines[entity.id]?.output).toEqual({ copperIngot: 1 });
+    expect(completed.grid.machines[entity.id]?.progressTicks).toBe(0);
+    expect(completed.grid.machines[entity.id]?.active).toBe(false);
+    expect(completed.grid.machines[entity.id]?.input).toEqual({ stone: 1 });
   });
 
   it("keeps extractor, belt, and depot behavior while smelters run", () => {
