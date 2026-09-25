@@ -88,7 +88,12 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
     }
   });
 
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  expect(
+    await page.evaluate(
+      () => window.__FACTOR_Y__ === undefined && window.__FACTOR_Y_TELEMETRY__ === undefined,
+    ),
+  ).toBe(true);
   const wrapper = page.getByTestId("game-canvas");
   await expect(wrapper).toBeVisible();
   await expect(wrapper.locator("canvas")).toBeVisible();
@@ -196,7 +201,21 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
   });
   expect(demolishResult).toEqual({ ok: true });
 
-  await page.reload();
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("factor-y:lifecycle-toggle"));
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__FACTOR_Y__ === undefined && window.__FACTOR_Y_TELEMETRY__ === undefined,
+      ),
+    )
+    .toBe(true);
+  expect(await page.locator("[data-testid=game-canvas] canvas").count()).toBe(0);
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("factor-y:lifecycle-toggle"));
+  });
   await waitForReady(page);
   expect(await page.locator("[data-testid=game-canvas] canvas").count()).toBe(1);
   expect((await getTelemetry(page)).ready).toBe(true);
