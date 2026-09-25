@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <defs>
+    <radialGradient id="spark-light" cx="50%" cy="50%" r="70%">
+      <stop offset="0" stop-color="#f2c14e" stop-opacity="0.95" />
+      <stop offset="0.45" stop-color="#e0a458" stop-opacity="0.45" />
+      <stop offset="1" stop-color="#e0a458" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <circle cx="8" cy="8" r="7" fill="url(#spark-light)" />
+  <path d="M8 1L10 6L15 8L10 10L8 15L6 10L1 8L6 6Z" fill="#f2c14e" stroke="#101820" stroke-width="1" stroke-linejoin="round" />
+  <path d="M8 4L9 7L12 8L9 9L8 12L7 9L4 8L7 7Z" fill="#e0a458" />
+  <circle cx="8" cy="8" r="1.5" fill="#36c5b5" stroke="#101820" stroke-width="0.7" />
+</svg>

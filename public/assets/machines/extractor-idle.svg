@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="extractor-idle-light" cx="50%" cy="50%" r="72%">
+      <stop offset="0" stop-color="#4d6875" stop-opacity="0.46" />
+      <stop offset="1" stop-color="#4d6875" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <path d="M18 9H46L55 18V46L46 55H18L9 46V18Z" fill="#263746" stroke="#101820" stroke-width="3" stroke-linejoin="round" />
+  <path d="M20 13H44L51 20V44L44 51H20L13 44V20Z" fill="url(#extractor-idle-light)" stroke="#4d6875" stroke-width="1.5" />
+  <circle cx="32" cy="32" r="17" fill="#101820" stroke="#4d6875" stroke-width="2" />
+  <circle cx="32" cy="32" r="12" fill="#263746" stroke="#c98245" stroke-width="2" />
+  <path d="M32 18L36 25L32 29L28 25ZM46 32L39 36L35 32L39 28ZM32 46L28 39L32 35L36 39ZM18 32L25 28L29 32L25 36Z" fill="#e0a458" stroke="#101820" stroke-width="1" stroke-linejoin="round" />
+  <circle cx="32" cy="32" r="5" fill="#c98245" stroke="#101820" stroke-width="1.5" />
+  <circle cx="32" cy="32" r="2" fill="#f2c14e" />
+  <circle cx="32" cy="12" r="2.5" fill="#36c5b5" stroke="#101820" stroke-width="1" />
+  <circle cx="52" cy="32" r="2.5" fill="#36c5b5" stroke="#101820" stroke-width="1" />
+  <circle cx="32" cy="52" r="2.5" fill="#36c5b5" stroke="#101820" stroke-width="1" />
+  <circle cx="12" cy="32" r="2.5" fill="#36c5b5" stroke="#101820" stroke-width="1" />
+  <path d="M20 20L23 23M44 20L41 23M44 44L41 41M20 44L23 41" stroke="#f2c14e" stroke-width="1.5" stroke-linecap="round" />
+</svg>

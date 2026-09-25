@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="belt-light" cx="50%" cy="50%" r="72%">
+      <stop offset="0" stop-color="#4d6875" stop-opacity="0.4" />
+      <stop offset="1" stop-color="#4d6875" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect x="5" y="5" width="54" height="54" rx="10" fill="#263746" stroke="#101820" stroke-width="3" />
+  <rect x="9" y="9" width="46" height="46" rx="8" fill="url(#belt-light)" stroke="#4d6875" stroke-width="1.5" />
+  <rect x="15" y="15" width="34" height="34" rx="9" fill="#101820" stroke="#4d6875" stroke-width="2" />
+  <rect x="19" y="19" width="26" height="26" rx="6" fill="none" stroke="#263746" stroke-width="7" />
+  <path d="M24 15V49M32 15V49M40 15V49" stroke="#4d6875" stroke-width="2" opacity="0.9" />
+  <path d="M15 24H49M15 32H49M15 40H49" stroke="#4d6875" stroke-width="2" opacity="0.9" />
+  <circle cx="32" cy="32" r="7" fill="#c98245" stroke="#101820" stroke-width="2" />
+  <circle cx="32" cy="32" r="3" fill="#e0a458" stroke="#101820" stroke-width="1" />
+  <circle cx="32" cy="32" r="1.2" fill="#36c5b5" />
+  <circle cx="12" cy="32" r="2" fill="#f2c14e" stroke="#101820" stroke-width="1" />
+  <circle cx="52" cy="32" r="2" fill="#f2c14e" stroke="#101820" stroke-width="1" />
+  <circle cx="32" cy="12" r="2" fill="#f2c14e" stroke="#101820" stroke-width="1" />
+  <circle cx="32" cy="52" r="2" fill="#f2c14e" stroke="#101820" stroke-width="1" />
+</svg>
