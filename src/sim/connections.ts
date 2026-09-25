@@ -95,7 +95,7 @@ export function portAcceptsResource(
   return inputPort.accepts.includes(producedResource);
 }
 
-function getProducedResource(
+export function getProducedResource(
   entity: Entity,
   port: PortDefinition,
 ): ResourceId | undefined {

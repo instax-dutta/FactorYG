@@ -1,8 +1,13 @@
 import { getResource } from "../content/resources";
-import type { ResourceId, SimulationState } from "./types";
+import type { CurrencySample, ResourceId, SimulationState } from "./types";
 
 export const CURRENCY_RATE_WINDOW_TICKS = 100;
 export const CURRENCY_RATE_WINDOW_SECONDS = 10;
+
+export interface SaleWindowFilter {
+  entityId?: string;
+  resource?: ResourceId;
+}
 
 export interface SaleResult {
   state: SimulationState;
@@ -43,18 +48,48 @@ export function sellResource(
   };
 }
 
-export function getCurrencyPerSecond(state: SimulationState): number {
-  if (!Number.isFinite(state.tickCount) || state.tickCount < CURRENCY_RATE_WINDOW_TICKS) {
+export function hasFullRateWindow(state: SimulationState): boolean {
+  return Number.isFinite(state.tickCount) && state.tickCount >= CURRENCY_RATE_WINDOW_TICKS;
+}
+
+export function getWindowedSaleCurrency(
+  state: SimulationState,
+  filter: SaleWindowFilter = {},
+): number {
+  if (!Number.isFinite(state.tickCount)) {
     return 0;
   }
 
   const firstTick = state.tickCount - CURRENCY_RATE_WINDOW_TICKS + 1;
   const total = state.currencySamples.reduce((sum, sample) => {
-    if (sample.tick < firstTick || sample.tick > state.tickCount || !Number.isFinite(sample.amount)) {
+    if (
+      sample.tick < firstTick ||
+      sample.tick > state.tickCount ||
+      !Number.isFinite(sample.amount) ||
+      !isInWindowFilter(sample, filter)
+    ) {
       return sum;
     }
     return sum + sample.amount;
   }, 0);
 
-  return Number.isFinite(total) ? total / CURRENCY_RATE_WINDOW_SECONDS : 0;
+  return Number.isFinite(total) ? total : 0;
+}
+
+export function getCurrencyPerSecond(state: SimulationState): number {
+  if (!hasFullRateWindow(state)) {
+    return 0;
+  }
+
+  return getWindowedSaleCurrency(state) / CURRENCY_RATE_WINDOW_SECONDS;
+}
+
+function isInWindowFilter(sample: CurrencySample, filter: SaleWindowFilter): boolean {
+  if (filter.entityId !== undefined && sample.entityId !== filter.entityId) {
+    return false;
+  }
+  if (filter.resource !== undefined && sample.resource !== filter.resource) {
+    return false;
+  }
+  return true;
 }

@@ -91,6 +91,8 @@ export interface SaveGame {
 export interface CurrencySample {
   tick: number;
   amount: number;
+  entityId?: string;
+  resource?: ResourceId;
 }
 
 export interface SimulationState extends SaveGame {

@@ -374,34 +374,70 @@ describe("level-adjusted extraction", () => {
     expect(completed.progressTicks).toBeCloseTo(0, 10);
   });
 
-  it("saturates at one cycle per tick above the table interval", () => {
+  it("keeps raising the extractor rate above the table interval", () => {
     const state = createState([createExtractor({ level: 40 })], FUNDED_CURRENCY);
     const entity = state.grid.entities[0];
 
     expect(getExtractorRate(createExtractor({ level: 20 }), state)).toBe(1);
-    expect(getExtractorRate(entity, state)).toBe(1);
+    expect(getExtractorRate(entity, state)).toBe(2);
   });
 
-  it("banks no surplus progress at a level above the saturation point", () => {
+  it("emits more than one unit per tick above the table interval", () => {
     const state = createState([createExtractor({ level: 40 })], FUNDED_CURRENCY);
     const entity = state.grid.entities[0];
     let runtime = createMachineRuntime(entity);
 
-    for (let tick = 1; tick <= 5; tick += 1) {
+    for (let tick = 1; tick <= 3; tick += 1) {
       runtime = tickExtractor(runtime, entity, state);
 
-      expect(runtime.output).toEqual({ copperOre: tick });
+      expect(runtime.output).toEqual({ copperOre: tick * 2 });
       expect(runtime.progressTicks).toBeLessThan(1);
+      expect(runtime.active).toBe(true);
     }
   });
 
-  it("keeps a saturated extractor at one unit per tick through the tick loop", () => {
+  it("emits only as many units per tick as the output buffer can accept", () => {
+    const state = createState([createExtractor({ level: 40 })], FUNDED_CURRENCY);
+    const entity = state.grid.entities[0];
+    const capacity = getOutputCapacity(entity);
+    const nearlyFull = createRuntime(entity, { output: { copperOre: capacity - 1 } });
+
+    const result = tickExtractor(nearlyFull, entity, state);
+
+    expect(result.output).toEqual({ copperOre: capacity });
+    expect(result.progressTicks).toBeLessThan(1);
+    expect(result.active).toBe(true);
+  });
+
+  it("pauses progress while the output buffer is full and resumes from the saved remainder", () => {
+    const state = createState([createExtractor({ level: 40 })], FUNDED_CURRENCY);
+    const entity = state.grid.entities[0];
+    const blocked = createRuntime(entity, {
+      progressTicks: 0.5,
+      output: { copperOre: getOutputCapacity(entity) },
+      active: true,
+    });
+
+    const stillBlocked = tickExtractor(blocked, entity, state);
+
+    expect(stillBlocked.progressTicks).toBe(0.5);
+    expect(stillBlocked.output).toEqual({ copperOre: getOutputCapacity(entity) });
+    expect(stillBlocked.active).toBe(false);
+
+    const resumed = tickExtractor({ ...stillBlocked, output: {} }, entity, state);
+
+    expect(resumed.output).toEqual({ copperOre: 2 });
+    expect(resumed.progressTicks).toBeCloseTo(0.5, 10);
+    expect(resumed.active).toBe(true);
+  });
+
+  it("keeps a high level extractor producing more than one unit per tick through the tick loop", () => {
     const state = createState([createExtractor({ level: 40 })], FUNDED_CURRENCY);
     const entity = state.grid.entities[0];
 
     const next = advanceSimulation(state, 3);
 
-    expect(next.grid.machines[entity.id]?.output).toEqual({ copperOre: 3 });
+    expect(next.grid.machines[entity.id]?.output).toEqual({ copperOre: 6 });
     expect(next.grid.machines[entity.id]?.progressTicks).toBeLessThan(1);
   });
 

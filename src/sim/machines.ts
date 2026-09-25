@@ -11,7 +11,6 @@ import type {
 
 const CYCLE_COMPLETION_EPSILON = 1e-12;
 const MIN_PROCESS_DURATION_TICKS = 1;
-const MAX_EXTRACTOR_CYCLES_PER_TICK = 1;
 
 export type SiloRejection = "lockedResource" | "storageFull";
 
@@ -31,8 +30,7 @@ export function getExtractorRate(entity: Entity, state: SimulationState): number
 
   const effectiveMultiplier =
     state.prestige.permanentMultipliers.productionSpeed * getUpgradeLevel(entity.level);
-  const cyclesPerTick = effectiveMultiplier / definition.defaultProcessTicks;
-  return Math.min(cyclesPerTick, MAX_EXTRACTOR_CYCLES_PER_TICK);
+  return Math.max(0, effectiveMultiplier / definition.defaultProcessTicks);
 }
 
 export function getProcessDurationTicks(entity: Entity, recipe: RecipeDefinition): number {
@@ -73,12 +71,17 @@ export function tickExtractor(
   }
 
   const outputAmount = getResourceAmount(runtime.output, resource);
-  if (outputAmount >= getOutputCapacity(entity)) {
+  const room = getOutputCapacity(entity) - outputAmount;
+  if (room <= 0) {
     return runtime.active ? { ...runtime, active: false } : runtime;
   }
 
   const accumulatedProgress = runtime.progressTicks + getExtractorRate(entity, state);
-  if (accumulatedProgress < 1 - CYCLE_COMPLETION_EPSILON) {
+  const completedCycles =
+    accumulatedProgress >= 1 - CYCLE_COMPLETION_EPSILON
+      ? Math.floor(accumulatedProgress + CYCLE_COMPLETION_EPSILON)
+      : 0;
+  if (completedCycles <= 0) {
     return {
       ...runtime,
       progressTicks: accumulatedProgress,
@@ -86,15 +89,11 @@ export function tickExtractor(
     };
   }
 
-  const remainder = accumulatedProgress - 1;
   return {
     ...runtime,
-    progressTicks: Math.abs(remainder) <= CYCLE_COMPLETION_EPSILON ? 0 : remainder,
-    output: {
-      ...runtime.output,
-      [resource]: outputAmount + 1,
-    },
-    active: false,
+    progressTicks: Math.max(0, accumulatedProgress - completedCycles),
+    output: addResource(runtime.output, resource, Math.min(completedCycles, room)),
+    active: true,
   };
 }
 

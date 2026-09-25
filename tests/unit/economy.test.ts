@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createMachineRuntime } from "../../src/sim/machines";
 import { createInitialState } from "../../src/sim/initialState";
-import { getCurrencyPerSecond, sellResource } from "../../src/sim/economy";
+import {
+  CURRENCY_RATE_WINDOW_TICKS,
+  getCurrencyPerSecond,
+  getWindowedSaleCurrency,
+  hasFullRateWindow,
+  sellResource,
+} from "../../src/sim/economy";
 import { createSnapshot } from "../../src/sim/snapshot";
 import { SimulationStore } from "../../src/sim/store";
 import { advanceSimulation } from "../../src/sim/tick";
@@ -130,7 +136,9 @@ describe("currency rate accounting", () => {
     const afterSale = advanceSimulation(state, 1);
 
     expect(afterSale.tickCount).toBe(1);
-    expect(afterSale.currencySamples).toEqual([{ tick: 1, amount: 1 }]);
+    expect(afterSale.currencySamples).toEqual([
+      { tick: 1, amount: 1, entityId: depot.id, resource: "copperOre" },
+    ]);
     expect(getCurrencyPerSecond(afterSale)).toBe(0);
     expect(createSnapshot(afterSale).currencyPerSecond).toBe(0);
   });
@@ -159,7 +167,9 @@ describe("currency rate accounting", () => {
     const next = advanceSimulation(afterWindow, 1);
 
     expect(next.tickCount).toBe(101);
-    expect(next.currencySamples).toEqual([{ tick: 101, amount: 1 }]);
+    expect(next.currencySamples).toEqual([
+      { tick: 101, amount: 1, entityId: depot.id, resource: "copperOre" },
+    ]);
     expect(getCurrencyPerSecond(next)).toBe(0.1);
   });
 
@@ -185,6 +195,55 @@ describe("currency rate accounting", () => {
 
     expect(store.getSnapshot()).not.toBe(initialSnapshot);
     expect(store.getSnapshot().currencyPerSecond).toBe(0.1);
+  });
+});
+
+describe("windowed sale currency", () => {
+  it("reports whether the rolling window has filled", () => {
+    const state = createInitialState();
+
+    expect(hasFullRateWindow(state)).toBe(false);
+
+    state.tickCount = CURRENCY_RATE_WINDOW_TICKS - 1;
+    expect(hasFullRateWindow(state)).toBe(false);
+
+    state.tickCount = CURRENCY_RATE_WINDOW_TICKS;
+    expect(hasFullRateWindow(state)).toBe(true);
+
+    state.tickCount = Number.NaN;
+    expect(hasFullRateWindow(state)).toBe(false);
+  });
+
+  it("sums the window, narrowed to the machine and resource that earned it", () => {
+    const state = createInitialState();
+    state.tickCount = 10;
+    state.currencySamples = [
+      { tick: 10, amount: 6, entityId: "depot-test", resource: "copperIngot" },
+      { tick: 9, amount: 1, entityId: "depot-test", resource: "copperOre" },
+      { tick: 8, amount: 4, entityId: "depot-other", resource: "copperOre" },
+    ];
+
+    expect(getWindowedSaleCurrency(state)).toBe(11);
+    expect(getWindowedSaleCurrency(state, { entityId: "depot-test" })).toBe(7);
+    expect(getWindowedSaleCurrency(state, { resource: "copperIngot" })).toBe(6);
+    expect(getWindowedSaleCurrency(state, { entityId: "depot-test", resource: "copperIngot" })).toBe(
+      6,
+    );
+    expect(getWindowedSaleCurrency(state, { entityId: "depot-missing" })).toBe(0);
+  });
+
+  it("drops samples older than the window and samples from a future tick", () => {
+    const state = createInitialState();
+    state.tickCount = CURRENCY_RATE_WINDOW_TICKS;
+    state.currencySamples = [
+      { tick: 0, amount: 5 },
+      { tick: CURRENCY_RATE_WINDOW_TICKS, amount: 3 },
+      { tick: CURRENCY_RATE_WINDOW_TICKS + 1, amount: 7 },
+      { tick: CURRENCY_RATE_WINDOW_TICKS, amount: Number.NaN },
+    ];
+
+    expect(getWindowedSaleCurrency(state)).toBe(3);
+    expect(getWindowedSaleCurrency({ ...state, tickCount: Number.NaN })).toBe(0);
   });
 });
 

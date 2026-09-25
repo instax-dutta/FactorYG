@@ -12,6 +12,7 @@ Own versioned local persistence for Factor-I.
 
 - The save key is `factor-y:save` for compatibility.
 - Only explicit `SaveGame` fields are serialized; runtime samples, selection, notifications, and offline summaries are excluded.
+- `productionChains` persists only the four summary fields per chain, sorted by chain id, so a save never carries item positions or chain edges.
 - Shared storage persists its locked resource, and a legacy machine runtime without one derives it from the first stored resource so a migrated silo stays single-resource.
 - Machine/belt records must reference existing entities and correct runtime partitions.
 - Storage access uses an injected `SaveStorage`; modules do not read browser globals directly.

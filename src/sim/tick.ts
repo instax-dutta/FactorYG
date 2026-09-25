@@ -389,7 +389,7 @@ function sellDepotInputs(state: SimulationState, events: RenderEvent[], tick: nu
       };
       state.grid.machines[entity.id] = nextRuntime;
       runtime = nextRuntime;
-      state.currencySamples.push({ tick, amount: sale.currency });
+      state.currencySamples.push({ tick, amount: sale.currency, entityId: entity.id, resource });
       events.push({
         type: "saleCompleted",
         entityId: entity.id,

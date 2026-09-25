@@ -48,7 +48,7 @@ describe("extractor production", () => {
 
     expect(result.output).toEqual({ copperOre: 1 });
     expect(result.progressTicks).toBeCloseTo(0, 10);
-    expect(result.active).toBe(false);
+    expect(result.active).toBe(true);
   });
 
   it("starts a fresh normalized interval after repeated production", () => {
@@ -241,7 +241,7 @@ describe("extractor production", () => {
 
     expect(result.output).toEqual({ copperOre: 1 });
     expect(result.progressTicks).toBeCloseTo(0, 10);
-    expect(result.active).toBe(false);
+    expect(result.active).toBe(true);
   });
 
   it("produces exactly one unit for each completed high-speed cycle", () => {
@@ -261,7 +261,7 @@ describe("extractor production", () => {
     expect(runtime.progressTicks).toBeCloseTo(0, 10);
   });
 
-  it("emits machine state events when active transitions through advanceSimulation", () => {
+  it("emits a machine state event when a full output buffer pauses an extractor", () => {
     const entity = createExtractor();
     const state = createState([entity], {
       [entity.id]: createMachineRuntime(entity),
@@ -276,17 +276,17 @@ describe("extractor production", () => {
     ]);
 
     const completed = advanceSimulation(started, EXTRACTOR_INTERVAL - 1, events);
-    expect(completed.grid.machines[entity.id]?.active).toBe(false);
+    expect(completed.grid.machines[entity.id]?.active).toBe(true);
     expect(completed.grid.machines[entity.id]?.output).toEqual({ copperOre: 1 });
+    expect(events).toHaveLength(1);
+
+    const blocked = advanceSimulation(completed, 1, events);
+    expect(blocked.tickCount).toBe(EXTRACTOR_INTERVAL + 1);
+    expect(blocked.grid.machines[entity.id]?.active).toBe(false);
     expect(events).toEqual([
       { type: "machineStateChanged", entityId: entity.id, active: true },
       { type: "machineStateChanged", entityId: entity.id, active: false },
     ]);
-
-    const blocked = advanceSimulation(completed, EXTRACTOR_INTERVAL, events);
-    expect(blocked).not.toBe(completed);
-    expect(blocked.tickCount).toBe(40);
-    expect(events).toHaveLength(2);
   });
 
   it("does not mutate unrelated simulation state", () => {
