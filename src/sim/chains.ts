@@ -1,3 +1,4 @@
+import { getMachine } from "../content/machines";
 import { getResource } from "../content/resources";
 import { arePortsConnected, getProducedResource, getWorldPortCells } from "./connections";
 import {
@@ -5,16 +6,9 @@ import {
   getWindowedSaleCurrency,
   hasFullRateWindow,
 } from "./economy";
-import type {
-  Entity,
-  MachineType,
-  ProductionChainSummary,
-  ResourceId,
-  SimulationState,
-} from "./types";
+import type { Entity, ProductionChainSummary, ResourceId, SimulationState } from "./types";
 
 const CHAIN_ID_PREFIX = "chain-";
-const SALE_TERMINAL_TYPE: MachineType = "depot";
 
 interface TracedChain {
   id: string;
@@ -25,16 +19,21 @@ interface TracedChain {
 export function analyzeProductionChains(
   state: SimulationState,
 ): Record<string, ProductionChainSummary> {
+  const chains = traceProductionChains(state);
+  const claimedTerminals = claimSaleTerminals(chains);
   const summaries: Record<string, ProductionChainSummary> = {};
-  for (const chain of traceProductionChains(state.grid.entities)) {
+  for (const chain of chains) {
     if (chain.outputResource === undefined) {
       continue;
     }
 
+    const saleTerminalIds = (claimedTerminals.get(chain.id) ?? []).filter((terminalId) =>
+      chain.saleTerminalIds.includes(terminalId),
+    );
     summaries[chain.id] = {
       id: chain.id,
       outputResource: chain.outputResource,
-      steadyStateThroughput: measureChainThroughput(state, chain),
+      steadyStateThroughput: measureChainThroughput(state, chain, saleTerminalIds),
       sellValue: getResource(chain.outputResource)?.sellValue ?? 0,
     };
   }
@@ -69,9 +68,10 @@ export function traceChainNodes(
   return nodes;
 }
 
-function traceProductionChains(entities: readonly Entity[]): TracedChain[] {
+function traceProductionChains(state: SimulationState): TracedChain[] {
+  const entities = state.grid.entities;
   const entityById = new Map(entities.map((entity) => [entity.id, entity]));
-  const successors = buildSuccessors(entities);
+  const successors = buildSuccessors(state);
   const connected = collectConnectedEntityIds(successors);
   const traced = new Set<string>();
   const chains: TracedChain[] = [];
@@ -91,22 +91,23 @@ function traceProductionChains(entities: readonly Entity[]): TracedChain[] {
       continue;
     }
 
-    const nodes = traceChainNodes(entity.id, successors);
-    markTraced(traced, nodes);
-    chains.push(createTracedChain(nodes, entityById, sortIds(nodes)[0] ?? entity.id));
+    chains.push(createTracedChain(traceChainNodes(entity.id, successors), entityById, entity.id));
   }
 
   return chains.sort((left, right) => compareIds(left.id, right.id));
 }
 
-function buildSuccessors(entities: readonly Entity[]): Map<string, string[]> {
+function buildSuccessors(state: SimulationState): Map<string, string[]> {
   const entityAtCell = new Map<string, Entity>();
-  for (const entity of sortEntitiesById(entities)) {
-    entityAtCell.set(getCellKey(entity.x, entity.y), entity);
+  for (const entity of sortEntitiesById(state.grid.entities)) {
+    const key = getCellKey(entity.x, entity.y);
+    if (!entityAtCell.has(key)) {
+      entityAtCell.set(key, entity);
+    }
   }
 
   const successors = new Map<string, string[]>();
-  for (const entity of sortEntitiesById(entities)) {
+  for (const entity of sortEntitiesById(state.grid.entities)) {
     const targets: string[] = [];
     for (const cell of getWorldPortCells(entity)) {
       if (cell.port.kind !== "output") {
@@ -117,13 +118,17 @@ function buildSuccessors(entities: readonly Entity[]): Map<string, string[]> {
       if (target === undefined || target.id === entity.id) {
         continue;
       }
-      if (arePortsConnected(entity, target)) {
+      if (arePortsConnected(entity, target, getCarriedResource(state, entity))) {
         targets.push(target.id);
       }
     }
     successors.set(entity.id, sortIds(targets));
   }
   return successors;
+}
+
+function getCarriedResource(state: SimulationState, entity: Entity): ResourceId | undefined {
+  return state.grid.belts[entity.id]?.item;
 }
 
 function createTracedChain(
@@ -135,7 +140,7 @@ function createTracedChain(
     .map((nodeId) => entityById.get(nodeId))
     .filter((entity): entity is Entity => entity !== undefined);
   const saleTerminalIds = chainEntities
-    .filter((entity) => entity.type === SALE_TERMINAL_TYPE)
+    .filter((entity) => isSaleTerminal(entity))
     .map((entity) => entity.id);
 
   return {
@@ -143,6 +148,32 @@ function createTracedChain(
     outputResource: findLastProducedResource(chainEntities),
     saleTerminalIds,
   };
+}
+
+function isSaleTerminal(entity: Entity): boolean {
+  return getMachine(entity.type)?.saleTerminal === true;
+}
+
+function claimSaleTerminals(chains: readonly TracedChain[]): Map<string, string[]> {
+  const claims = new Map<string, string[]>();
+  for (const chain of chains) {
+    claims.set(chain.id, []);
+  }
+
+  const owners = new Map<string, string>();
+  for (const chain of chains) {
+    for (const terminalId of chain.saleTerminalIds) {
+      if (!owners.has(terminalId)) {
+        owners.set(terminalId, chain.id);
+      }
+    }
+  }
+
+  for (const [terminalId, ownerId] of owners) {
+    claims.get(ownerId)?.push(terminalId);
+  }
+
+  return claims;
 }
 
 function findLastProducedResource(entities: readonly Entity[]): ResourceId | undefined {
@@ -175,8 +206,12 @@ function getProducedResources(entity: Entity): ResourceId[] {
   return produced;
 }
 
-function measureChainThroughput(state: SimulationState, chain: TracedChain): number {
-  if (chain.outputResource === undefined || chain.saleTerminalIds.length === 0) {
+function measureChainThroughput(
+  state: SimulationState,
+  chain: TracedChain,
+  claimedTerminalIds: readonly string[],
+): number {
+  if (chain.outputResource === undefined || claimedTerminalIds.length === 0) {
     return 0;
   }
   if (!hasFullRateWindow(state)) {
@@ -193,9 +228,9 @@ function measureChainThroughput(state: SimulationState, chain: TracedChain): num
   }
 
   let windowCurrency = 0;
-  for (const saleTerminalId of chain.saleTerminalIds) {
+  for (const terminalId of claimedTerminalIds) {
     windowCurrency += getWindowedSaleCurrency(state, {
-      entityId: saleTerminalId,
+      entityId: terminalId,
       resource: chain.outputResource,
     });
   }

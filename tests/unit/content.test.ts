@@ -812,6 +812,43 @@ describe("Factor-Y content tables", () => {
     );
   });
 
+  it("declares the sale terminal in the machine table and nowhere else", () => {
+    expect(getMachine("depot")?.saleTerminal).toBe(true);
+    for (const type of ["extractor", "belt", "smelter", "assembler", "silo"] as const) {
+      expect(getMachine(type)?.saleTerminal).toBeUndefined();
+    }
+  });
+
+  it("requires a sale terminal to accept every resource on an input port", () => {
+    expect(validateContent(deepFreeze(createMutableContentSnapshot()))).toEqual([]);
+
+    const narrowDepot = createMutableContentSnapshot();
+    narrowDepot.machines.depot = {
+      ...narrowDepot.machines.depot,
+      ports: [
+        {
+          id: "input",
+          kind: "input",
+          offset: { x: -1, y: 0 },
+          accepts: ["copperOre"],
+        },
+      ],
+    };
+
+    expect(validateContent(deepFreeze(narrowDepot))).toContain(
+      'Machine "depot" must accept every resource on an input port because a sale terminal sells everything it receives.',
+    );
+  });
+
+  it("rejects a non boolean sale terminal flag", () => {
+    const flag = createMutableContentSnapshot();
+    flag.machines.depot = { ...flag.machines.depot, saleTerminal: "yes" };
+
+    expect(validateContent(deepFreeze(flag))).toContain(
+      'Machine "depot" saleTerminal must be a boolean.',
+    );
+  });
+
   it("reports no producer gap for a declared cycle between two recipes", () => {
     const cycle = createMutableContentSnapshot();
     cycle.recipes.wire = { ...cycle.recipes.wire, inputs: { gear: 1 } };

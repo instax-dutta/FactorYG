@@ -405,8 +405,44 @@ describe("level-adjusted extraction", () => {
     const result = tickExtractor(nearlyFull, entity, state);
 
     expect(result.output).toEqual({ copperOre: capacity });
-    expect(result.progressTicks).toBeLessThan(1);
+    expect(result.progressTicks).toBe(1);
     expect(result.active).toBe(true);
+  });
+
+  it("drains banked cycles the moment the buffer has room", () => {
+    const state = createState([createExtractor({ level: 40 })], FUNDED_CURRENCY);
+    const entity = state.grid.entities[0];
+    const capacity = getOutputCapacity(entity);
+    const banked = createRuntime(entity, { progressTicks: 3, output: { copperOre: capacity - 1 } });
+
+    const emitted = tickExtractor(banked, entity, state);
+
+    expect(emitted.output).toEqual({ copperOre: capacity });
+    expect(emitted.progressTicks).toBe(4);
+
+    const drained = tickExtractor({ ...emitted, output: {} }, entity, state);
+
+    expect(drained.output).toEqual({ copperOre: 6 });
+    expect(drained.progressTicks).toBe(0);
+    expect(drained.active).toBe(true);
+  });
+
+  it("keeps banked cycles bounded by the output capacity", () => {
+    const state = createState([createExtractor({ level: 40 })], FUNDED_CURRENCY);
+    const entity = state.grid.entities[0];
+    const capacity = getOutputCapacity(entity);
+    let runtime = createRuntime(entity, { output: { copperOre: capacity - 1 } });
+
+    for (let tick = 0; tick < capacity * 2; tick += 1) {
+      runtime = tickExtractor(runtime, entity, state);
+
+      expect(runtime.output).toEqual({ copperOre: capacity });
+      expect(runtime.progressTicks).toBeLessThanOrEqual(capacity);
+      expect(runtime.active).toBe(true);
+      runtime = { ...runtime, output: { copperOre: capacity - 1 } };
+    }
+
+    expect(runtime.progressTicks).toBe(capacity);
   });
 
   it("pauses progress while the output buffer is full and resumes from the saved remainder", () => {

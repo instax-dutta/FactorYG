@@ -1,4 +1,5 @@
 import { TILE_SIZE_PX } from "./constants";
+import { getMachine } from "../content/machines";
 import {
   arePortsConnected,
   findConnectedEntity,
@@ -360,10 +361,10 @@ function emitBeltItemChanged(
 
 function sellDepotInputs(state: SimulationState, events: RenderEvent[], tick: number): boolean {
   let changed = false;
-  for (const entity of state.grid.entities) {
-    if (entity.type !== "depot") {
-      continue;
-    }
+    for (const entity of state.grid.entities) {
+      if (getMachine(entity.type)?.saleTerminal !== true) {
+        continue;
+      }
 
     let runtime = state.grid.machines[entity.id];
     if (runtime === undefined) {

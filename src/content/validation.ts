@@ -78,6 +78,13 @@ function isPositiveInteger(value: unknown): value is number {
   return isFiniteNumber(value) && Number.isInteger(value) && value > 0;
 }
 
+function acceptsEveryResource(
+  inputPorts: readonly InputPortValidation[],
+  resourceIds: ReadonlySet<string>,
+): boolean {
+  return inputPorts.some((port) => [...resourceIds].every((resource) => port.accepts.has(resource)));
+}
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -355,6 +362,10 @@ function validateMachines(
       }
     }
 
+    if (Object.hasOwn(value, "saleTerminal") && typeof value.saleTerminal !== "boolean") {
+      errors.push(`Machine "${key}" saleTerminal must be a boolean.`);
+    }
+
     if (!isNonEmptyString(value.spriteKey)) {
       errors.push(`Machine "${key}" must have a sprite key.`);
     } else if (spriteKeys.has(value.spriteKey)) {
@@ -402,6 +413,12 @@ function validateMachines(
           errors.push(`Machine "${key}" must define ${expectedCounts.outputs} output port(s).`);
         }
       }
+    }
+
+    if (value.saleTerminal === true && !acceptsEveryResource(inputPorts, resourceIds)) {
+      errors.push(
+        `Machine "${key}" must accept every resource on an input port because a sale terminal sells everything it receives.`,
+      );
     }
 
     validations.set(key, { inputPorts });

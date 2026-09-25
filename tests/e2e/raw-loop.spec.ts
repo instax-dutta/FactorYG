@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { SAVE_KEY } from "../../src/sim/constants";
+import { CURRENCY_RATE_WINDOW_TICKS } from "../../src/sim/economy";
 import { createInitialState } from "../../src/sim/initialState";
 import type { ResourceId } from "../../src/sim/types";
 
@@ -304,6 +305,24 @@ async function persistedEntityTypes(page: Page): Promise<string[]> {
   }, SAVE_KEY);
 }
 
+async function persistedChainSummaries(
+  page: Page,
+): Promise<Array<{ id: string; outputResource: string; steadyStateThroughput: number }>> {
+  return page.evaluate((key) => {
+    const raw = window.localStorage.getItem(key);
+    if (raw === null) {
+      throw new Error("Expected a persisted save");
+    }
+    const save = JSON.parse(raw) as {
+      productionChains?: Record<
+        string,
+        { id: string; outputResource: string; steadyStateThroughput: number }
+      >;
+    };
+    return Object.values(save.productionChains ?? {});
+  }, SAVE_KEY);
+}
+
 async function persistedSave(page: Page): Promise<{
   currency: number;
   lifetimeCurrency: number;
@@ -392,6 +411,19 @@ test("sells copper through a raw chain and restores it after a reload", async ({
   expect(extractorActive.entityIds).toEqual(["entity-1", "entity-2", "entity-3"]);
 
   await expect.poll(async () => (await persistedSave(page)).currency).toBeGreaterThan(baseline);
+  await page.evaluate((ticks) => {
+    const bridge = (window as unknown as RuntimeWindow).__FACTOR_Y__;
+    if (bridge === undefined) {
+      throw new Error("Factor-Y bridge unavailable");
+    }
+    bridge.advanceTicks(ticks);
+  }, CURRENCY_RATE_WINDOW_TICKS);
+  await expect
+    .poll(async () => (await persistedChainSummaries(page))[0]?.steadyStateThroughput ?? 0)
+    .toBeGreaterThan(0);
+  const persistedChains = await persistedChainSummaries(page);
+  expect(persistedChains.map((chain) => chain.id)).toEqual(["chain-entity-1"]);
+  expect(persistedChains[0]?.outputResource).toBe("copperOre");
   const telemetrySample = await measureRenderTelemetryRebuilds(page);
   expect(telemetrySample.sawActiveEntity).toBe(true);
   expect(telemetrySample.rebuilds).toBeLessThan(telemetrySample.frames);

@@ -1,4 +1,5 @@
 import { createInitialState } from "../sim/initialState";
+import { analyzeProductionChains } from "../sim/chains";
 import {
   loadSaveWithOfflineResult,
   projectSaveGame,
@@ -74,10 +75,14 @@ export function createRuntimeTelemetryBridge(
   });
 }
 
-export function projectRuntimeSave(state: SaveGame, now: number): SaveGame {
+export function projectRuntimeSave(state: SimulationState, now: number): SaveGame {
   const lastSavedAt =
     Number.isFinite(now) && now >= 0 ? Math.max(state.lastSavedAt, now) : state.lastSavedAt;
-  return projectSaveGame({ ...state, lastSavedAt });
+  return projectSaveGame({
+    ...state,
+    lastSavedAt,
+    productionChains: analyzeProductionChains(state),
+  });
 }
 
 export function createRuntimeAutosave(

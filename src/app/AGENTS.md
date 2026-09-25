@@ -13,6 +13,7 @@ Own the browser application runtime and React shell.
 - One `SimulationRuntime` and one `SimulationStore` are shared by Phaser and React.
 - Runtime creation and autosave disposal must be safe under React StrictMode.
 - Browser storage access stays in the app layer; `src/sim` remains platform-independent.
+- `projectRuntimeSave` is the one place a runtime save is built, and it refreshes `productionChains` from the live state so an offline session pays out from the chains the player actually built.
 - The development bridge exposes only dispatch, manual tick, and snapshot methods.
 
 ## Work Guidance
@@ -22,7 +23,7 @@ Own the browser application runtime and React shell.
 
 ## Verification
 
-- `npm run test -- tests/unit/runtime.test.ts tests/unit/hud.test.tsx`
+- `npm run test -- tests/unit/runtime.test.ts tests/unit/hud.test.tsx tests/unit/runtimeAutosave.test.ts`
 - `npm run test:e2e -- tests/e2e/phase0.spec.ts --workers=1`
 
 ## Child DOX Index

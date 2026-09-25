@@ -137,6 +137,24 @@ describe("store save projection", () => {
     expect(projectRuntimeSave(state, 1_000).lastSavedAt).toBe(9_000);
     expect(projectRuntimeSave(state, Number.NaN).lastSavedAt).toBe(9_000);
   });
+
+  it("refreshes production chains on the runtime save path", () => {
+    const store = createStore();
+    buildChain(store, "copperOre");
+    store.advanceTicks(200);
+
+    const save = store.getSaveGame();
+    const projection = projectRuntimeSave(save, 5_000);
+
+    expect(save.productionChains).toEqual({});
+    expect(Object.keys(projection.productionChains)).toEqual(["chain-entity-1"]);
+    expect(projection.productionChains["chain-entity-1"]).toEqual({
+      id: "chain-entity-1",
+      outputResource: "copperOre",
+      steadyStateThroughput: 0.5,
+      sellValue: 1,
+    });
+  });
 });
 
 describe("runtime autosave", () => {

@@ -16,7 +16,6 @@ import type {
   Entity,
   RenderEvent,
   ResourceId,
-  SaveGame,
   SimulationCommand,
   SimulationSnapshot,
   SimulationState,
@@ -67,7 +66,7 @@ export class SimulationStore {
     return this.#snapshot;
   }
 
-  public getSaveGame(): SaveGame {
+  public getSaveGame(): SimulationState {
     return structuredClone(this.#state);
   }
 

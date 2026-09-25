@@ -24,6 +24,7 @@ Own immutable Factor-I content definitions.
 - A machine level prices as the machine `cost` multiplied by the level squared, so an upgrade is never free. Pricing derives from the existing machine `cost` field and adds no content field to validate.
 - A machine eligible for a level upgrade must have a positive integer `cost`, because that field is the upgrade base price; `validateContent` rejects a zero, negative, or fractional cost on such a machine.
 - A level affects a machine only where the machine produces. Shared storage is not upgrade-eligible, and a machine that takes an input port without running a recipe only transports what others make, so extractors and recipe machines are the upgrade-eligible types. The gate is derived from the machine table and the recipe table, never from a hand-written type list.
+- A machine that sells everything it receives declares `saleTerminal`, and the sales tick and chain analysis read that flag rather than naming a machine type. The flag must be a boolean, and such a machine must accept every resource on one of its input ports, because it sells its whole input buffer.
 
 ## Work Guidance
 

@@ -59,6 +59,7 @@ export interface MachineDefinition {
   readonly outputBuffer: number;
   readonly bufferMode: "separate" | "shared";
   readonly storageCapacity?: number;
+  readonly saleTerminal?: boolean;
   readonly defaultProcessTicks: number;
   readonly ports: readonly PortDefinition[];
   readonly spriteKey: string;

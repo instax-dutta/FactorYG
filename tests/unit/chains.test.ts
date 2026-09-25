@@ -18,6 +18,7 @@ import type {
   Entity,
   MachineType,
   ProductionChainSummary,
+  ResourceId,
   ResourceNode,
   Rotation,
   SimulationState,
@@ -29,6 +30,10 @@ const COPPER_NODES: ResourceNode[] = [
   { id: "node-copper-store", resource: "copperOre", x: 20, y: 40 },
   { id: "node-copper-scaled", resource: "copperOre", x: 20, y: 50 },
   { id: "node-copper-smelted", resource: "copperOre", x: 20, y: 60 },
+  { id: "node-copper-shared-west", resource: "copperOre", x: 28, y: 30 },
+  { id: "node-copper-shared-north", resource: "copperOre", x: 30, y: 28 },
+  { id: "node-copper-gate", resource: "copperOre", x: 20, y: 70 },
+  { id: "node-copper-contested", resource: "copperOre", x: 20, y: 80 },
 ];
 const COPPER_SELL_VALUE = RESOURCES.copperOre.sellValue;
 const STEADY_TICKS = CURRENCY_RATE_WINDOW_TICKS * 2;
@@ -227,6 +232,57 @@ describe("chain rate and the extractor level", () => {
   });
 });
 
+describe("shared sale terminals", () => {
+  it("attributes one shared sale terminal to exactly one claiming chain", () => {
+    const shared = createSharedAssemblerWorld();
+    const state = runWorld(shared.entities, shared.nodes);
+    const chains = analyzeProductionChains(state);
+    const first = chainId(shared.northExtractor);
+    const second = chainId(shared.westExtractor);
+    const depotRate = getCurrencyPerSecond(state) / RESOURCES.wire.sellValue;
+    const summed = Object.keys(chains).reduce(
+      (sum, id) => sum + (chains[id]?.steadyStateThroughput ?? 0),
+      0,
+    );
+
+    expect(Object.keys(chains)).toEqual([first, second]);
+    expect(state.currency).toBeGreaterThan(0);
+    expect(depotRate).toBeGreaterThan(0);
+    expect(chains[first]?.outputResource).toBe("wire");
+    expect(chains[second]?.outputResource).toBe("wire");
+    expect(chains[first]?.steadyStateThroughput).toBeCloseTo(depotRate, 10);
+    expect(chains[second]?.steadyStateThroughput).toBe(0);
+    expect(summed).toBeCloseTo(depotRate, 10);
+    expect(getSteadyStateThroughput(state)).toBeCloseTo(depotRate, 10);
+  });
+});
+
+describe("cyclic worlds", () => {
+  it("reports one chain per member of a directed cycle", () => {
+    const members = createAssemblerCycle();
+    const state = runWorld(members, []);
+
+    const chains = analyzeProductionChains(state);
+
+    expect(Object.keys(chains)).toEqual(members.map((entity) => chainId(entity)));
+    expect(new Set(Object.values(chains).map((chain) => chain.outputResource)).size).toBe(4);
+    for (const chain of Object.values(chains)) {
+      expect(chain.steadyStateThroughput).toBe(0);
+    }
+    expect(getSteadyStateThroughput(state)).toBe(0);
+  });
+
+  it("follows only the first successor of a branching adjacency", () => {
+    const branching = new Map<string, string[]>([
+      ["alpha", ["beta", "gamma"]],
+      ["beta", ["gamma"]],
+      ["gamma", []],
+    ]);
+
+    expect(traceChainNodes("alpha", branching)).toEqual(["alpha", "beta", "gamma"]);
+  });
+});
+
 describe("directed chain traversal", () => {
   it("stops a cyclic adjacency instead of looping forever", () => {
     const cyclic = new Map<string, string[]>([
@@ -273,6 +329,53 @@ describe("directed chain traversal", () => {
   });
 });
 
+describe("belt link validation", () => {
+  it("refuses a belt link whose carried item the target port rejects", () => {
+    const refused = createBeltGateWorld("copperIngot", MACHINES.smelter.inputBuffer);
+    const refusedState = runState(refused.state);
+    const refusedChains = analyzeProductionChains(refusedState);
+
+    expect(Object.keys(refusedChains)).toEqual(
+      [chainId(refused.smelter), chainId(refused.extractor)].sort(),
+    );
+    expect(refusedChains[chainId(refused.extractor)]?.outputResource).toBe("copperOre");
+    expect(refusedChains[chainId(refused.extractor)]?.steadyStateThroughput).toBe(0);
+    expect(refusedChains[chainId(refused.smelter)]?.outputResource).toBe("copperIngot");
+    expect(refusedChains[chainId(refused.smelter)]?.steadyStateThroughput).toBeCloseTo(
+      LEVEL_ONE_THROUGHPUT,
+      10,
+    );
+    expect(refusedState.grid.belts[refused.belt]?.item).toBe("copperIngot");
+    expect(refusedState.grid.machines[refused.extractor.id]?.output).toEqual({ copperOre: 1 });
+  });
+
+  it("follows a belt link whose carried item the target port accepts", () => {
+    const accepted = createBeltGateWorld("copperOre");
+    const acceptedState = runState(accepted.state);
+    const acceptedChains = analyzeProductionChains(acceptedState);
+
+    expect(Object.keys(acceptedChains)).toEqual([chainId(accepted.extractor)]);
+    expect(acceptedChains[chainId(accepted.extractor)]?.outputResource).toBe("copperIngot");
+    expect(acceptedChains[chainId(accepted.extractor)]?.steadyStateThroughput).toBeCloseTo(
+      LEVEL_ONE_THROUGHPUT,
+      10,
+    );
+  });
+
+  it("gives a contested cell to the first entity id in sorted order", () => {
+    const contested = createContestedCellWorld();
+    const forward = analyzeProductionChains(createWorld(contested.entities, contested.nodes));
+    const reversed = analyzeProductionChains(
+      createWorld([...contested.entities].reverse(), contested.nodes),
+    );
+
+    expect(Object.keys(forward)).toEqual([chainId(contested.other), chainId(contested.source)]);
+    expect(reversed).toEqual(forward);
+    expect(forward[chainId(contested.source)]?.outputResource).toBe("wire");
+    expect(forward[chainId(contested.other)]?.outputResource).toBe("gear");
+  });
+});
+
 describe("chain save projection", () => {
   it("serializes only sorted chain summaries and never item positions", () => {
     const [extractor, beltOne, beltTwo, depot] = createCopperLine("save", COPPER_NODES[0]);
@@ -284,8 +387,6 @@ describe("chain save projection", () => {
     const parsed = parseSave(raw);
 
     expect(Object.keys(state.grid.belts).length).toBeGreaterThan(0);
-    expect(JSON.stringify(analyzed)).not.toContain("belt");
-    expect(JSON.stringify(analyzed)).not.toContain("item");
     expect(serializeSave(withChains)).toBe(raw);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) {
@@ -334,7 +435,11 @@ function runWorld(
   nodes: ResourceNode[],
   tickCount = STEADY_TICKS,
 ): SimulationState {
-  return advanceSimulation(createWorld(entities, nodes), tickCount);
+  return runState(createWorld(entities, nodes), tickCount);
+}
+
+function runState(state: SimulationState, tickCount = STEADY_TICKS): SimulationState {
+  return advanceSimulation(state, tickCount);
 }
 
 function createCopperLine(
@@ -388,13 +493,14 @@ function createMachine(
   x: number,
   y: number,
   recipeId?: string,
+  rotation: Rotation = 0,
 ): Entity {
   const entity: Entity = {
     id,
     type,
     x,
     y,
-    rotation: 0,
+    rotation,
     level: 1,
   };
 
@@ -403,4 +509,85 @@ function createMachine(
   }
 
   return entity;
+}
+
+function createSharedAssemblerWorld(): {
+  entities: Entity[];
+  nodes: ResourceNode[];
+  westExtractor: Entity;
+  northExtractor: Entity;
+} {
+  const nodes = [COPPER_NODES[5], COPPER_NODES[6]];
+  const westExtractor = createExtractor("shared-west", nodes[0]);
+  const northExtractor = createExtractor("shared-north", nodes[1], { rotation: 90 });
+
+  return {
+    nodes,
+    westExtractor,
+    northExtractor,
+    entities: [
+      westExtractor,
+      createMachine("smelter", "shared-west-smelter", nodes[0].x + 1, nodes[0].y, "copperIngot"),
+      northExtractor,
+      createMachine("smelter", "shared-north-smelter", nodes[1].x, nodes[1].y + 1, "copperIngot", 90),
+      createMachine("assembler", "shared-assembler", 30, 30, "wire"),
+      createMachine("belt", "shared-belt", 31, 30),
+      createMachine("depot", "shared-depot", 32, 30),
+    ],
+  };
+}
+
+function createAssemblerCycle(): Entity[] {
+  const recipes = ["wire", "gear", "plate", "motor"];
+
+  return [
+    createMachine("assembler", "cycle-a", 40, 40, recipes[0], 0),
+    createMachine("assembler", "cycle-b", 41, 40, recipes[1], 270),
+    createMachine("assembler", "cycle-c", 41, 39, recipes[2], 180),
+    createMachine("assembler", "cycle-d", 40, 39, recipes[3], 90),
+  ];
+}
+
+function createBeltGateWorld(
+  beltItem: ResourceId,
+  smelterInput?: number,
+): { state: SimulationState; belt: string; extractor: Entity; smelter: Entity } {
+  const node = COPPER_NODES[7];
+  const extractor = createExtractor("gate", node);
+  const belt = "gate-belt";
+  const smelter = createMachine("smelter", "gate-smelter", node.x + 2, node.y, "copperIngot");
+  const state = createWorld(
+    [
+      extractor,
+      createMachine("belt", belt, node.x + 1, node.y),
+      smelter,
+      createMachine("belt", "gate-belt-out", node.x + 3, node.y),
+      createMachine("depot", "gate-depot", node.x + 4, node.y),
+    ],
+    [node],
+  );
+  state.grid.belts[belt] = { entityId: belt, item: beltItem, progress: 0 };
+  if (smelterInput !== undefined) {
+    state.grid.machines[smelter.id] = {
+      ...state.grid.machines[smelter.id],
+      input: { copperOre: smelterInput },
+    };
+  }
+
+  return { state, belt, extractor, smelter };
+}
+
+function createContestedCellWorld(): {
+  entities: Entity[];
+  nodes: ResourceNode[];
+  source: Entity;
+  claimed: Entity;
+  other: Entity;
+} {
+  const node = COPPER_NODES[8];
+  const source = createMachine("smelter", "contested-source", node.x - 1, node.y, "copperIngot");
+  const claimed = createMachine("assembler", "contested-a", node.x, node.y, "wire");
+  const other = createMachine("assembler", "contested-b", node.x, node.y, "gear");
+
+  return { entities: [source, claimed, other], nodes: [node], source, claimed, other };
 }

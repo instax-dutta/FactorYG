@@ -157,6 +157,7 @@ export const MACHINES = deepFreeze({
     inputBuffer: 100,
     outputBuffer: 0,
     bufferMode: "separate",
+    saleTerminal: true,
     defaultProcessTicks: 1,
     ports: [
       {

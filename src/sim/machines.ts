@@ -71,7 +71,8 @@ export function tickExtractor(
   }
 
   const outputAmount = getResourceAmount(runtime.output, resource);
-  const room = getOutputCapacity(entity) - outputAmount;
+  const capacity = getOutputCapacity(entity);
+  const room = capacity - outputAmount;
   if (room <= 0) {
     return runtime.active ? { ...runtime, active: false } : runtime;
   }
@@ -91,7 +92,7 @@ export function tickExtractor(
 
   return {
     ...runtime,
-    progressTicks: Math.max(0, accumulatedProgress - completedCycles),
+    progressTicks: Math.min(Math.max(0, accumulatedProgress - Math.min(completedCycles, room)), capacity),
     output: addResource(runtime.output, resource, Math.min(completedCycles, room)),
     active: true,
   };
