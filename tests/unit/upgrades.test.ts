@@ -70,10 +70,6 @@ describe("upgrade cost table", () => {
     expect(getMachineUpgradeCost("extractor", 2.9)).toBe(getMachineUpgradeCost("extractor", 2));
   });
 
-  it("prices an unknown machine type as nothing", () => {
-    expect(getMachineUpgradeCost("not-a-machine", 2)).toBe(0);
-  });
-
   it("reads the level from the selected entity", () => {
     expect(getUpgradeCost(createExtractor())).toBe(EXTRACTOR_COST);
     expect(getUpgradeCost(createExtractor({ level: 2 }))).toBe(EXTRACTOR_COST * 4);

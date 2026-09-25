@@ -179,7 +179,7 @@ export function getUpgradeLevel(level: number): number {
   return Number.isFinite(level) && level >= 1 ? Math.floor(level) : 1;
 }
 
-export function getMachineUpgradeCost(type: string, level: number): number {
+export function getMachineUpgradeCost(type: MachineType, level: number): number {
   const definition = getMachine(type);
   if (definition === undefined) {
     return 0;
@@ -191,12 +191,16 @@ export function getMachineUpgradeCost(type: string, level: number): number {
 
 export function isLevelAffected(type: string): boolean {
   const definition = getMachine(type);
-  if (definition === undefined || definition.bufferMode === "shared") {
+  if (definition === undefined) {
     return false;
   }
 
   if (RECIPE_MACHINE_TYPES.has(definition.type)) {
     return true;
+  }
+
+  if (definition.bufferMode === "shared") {
+    return false;
   }
 
   return !definition.ports.some((port) => port.kind === "input");
