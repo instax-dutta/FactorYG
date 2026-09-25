@@ -514,6 +514,109 @@ function parseUnlockList(
   return ids;
 }
 
+interface PrerequisiteContract {
+  field: string;
+  known: ReadonlySet<string>;
+  costOf: (key: string) => number | undefined;
+}
+
+function unlockCostOf(table: UnknownRecord, key: string): number | undefined {
+  const entry = table[key];
+  return isRecord(entry) && isFiniteNumber(entry.unlockCost) ? entry.unlockCost : undefined;
+}
+
+function machinePrerequisiteContract(
+  machines: UnknownRecord,
+  recipes: UnknownRecord,
+): readonly PrerequisiteContract[] {
+  return [
+    {
+      field: "requiresMachines",
+      known: MACHINE_IDS,
+      costOf: (prerequisite) => unlockCostOf(machines, prerequisite),
+    },
+    {
+      field: "requiresRecipes",
+      known: RECIPE_IDS,
+      costOf: (prerequisite) => unlockCostOf(recipes, prerequisite),
+    },
+  ];
+}
+
+function validateRequirement(
+  label: string,
+  id: string,
+  value: unknown,
+  prerequisites: readonly PrerequisiteContract[],
+  errors: string[],
+): void {
+  if (!isRecord(value)) {
+    errors.push(`${label} "${id}" must be an object.`);
+    return;
+  }
+
+  if (!isPositiveInteger(value.cost)) {
+    errors.push(`${label} "${id}" must have a positive integer cost.`);
+  }
+
+  for (const prerequisite of prerequisites) {
+    const list = value[prerequisite.field];
+    if (!Array.isArray(list)) {
+      errors.push(`${label} "${id}" ${prerequisite.field} must be an array.`);
+      continue;
+    }
+
+    const seen = new Set<string>();
+    for (const entry of list) {
+      const key = String(entry);
+      if (!prerequisite.known.has(key)) {
+        errors.push(`${label} "${id}" ${prerequisite.field} references unknown ID "${key}".`);
+        continue;
+      }
+      if (key === id) {
+        errors.push(`${label} "${id}" must not require itself.`);
+        continue;
+      }
+      if (seen.has(key)) {
+        errors.push(`${label} "${id}" duplicates ${prerequisite.field} prerequisite "${key}".`);
+        continue;
+      }
+      seen.add(key);
+
+      const prerequisiteCost = prerequisite.costOf(key);
+      if (prerequisiteCost !== undefined && isPositiveInteger(value.cost) && prerequisiteCost >= value.cost) {
+        errors.push(`${label} "${id}" cost must exceed prerequisite cost ${prerequisiteCost} of "${key}".`);
+      }
+    }
+  }
+}
+
+function parseUnlockRequirements(
+  value: unknown,
+  canonicalIds: ReadonlySet<string>,
+  label: string,
+  errors: string[],
+): Map<string, UnknownRecord> {
+  if (!isRecord(value)) {
+    errors.push(`${label} must be an object.`);
+    return new Map();
+  }
+
+  const requirements = new Map<string, UnknownRecord>();
+  for (const [key, entry] of Object.entries(value)) {
+    if (!canonicalIds.has(key)) {
+      errors.push(`${label} references unknown ID "${key}".`);
+      continue;
+    }
+    if (!isRecord(entry)) {
+      errors.push(`${label} "${key}" must be an object.`);
+      continue;
+    }
+    requirements.set(key, entry);
+  }
+  return requirements;
+}
+
 function validateUnlocks(
   unlocks: UnknownRecord,
   machines: UnknownRecord,
@@ -569,6 +672,76 @@ function validateUnlocks(
     if (isRecord(recipe) && recipe.unlockCost !== 0) {
       errors.push(`Initially unlocked recipe "${key}" must have a zero unlock cost.`);
     }
+  }
+
+  const machineRequirements = parseUnlockRequirements(
+    unlocks.machineUnlocks,
+    MACHINE_IDS,
+    "Machine unlock requirements",
+    errors,
+  );
+  const recipeRequirements = parseUnlockRequirements(
+    unlocks.recipeUnlocks,
+    RECIPE_IDS,
+    "Recipe unlock requirements",
+    errors,
+  );
+
+  for (const [key, value] of Object.entries(machines)) {
+    if (!isRecord(value)) {
+      continue;
+    }
+    const requirement = machineRequirements.get(key);
+    if (isFiniteNumber(value.unlockCost) && value.unlockCost > 0 && requirement === undefined) {
+      errors.push(`Machine "${key}" has a paid unlock and must declare unlock requirements.`);
+    }
+    if (requirement === undefined) {
+      continue;
+    }
+    if (requirement.cost !== value.unlockCost) {
+      errors.push(`Machine unlock cost for "${key}" must match its machine unlockCost ${String(value.unlockCost)}.`);
+    }
+  }
+
+  for (const [key, value] of Object.entries(recipes)) {
+    if (!isRecord(value)) {
+      continue;
+    }
+    const requirement = recipeRequirements.get(key);
+    if (isFiniteNumber(value.unlockCost) && value.unlockCost > 0 && requirement === undefined) {
+      errors.push(`Recipe "${key}" has a paid unlock and must declare unlock requirements.`);
+    }
+    if (requirement === undefined) {
+      continue;
+    }
+    if (requirement.cost !== value.unlockCost) {
+      errors.push(`Recipe unlock cost for "${key}" must match its recipe unlockCost ${String(value.unlockCost)}.`);
+    }
+    if (typeof value.machine === "string" && Array.isArray(requirement.requiresMachines)) {
+      if (!requirement.requiresMachines.some((prerequisite) => String(prerequisite) === value.machine)) {
+        errors.push(`Recipe unlock requirements for "${key}" must require its machine "${value.machine}".`);
+      }
+    }
+  }
+
+  for (const [key, requirement] of machineRequirements) {
+    validateRequirement(
+      "Machine unlock requirements",
+      key,
+      requirement,
+      machinePrerequisiteContract(machines, recipes),
+      errors,
+    );
+  }
+
+  for (const [key, requirement] of recipeRequirements) {
+    validateRequirement(
+      "Recipe unlock requirements",
+      key,
+      requirement,
+      machinePrerequisiteContract(machines, recipes),
+      errors,
+    );
   }
 }
 

@@ -9,12 +9,15 @@ Own immutable Factor-I content definitions.
 - `freeze.ts` makes shipped tables deeply immutable.
 - `validation.ts` validates shipped or candidate content as unknown input.
 - `assetManifest.ts` connects content keys to static art.
+- `unlocks.ts` owns the initial free lists and the paid cost and prerequisite requirements for every other machine and recipe.
 
 ## Local Contracts
 
 - Tables are data-driven; machine and recipe behavior must not be hardcoded per instance.
 - Resource and machine IDs are canonical and validated across tables.
 - Smelters and assemblers use mixed input ports, silos use shared storage, and recipe duration overrides machine fallback timing.
+- An unlock requirement cost must equal the machine or recipe `unlockCost` it prices, every paid entry must declare a requirement, and an initially unlocked entry must not.
+- Unlock prerequisites are canonical IDs, never self-referential or duplicated, always cheaper than the entry that requires them so the tree stays purchasable in order, and a recipe always requires the machine that runs it.
 
 ## Work Guidance
 

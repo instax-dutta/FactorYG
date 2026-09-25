@@ -9,6 +9,7 @@ Own deterministic Factor-I simulation state and production rules.
 - `grid.ts` and `rotation.ts` own coordinate transforms.
 - `placement.ts` and `connections.ts` own validation and port connectivity.
 - `machines.ts`, `economy.ts`, `tick.ts`, and `offline.ts` own production and sales.
+- `commands.ts` owns unlock purchases for machines and recipes.
 - `store.ts` owns private state, commands, snapshots, and the fixed-step driver.
 - `initialState.ts` owns deterministic new-game world creation.
 
@@ -23,6 +24,9 @@ Own deterministic Factor-I simulation state and production rules.
 - A machine-to-belt transfer withdraws only what one belt cell can carry and leaves the remainder buffered, so a push never destroys units.
 - A machine-to-machine transfer accepts only the input room the target has left for that resource and leaves the remainder buffered. For `separate` buffers `inputBuffer` is a per-resource limit, not a buffer total, so a mixed buffer may hold several times the table value. A transfer that fits no unit is refused and changes neither machine. Shared storage stays all-or-nothing, so a shared target also refuses a partially fitting transfer even when room remains.
 - `storageFull` is emitted on the transition into a full shared pool, never on every tick it stays full.
+- An unlock purchase validates identity, prior ownership, prerequisites, and cost before any mutation, then commits the currency debit, the unlocked ID, and one success notification in a single state transition, so a purchase can never debit without unlocking or unlock without debiting.
+- Unlock rejection reasons are `unknownUnlock`, `alreadyUnlocked`, `prerequisiteLocked`, and `insufficientCurrency`, and the prerequisite reason is reported before the balance reason. A rejection returns the same state object, so no snapshot and no notification is published.
+- An unlock notification is keyed `unlock-machine-<id>` or `unlock-recipe-<id>` and stamps `createdAt` from the logical `tickCount`, keeping notifications deterministic.
 - Content tables and shared types remain the single source of truth.
 
 ## Work Guidance

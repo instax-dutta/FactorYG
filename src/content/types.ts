@@ -75,7 +75,15 @@ export interface RecipeDefinition {
   readonly sellValue: number;
 }
 
+export interface UnlockRequirement {
+  readonly cost: number;
+  readonly requiresMachines: readonly MachineType[];
+  readonly requiresRecipes: readonly RecipeId[];
+}
+
 export interface UnlockTable {
   readonly machines: readonly MachineType[];
   readonly recipes: readonly RecipeId[];
+  readonly machineUnlocks: Readonly<Partial<Record<MachineType, UnlockRequirement>>>;
+  readonly recipeUnlocks: Readonly<Partial<Record<RecipeId, UnlockRequirement>>>;
 }

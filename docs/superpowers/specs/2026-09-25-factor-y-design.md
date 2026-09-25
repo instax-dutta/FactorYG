@@ -206,9 +206,17 @@ export interface RecipeDefinition {
   readonly sellValue: number;
 }
 
+export interface UnlockRequirement {
+  readonly cost: number;
+  readonly requiresMachines: readonly MachineType[];
+  readonly requiresRecipes: readonly RecipeId[];
+}
+
 export interface UnlockTable {
   readonly machines: readonly MachineType[];
   readonly recipes: readonly RecipeId[];
+  readonly machineUnlocks: Readonly<Partial<Record<MachineType, UnlockRequirement>>>;
+  readonly recipeUnlocks: Readonly<Partial<Record<RecipeId, UnlockRequirement>>>;
 }
 
 export interface Entity {
@@ -406,6 +414,10 @@ The initial unlocks are Extractor, Belt, and Shipping Depot. Copper Ore and Iron
 | Circuit recipe | 4,000 |
 | Frame recipe | 6,000 |
 | Motor recipe | 12,000 |
+
+Every cost above appears twice in content: once as the machine or recipe `unlockCost`, and once as the matching `UNLOCKS` requirement cost. `validateContent` fails if they ever disagree, so the tables cannot drift.
+
+`UNLOCKS` also carries the prerequisite graph, derived from the machine and recipe dependency graph rather than hand-picked: the Assembler requires the Smelter, every Smelter recipe requires the Smelter, every Assembler recipe requires the Assembler, and every other recipe requires the recipes that make its own inputs. A prerequisite always costs less than the entry that requires it, so the tree is always purchasable in ascending cost order. An `unlockMachine` or `unlockRecipe` command validates identity, prior ownership, prerequisites, and cost before it mutates anything, then commits the debit, the unlocked ID, and one success notification as a single transition; the rejection reasons are `unknownUnlock`, `alreadyUnlocked`, `prerequisiteLocked`, and `insufficientCurrency`, reported in that order.
 
 `createInitialWorld(seed = 1337)` creates deterministic resource-node clusters for all four raw resources inside the central 48 by 48 area, with no overlapping nodes. The generator is pure and is tested for determinism, bounds, and resource coverage.
 

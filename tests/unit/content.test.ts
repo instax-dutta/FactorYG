@@ -29,6 +29,12 @@ const PROCESSED_RESOURCES: ResourceId[] = ALL_RESOURCES.filter(
   (resource) => !RAW_RESOURCES.includes(resource),
 );
 
+interface MutableUnlockRequirement {
+  cost: number;
+  requiresMachines: string[];
+  requiresRecipes: string[];
+}
+
 interface MutableContentSnapshot {
   resources: Record<string, Record<string, unknown>>;
   machines: Record<string, Record<string, unknown>>;
@@ -36,6 +42,8 @@ interface MutableContentSnapshot {
   unlocks: {
     machines: string[];
     recipes: string[];
+    machineUnlocks: Record<string, MutableUnlockRequirement>;
+    recipeUnlocks: Record<string, MutableUnlockRequirement>;
   };
 }
 
@@ -398,10 +406,38 @@ describe("Factor-Y content tables", () => {
     ]);
   });
 
-  it("starts with only the raw-loop machines unlocked", () => {
+  it("starts with only the raw-loop machines unlocked and prices every paid entry", () => {
     expect(UNLOCKS).toEqual({
       machines: ["extractor", "belt", "depot"],
       recipes: [],
+      machineUnlocks: {
+        smelter: { cost: 250, requiresMachines: [], requiresRecipes: [] },
+        assembler: { cost: 500, requiresMachines: ["smelter"], requiresRecipes: [] },
+        silo: { cost: 150, requiresMachines: [], requiresRecipes: [] },
+      },
+      recipeUnlocks: {
+        copperIngot: { cost: 300, requiresMachines: ["smelter"], requiresRecipes: [] },
+        ironIngot: { cost: 450, requiresMachines: ["smelter"], requiresRecipes: [] },
+        refinedStone: { cost: 600, requiresMachines: ["smelter"], requiresRecipes: [] },
+        wire: { cost: 900, requiresMachines: ["assembler"], requiresRecipes: ["copperIngot"] },
+        gear: { cost: 1_200, requiresMachines: ["assembler"], requiresRecipes: ["ironIngot"] },
+        plate: { cost: 1_600, requiresMachines: ["assembler"], requiresRecipes: ["refinedStone"] },
+        circuit: {
+          cost: 4_000,
+          requiresMachines: ["assembler"],
+          requiresRecipes: ["wire", "gear"],
+        },
+        frame: {
+          cost: 6_000,
+          requiresMachines: ["assembler"],
+          requiresRecipes: ["plate", "gear"],
+        },
+        motor: {
+          cost: 12_000,
+          requiresMachines: ["assembler"],
+          requiresRecipes: ["circuit", "frame"],
+        },
+      },
     });
   });
 
@@ -450,6 +486,12 @@ describe("Factor-Y content tables", () => {
     expect(Object.isFrozen(UNLOCKS)).toBe(true);
     expect(Object.isFrozen(UNLOCKS.machines)).toBe(true);
     expect(Object.isFrozen(UNLOCKS.recipes)).toBe(true);
+    expect(Object.isFrozen(UNLOCKS.machineUnlocks)).toBe(true);
+    expect(Object.isFrozen(UNLOCKS.machineUnlocks.smelter)).toBe(true);
+    expect(Object.isFrozen(UNLOCKS.machineUnlocks.assembler?.requiresMachines)).toBe(true);
+    expect(Object.isFrozen(UNLOCKS.recipeUnlocks)).toBe(true);
+    expect(Object.isFrozen(UNLOCKS.recipeUnlocks.motor)).toBe(true);
+    expect(Object.isFrozen(UNLOCKS.recipeUnlocks.motor?.requiresRecipes)).toBe(true);
 
     const smelterInput = MACHINES.smelter.ports.find((port) => port.kind === "input");
     if (smelterInput?.accepts === undefined) {
@@ -575,6 +617,109 @@ describe("Factor-Y content tables", () => {
       'Initially unlocked recipe "copperIngot" must have a zero unlock cost.',
     );
     expect(validateContent(extraInitialRecipe).some((error) => error.includes("Initial recipe unlocks"))).toBe(true);
+  });
+
+  it("requires paid entries to declare unlock requirements that match the content tables", () => {
+    const missingMachineRequirement = createMutableContentSnapshot();
+    delete missingMachineRequirement.unlocks.machineUnlocks.smelter;
+    const missingRecipeRequirement = createMutableContentSnapshot();
+    delete missingRecipeRequirement.unlocks.recipeUnlocks.copperIngot;
+    const mismatchedMachineCost = createMutableContentSnapshot();
+    mismatchedMachineCost.unlocks.machineUnlocks.smelter = {
+      ...mismatchedMachineCost.unlocks.machineUnlocks.smelter,
+      cost: 999,
+    };
+    const mismatchedRecipeCost = createMutableContentSnapshot();
+    mismatchedRecipeCost.unlocks.recipeUnlocks.motor = {
+      ...mismatchedRecipeCost.unlocks.recipeUnlocks.motor,
+      cost: 1,
+    };
+    const unknownRequirement = createMutableContentSnapshot();
+    unknownRequirement.unlocks.machineUnlocks.fabricator = {
+      cost: 10,
+      requiresMachines: [],
+      requiresRecipes: [],
+    };
+
+    expect(validateContent(missingMachineRequirement)).toContain(
+      'Machine "smelter" has a paid unlock and must declare unlock requirements.',
+    );
+    expect(validateContent(missingRecipeRequirement)).toContain(
+      'Recipe "copperIngot" has a paid unlock and must declare unlock requirements.',
+    );
+    expect(validateContent(mismatchedMachineCost)).toContain(
+      'Machine unlock cost for "smelter" must match its machine unlockCost 250.',
+    );
+    expect(validateContent(mismatchedRecipeCost)).toContain(
+      'Recipe unlock cost for "motor" must match its recipe unlockCost 12000.',
+    );
+    expect(validateContent(unknownRequirement)).toContain(
+      'Machine unlock requirements references unknown ID "fabricator".',
+    );
+  });
+
+  it("rejects unusable unlock prerequisites", () => {
+    const unknownMachine = createMutableContentSnapshot();
+    unknownMachine.unlocks.machineUnlocks.assembler = {
+      ...unknownMachine.unlocks.machineUnlocks.assembler,
+      requiresMachines: ["teleporter"],
+    };
+    const unknownRecipe = createMutableContentSnapshot();
+    unknownRecipe.unlocks.recipeUnlocks.gear = {
+      ...unknownRecipe.unlocks.recipeUnlocks.gear,
+      requiresRecipes: ["alloy"],
+    };
+    const selfDependent = createMutableContentSnapshot();
+    selfDependent.unlocks.recipeUnlocks.wire = {
+      ...selfDependent.unlocks.recipeUnlocks.wire,
+      requiresRecipes: ["wire"],
+    };
+    const duplicate = createMutableContentSnapshot();
+    duplicate.unlocks.recipeUnlocks.plate = {
+      ...duplicate.unlocks.recipeUnlocks.plate,
+      requiresRecipes: ["refinedStone", "refinedStone"],
+    };
+    const expensivePrerequisite = createMutableContentSnapshot();
+    expensivePrerequisite.unlocks.recipeUnlocks.copperIngot = {
+      ...expensivePrerequisite.unlocks.recipeUnlocks.copperIngot,
+      cost: 100,
+    };
+    expensivePrerequisite.recipes.copperIngot = {
+      ...expensivePrerequisite.recipes.copperIngot,
+      unlockCost: 100,
+    };
+    const missingMachineRequirement = createMutableContentSnapshot();
+    missingMachineRequirement.unlocks.recipeUnlocks.copperIngot = {
+      ...missingMachineRequirement.unlocks.recipeUnlocks.copperIngot,
+      requiresMachines: [],
+    };
+    const malformed = createMutableContentSnapshot();
+    malformed.unlocks.machineUnlocks.silo = {
+      cost: 150,
+      requiresMachines: "none",
+    } as unknown as MutableUnlockRequirement;
+
+    expect(validateContent(unknownMachine)).toContain(
+      'Machine unlock requirements "assembler" requiresMachines references unknown ID "teleporter".',
+    );
+    expect(validateContent(unknownRecipe)).toContain(
+      'Recipe unlock requirements "gear" requiresRecipes references unknown ID "alloy".',
+    );
+    expect(validateContent(selfDependent)).toContain(
+      'Recipe unlock requirements "wire" must not require itself.',
+    );
+    expect(validateContent(duplicate)).toContain(
+      'Recipe unlock requirements "plate" duplicates requiresRecipes prerequisite "refinedStone".',
+    );
+    expect(validateContent(expensivePrerequisite)).toContain(
+      'Recipe unlock requirements "copperIngot" cost must exceed prerequisite cost 250 of "smelter".',
+    );
+    expect(validateContent(missingMachineRequirement)).toContain(
+      'Recipe unlock requirements for "copperIngot" must require its machine "smelter".',
+    );
+    expect(validateContent(malformed)).toContain(
+      'Machine unlock requirements "silo" requiresMachines must be an array.',
+    );
   });
 
   it("requires every smelter recipe input on the single mixed input port", () => {
