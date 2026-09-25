@@ -1,6 +1,7 @@
 import { createInitialState } from "../sim/initialState";
 import { SAVE_KEY } from "../sim/constants";
 import { RESOURCES } from "../content/resources";
+import { applyOfflineProgress, calculateOfflineProgress } from "../sim/offline";
 import type {
   BeltCell,
   Entity,
@@ -128,6 +129,26 @@ export function loadSaveWithResult(storage?: SaveStorage): LoadSaveResult {
 
 export function loadSave(storage?: SaveStorage): SimulationState {
   return loadSaveWithResult(storage).state;
+}
+
+export function loadSaveWithOfflineResult(
+  storage: SaveStorage | undefined,
+  now: number,
+): LoadSaveResult {
+  const result = loadSaveWithResult(storage);
+  if (result.source !== "storage") {
+    return result;
+  }
+
+  const summary = calculateOfflineProgress(result.state, now);
+  const lastSavedAt = Number.isFinite(now) ? Math.max(0, now) : result.state.lastSavedAt;
+  return {
+    ...result,
+    state: {
+      ...applyOfflineProgress(result.state, summary),
+      lastSavedAt,
+    },
+  };
 }
 
 export function saveToStorage(storage: SaveStorage | undefined, state: SaveGame): void {

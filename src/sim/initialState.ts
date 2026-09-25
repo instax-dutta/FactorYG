@@ -99,5 +99,6 @@ export function createInitialState(seed = 1337): SimulationState {
     currencySamples: [],
     pendingRotation: 0,
     notifications: [],
+    offlineSummary: undefined,
   };
 }

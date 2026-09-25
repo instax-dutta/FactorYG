@@ -100,6 +100,7 @@ export interface SimulationState extends SaveGame {
   placementMode?: MachineType;
   pendingRotation: Rotation;
   notifications: Notification[];
+  offlineSummary?: OfflineSummary;
 }
 
 export interface SimulationSnapshot {

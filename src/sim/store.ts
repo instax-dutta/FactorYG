@@ -200,6 +200,17 @@ export class SimulationStore {
           result: { ok: true },
         };
       }
+      case "dismissOfflineSummary": {
+        if (this.#state.offlineSummary === undefined) {
+          return { state: this.#state, changed: false, result: { ok: true } };
+        }
+
+        return {
+          state: { ...this.#state, offlineSummary: undefined },
+          changed: true,
+          result: { ok: true },
+        };
+      }
       case "dismissNotification": {
         const notifications = this.#state.notifications.filter(
           (notification) => notification.id !== command.id,

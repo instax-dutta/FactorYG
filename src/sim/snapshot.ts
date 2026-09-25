@@ -4,6 +4,8 @@ import type {
   Entity,
   MachineType,
   Notification,
+  OfflineSummary,
+  ResourceId,
   SimulationSnapshot,
   SimulationState,
 } from "./types";
@@ -33,7 +35,8 @@ export function createSnapshot(state: SimulationState): SimulationSnapshot {
     placementMode: state.placementMode,
     pendingRotation: state.pendingRotation,
     notifications,
-    offlineSummary: undefined,
+    offlineSummary:
+      state.offlineSummary === undefined ? undefined : copyOfflineSummary(state.offlineSummary),
   };
 
   return Object.freeze(snapshot);
@@ -47,6 +50,31 @@ function copyEntity(entity: Entity): Entity {
 
 function copyNotification(notification: Notification): Notification {
   const copy: Notification = { ...notification };
+  Object.freeze(copy);
+  return copy;
+}
+
+function copyOfflineSummary(summary: OfflineSummary): OfflineSummary {
+  const chainUnits: OfflineSummary["chainUnits"] = {};
+  for (const resource of Object.keys(summary.chainUnits).sort() as ResourceId[]) {
+    const units = summary.chainUnits[resource];
+    if (units !== undefined) {
+      Object.defineProperty(chainUnits, resource, {
+        configurable: true,
+        enumerable: true,
+        value: units,
+        writable: true,
+      });
+    }
+  }
+  Object.freeze(chainUnits);
+
+  const copy = {
+    elapsedSeconds: summary.elapsedSeconds,
+    cappedSeconds: summary.cappedSeconds,
+    earnedCurrency: summary.earnedCurrency,
+    chainUnits,
+  };
   Object.freeze(copy);
   return copy;
 }
