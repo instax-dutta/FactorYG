@@ -1096,21 +1096,29 @@ git commit -m "feat: add core React HUD and build controls"
 ## Task 1.8: Add Raw MVP Art and Browser Flow
 
 **Files:**
+**Files:**
 - Create/modify: `public/assets/machines/extractor-*.svg`
 - Create/modify: `public/assets/machines/belt-*.svg`
 - Create/modify: `public/assets/machines/depot-*.svg`
 - Create/modify: `public/assets/resources/copper-ore.svg`
 - Create/modify: `public/assets/resources/iron-ore.svg`
 - Modify: `src/content/assetManifest.ts`
+- Modify: `src/sim/types.ts`
+- Modify: `src/sim/tick.ts`
+- Modify: `src/sim/store.ts`
+- Modify: `src/app/runtime.ts`
+- Modify: `src/app/GameCanvas.tsx`
+- Modify: `src/phaser/FactoryScene.ts`
+- Create: `src/phaser/render/BeltItemRenderer.ts`
 - Create: `tests/e2e/raw-loop.spec.ts`
 
 **Interfaces:**
 - Consumes: the machine/resource manifest, Phaser renderer, and the raw simulation loop.
-- Produces: distinct idle/active sprites and a browser flow that builds Extractor -> Belt -> Depot and observes currency.
+- Produces: distinct idle/active sprites for all three raw machines, resource item glow rendering, autosaved browser state, and a browser flow that builds Extractor -> Belt -> Depot, reloads, and observes currency.
 
 - [ ] **Step 1: Write the failing browser test**
 
-Start with a cleared save, place a copper extractor on a copper node, place a right-facing belt, place a depot at the belt output, advance the simulation clock, and assert the HUD currency is greater than the starting value after enough ticks. Repeat for iron ore.
+Start with a cleared save, place a copper extractor on a deterministic copper node, place a right-facing belt, place a depot at the belt output, advance the simulation clock, assert the HUD currency is greater than the starting value, reload, and assert the chain and currency persist. Repeat for iron ore. Assert active machine frame keys and belt item glow render events through the browser flow.
 
 - [ ] **Step 2: Verify red**
 
@@ -1120,7 +1128,7 @@ npm run test:e2e -- tests/e2e/raw-loop.spec.ts
 
 - [ ] **Step 3: Implement art and renderer wiring**
 
-Add all five required raw-loop assets using the existing palette and neutral lighting. Register every key, load active frames, render item glows, and connect the simulation command path to the scene. Keep production simulation ownership in the store.
+Add all required raw-loop machine idle/active frames and two raw resource icons using the existing palette and neutral lighting. Register every key, load active frames, emit a typed belt-item-changed render event from the simulation tick, render resource icons with additive glow, and connect the simulation command path to the scene. Add a browser-runtime autosave that projects the store to SaveGame, updates `lastSavedAt`, and writes through the injected storage on state changes. Keep production simulation ownership in the store.
 
 - [ ] **Step 4: Verify green**
 
@@ -1135,7 +1143,7 @@ npm run build
 - [ ] **Step 5: Commit**
 
 ```bash
-git add public/assets src/content/assetManifest.ts src/phaser tests/e2e/raw-loop.spec.ts
+git add public/assets src/content/assetManifest.ts src/sim/types.ts src/sim/tick.ts src/sim/store.ts src/app/runtime.ts src/app/GameCanvas.tsx src/phaser tests/e2e/raw-loop.spec.ts
 git commit -m "feat: deliver raw resource MVP loop"
 ```
 
