@@ -24,16 +24,76 @@ interface TelemetryBridge {
   getSnapshot(): SceneTelemetry;
 }
 
+interface StatusObservation {
+  status: string;
+  bridgeAbsent: boolean;
+  telemetryAbsent: boolean;
+}
+
 declare global {
   interface Window {
     __FACTOR_Y__?: RuntimeBridge;
     __FACTOR_Y_TELEMETRY__?: TelemetryBridge;
+    __FACTOR_Y_STATUS_HISTORY__?: StatusObservation[];
   }
 }
 
 const COPPER_NODE = { x: 20, y: 21 };
 const TEST_CELL = { x: 32, y: 32 };
 const TILE_SIZE_PX = 64;
+
+async function installStatusHistory(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const history: StatusObservation[] = [];
+    let previousStatus: string | undefined;
+    const recordStatus = (): void => {
+      const status = document
+        .querySelector("[data-testid=game-canvas]")
+        ?.getAttribute("data-factor-y-status");
+      if (status === null || status === undefined || status === previousStatus) {
+        return;
+      }
+      previousStatus = status;
+      history.push({
+        status,
+        bridgeAbsent: window.__FACTOR_Y__ === undefined,
+        telemetryAbsent: window.__FACTOR_Y_TELEMETRY__ === undefined,
+      });
+    };
+    const observer = new MutationObserver(recordStatus);
+    observer.observe(document, {
+      attributes: true,
+      attributeFilter: ["data-factor-y-status"],
+      childList: true,
+      subtree: true,
+    });
+    Object.defineProperty(window, "__FACTOR_Y_STATUS_HISTORY__", {
+      configurable: true,
+      value: history,
+    });
+    recordStatus();
+  });
+}
+
+async function waitForBootingStatus(page: Page, minimumCount: number): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (count) =>
+          (window.__FACTOR_Y_STATUS_HISTORY__ ?? []).filter(
+            (observation) => observation.status === "booting",
+          ).length >= count,
+        minimumCount,
+      ),
+    )
+    .toBe(true);
+  const observations = await page.evaluate(() =>
+    (window.__FACTOR_Y_STATUS_HISTORY__ ?? []).filter(
+      (observation) => observation.status === "booting",
+    ),
+  );
+  expect(observations.every((observation) => observation.bridgeAbsent && observation.telemetryAbsent)).toBe(true);
+}
 
 async function waitForReady(page: Page): Promise<void> {
   await expect
@@ -88,6 +148,7 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
     }
   });
 
+  await installStatusHistory(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
   expect(
     await page.evaluate(
@@ -96,6 +157,8 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
   ).toBe(true);
   const wrapper = page.getByTestId("game-canvas");
   await expect(wrapper).toBeVisible();
+  await waitForBootingStatus(page, 1);
+  await expect(wrapper).toHaveAttribute("data-factor-y-status", "ready");
   await expect(wrapper.locator("canvas")).toBeVisible();
   await waitForReady(page);
 
@@ -216,6 +279,10 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
   await page.evaluate(() => {
     window.dispatchEvent(new Event("factor-y:lifecycle-toggle"));
   });
+  const remountedWrapper = page.getByTestId("game-canvas");
+  await expect(remountedWrapper).toBeVisible();
+  await waitForBootingStatus(page, 2);
+  await expect(remountedWrapper).toHaveAttribute("data-factor-y-status", "ready");
   await waitForReady(page);
   expect(await page.locator("[data-testid=game-canvas] canvas").count()).toBe(1);
   expect((await getTelemetry(page)).ready).toBe(true);

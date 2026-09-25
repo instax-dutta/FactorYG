@@ -26,6 +26,7 @@ export function GameCanvas() {
         if (disposed) {
           return;
         }
+        container.setAttribute("data-factor-y-status", "ready");
         removeBridge = installRuntimeBridge(runtime);
         runtime.start();
       },
@@ -46,6 +47,7 @@ export function GameCanvas() {
       removeBridge = undefined;
       runtime.stop();
       game.destroy(true);
+      container.setAttribute("data-factor-y-status", "booting");
     };
   }, []);
 
@@ -53,6 +55,7 @@ export function GameCanvas() {
     <div
       ref={canvasRef}
       data-testid="game-canvas"
+      data-factor-y-status="booting"
       style={{
         width: "100vw",
         height: "100vh",
