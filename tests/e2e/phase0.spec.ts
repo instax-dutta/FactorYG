@@ -1,9 +1,20 @@
 import { expect, test, type Page } from "@playwright/test";
+import { SAVE_KEY } from "../../src/sim/constants";
+import { createInitialState } from "../../src/sim/initialState";
+import { serializeSave } from "../../src/persistence/save";
 
 interface RuntimeBridge {
   dispatch(command: Record<string, unknown>): { ok: boolean; reason?: string };
   advanceTicks(count: number): void;
-  getSnapshot(): { currency: number };
+  getSnapshot(): {
+    currency: number;
+    offlineSummary?: {
+      elapsedSeconds: number;
+      cappedSeconds: number;
+      earnedCurrency: number;
+      chainUnits: Record<string, number>;
+    };
+  };
 }
 
 interface SceneTelemetry {
@@ -321,4 +332,58 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
     await page.evaluate(() => Object.keys(window.__FACTOR_Y_TELEMETRY__ ?? {}).sort()),
   ).toEqual(["getSnapshot"]);
   expect(browserErrors).toEqual([]);
+});
+
+test("loads and anchors persisted offline state during browser startup", async ({ page }) => {
+  const save = createInitialState();
+  save.lastSavedAt = 10_000;
+  save.currency = 100;
+  save.lifetimeCurrency = 200;
+  save.prestige.permanentMultipliers.sellValue = 2;
+  save.productionChains = {
+    copper: {
+      id: "copper",
+      outputResource: "copperIngot",
+      steadyStateThroughput: 1,
+      sellValue: 5,
+    },
+  };
+  const serialized = serializeSave(save);
+
+  await page.addInitScript(
+    ({ key, value }) => {
+      window.localStorage.setItem(key, value);
+    },
+    { key: SAVE_KEY, value: serialized },
+  );
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await waitForReady(page);
+
+  const evidence = await page.evaluate((key) => {
+    const snapshot = window.__FACTOR_Y__?.getSnapshot();
+    const raw = window.localStorage.getItem(key);
+    return {
+      currency: snapshot?.currency,
+      offlineSummary: snapshot?.offlineSummary,
+      raw,
+    };
+  }, SAVE_KEY);
+
+  expect(evidence.currency).toBe(432_100);
+  expect(evidence.offlineSummary).toEqual({
+    elapsedSeconds: expect.any(Number),
+    cappedSeconds: 43_200,
+    earnedCurrency: 432_000,
+    chainUnits: { copperIngot: 43_200 },
+  });
+  expect(evidence.raw).not.toBeNull();
+  expect(evidence.raw).not.toContain("offlineSummary");
+  const persisted = JSON.parse(evidence.raw ?? "{}") as {
+    currency: number;
+    lifetimeCurrency: number;
+    lastSavedAt: number;
+  };
+  expect(persisted.currency).toBe(432_100);
+  expect(persisted.lifetimeCurrency).toBe(432_200);
+  expect(persisted.lastSavedAt).toBeGreaterThan(10_000);
 });

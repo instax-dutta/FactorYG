@@ -1,4 +1,5 @@
 import { createInitialState } from "../sim/initialState";
+import { loadSaveWithOfflineResult, type SaveStorage } from "../persistence/save";
 import { SimulationStore } from "../sim/store";
 import {
   createSceneTelemetry,
@@ -51,6 +52,19 @@ export function createRuntimeTelemetryBridge(
   });
 }
 
+export function loadBrowserSimulationState(now = Date.now()): SimulationState {
+  const storage = getBrowserStorage();
+  return storage === undefined
+    ? createInitialState()
+    : loadSaveWithOfflineResult(storage, now).state;
+}
+
+export function createBrowserSimulationRuntime(
+  now = Date.now(),
+): SimulationRuntime {
+  return createSimulationRuntime(loadBrowserSimulationState(now));
+}
+
 export function createSimulationRuntime(
   initialState: SimulationState = createInitialState(),
 ): SimulationRuntime {
@@ -66,6 +80,18 @@ export function createSimulationRuntime(
     },
     getSceneTelemetry: (): SceneTelemetry => sceneTelemetry,
   };
+}
+
+function getBrowserStorage(): SaveStorage | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  try {
+    return window.localStorage ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function installRuntimeBridge(runtime: SimulationRuntime): () => void {

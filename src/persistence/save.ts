@@ -141,13 +141,19 @@ export function loadSaveWithOfflineResult(
   }
 
   const summary = calculateOfflineProgress(result.state, now);
-  const lastSavedAt = Number.isFinite(now) ? Math.max(0, now) : result.state.lastSavedAt;
+  const lastSavedAt =
+    Number.isFinite(now) && now >= 0
+      ? Math.max(result.state.lastSavedAt, now)
+      : result.state.lastSavedAt;
+  const state = {
+    ...applyOfflineProgress(result.state, summary),
+    lastSavedAt,
+  };
+  saveToStorage(storage, state);
+
   return {
     ...result,
-    state: {
-      ...applyOfflineProgress(result.state, summary),
-      lastSavedAt,
-    },
+    state,
   };
 }
 

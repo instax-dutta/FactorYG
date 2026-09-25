@@ -13,7 +13,6 @@ import {
   loadSave,
   loadSaveWithOfflineResult,
   parseSave,
-  saveToStorage,
   serializeSave,
 } from "../../src/persistence/save";
 import type { SaveStorage } from "../../src/persistence/save";
@@ -254,7 +253,7 @@ describe("offline-aware loading", () => {
     });
   });
 
-  it("does not double credit after persisting an offline-loaded state", () => {
+  it("persists the anchored state so repeated loads with unchanged time do not double credit", () => {
     const storage = new FakeStorage();
     const save = createSave(10_000, {
       copper: createChain("copper", "copperIngot", 1, 5),
@@ -265,12 +264,74 @@ describe("offline-aware loading", () => {
     storage.values.set(SAVE_KEY, serializeSave(save));
 
     const first = loadSaveWithOfflineResult(storage, 71_000);
-    saveToStorage(storage, first.state);
-    const second = loadSaveWithOfflineResult(storage, 132_000);
+    const second = loadSaveWithOfflineResult(storage, 71_000);
+    const raw = storage.values.get(SAVE_KEY);
 
-    expect(second.state.currency).toBe(1_320);
-    expect(second.state.lifetimeCurrency).toBe(1_420);
-    expect(second.state.offlineSummary?.earnedCurrency).toBe(610);
+    expect(first.state.currency).toBe(710);
+    expect(first.state.lifetimeCurrency).toBe(810);
+    expect(first.state.lastSavedAt).toBe(71_000);
+    expect(second.state.currency).toBe(710);
+    expect(second.state.lifetimeCurrency).toBe(810);
+    expect(second.state.offlineSummary).toEqual(zeroSummary());
+    expect(storage.writes).toHaveLength(2);
+    expect(raw).toBeDefined();
+    expect(raw).not.toContain("offlineSummary");
+    expect(JSON.parse(raw ?? "{}")).toMatchObject({
+      currency: 710,
+      lifetimeCurrency: 810,
+      lastSavedAt: 71_000,
+    });
+  });
+
+  it.each([
+    ["earlier valid time", 50_000],
+    ["negative time", -1],
+    ["NaN time", Number.NaN],
+    ["infinite time", Number.POSITIVE_INFINITY],
+  ])("keeps a future saved timestamp anchored with %s", (_label, now) => {
+    const storage = new FakeStorage();
+    const save = createSave(100_000, {
+      copper: createChain("copper", "copperIngot", 1, 5),
+    });
+    save.currency = 100;
+    save.lifetimeCurrency = 200;
+    storage.values.set(SAVE_KEY, serializeSave(save));
+
+    const result = loadSaveWithOfflineResult(storage, now);
+
+    expect(result.state.lastSavedAt).toBe(100_000);
+    expect(result.state.currency).toBe(100);
+    expect(result.state.lifetimeCurrency).toBe(200);
+    expect(result.state.offlineSummary).toEqual(zeroSummary());
+    const persisted = JSON.parse(storage.values.get(SAVE_KEY) ?? "{}") as { lastSavedAt: number };
+    expect(persisted.lastSavedAt).toBe(100_000);
+  });
+
+  it("returns anchored credited state without throwing when persistence fails", () => {
+    const save = createSave(10_000, {
+      copper: createChain("copper", "copperIngot", 1, 5),
+    });
+    save.currency = 100;
+    save.lifetimeCurrency = 200;
+    save.prestige.permanentMultipliers.sellValue = 2;
+    const setItem = vi.fn(() => {
+      throw new Error("quota exceeded");
+    });
+    const storage: SaveStorage = {
+      getItem: () => serializeSave(save),
+      setItem,
+    };
+
+    let result: ReturnType<typeof loadSaveWithOfflineResult> | undefined;
+    expect(() => {
+      result = loadSaveWithOfflineResult(storage, 71_000);
+    }).not.toThrow();
+
+    expect(result).toMatchObject({ recovered: false, source: "storage" });
+    expect(result?.state.currency).toBe(710);
+    expect(result?.state.lifetimeCurrency).toBe(810);
+    expect(result?.state.lastSavedAt).toBe(71_000);
+    expect(setItem).toHaveBeenCalledTimes(1);
   });
 
   it("preserves recovery metadata and does not calculate offline progress for bad data", () => {
