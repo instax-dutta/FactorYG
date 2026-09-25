@@ -563,6 +563,7 @@ git commit -m "feat: define Factor-Y content tables"
 - Create: `public/assets/tiles/floor.svg`
 - Create: `public/assets/machines/extractor-idle.svg`
 - Create: `public/assets/machines/extractor-active.svg`
+- Create: `public/assets/machines/extractor-active-1.svg`
 - Create: `public/assets/machines/belt.svg`
 - Create: `public/assets/resources/copper-ore.svg`
 - Create: `public/assets/resources/iron-ore.svg`
@@ -572,23 +573,33 @@ git commit -m "feat: define Factor-Y content tables"
 
 **Interfaces:**
 - Consumes: the locked 64 by 64 art direction and machine/resource IDs.
-- Produces: `ASSET_MANIFEST`, `getAssetPath(key)`, and the first valid custom machine, belt, resource, tile, and spark assets.
+- Produces: `ASSET_MANIFEST`, `getAssetPath(key)`, `getAssetPaths(key)`, and the first valid custom machine, belt, resource, tile, and spark assets with separate static active frames.
 
 - [ ] **Step 1: Write the failing manifest test**
 
 ```ts
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ASSET_MANIFEST, getAssetPath } from "../../src/content/assetManifest";
+import { ASSET_MANIFEST, getAssetPath, getAssetPaths } from "../../src/content/assetManifest";
 
 describe("asset manifest", () => {
-  it("registers unique 64 by 64 assets for the art spike", () => {
-    const keys = Object.keys(ASSET_MANIFEST);
+  it("registers real, dimensioned asset files and separate active frames", () => {
+    for (const [key, entry] of Object.entries(ASSET_MANIFEST)) {
+      for (const path of getAssetPaths(key)) {
+        const file = resolve(process.cwd(), "public", path);
+        expect(existsSync(file)).toBe(true);
+        const svg = readFileSync(file, "utf8");
+        expect(svg).toContain(`width="${entry.width}"`);
+        expect(svg).toContain(`height="${entry.height}"`);
+        expect(svg).toContain(`viewBox="0 0 ${entry.width} ${entry.height}"`);
+        expect(svg).not.toContain("<!--");
+        expect(svg).not.toMatch(/drop-shadow|feGaussianBlur|<filter/i);
+      }
+    }
 
-    expect(new Set(keys).size).toBe(keys.length);
-    expect(ASSET_MANIFEST["machine.extractor.idle"].width).toBe(64);
-    expect(ASSET_MANIFEST["machine.extractor.idle"].height).toBe(64);
     expect(ASSET_MANIFEST["machine.extractor.active"].frameCount).toBe(2);
-    expect(ASSET_MANIFEST["resource.copperOre"].width).toBe(32);
+    expect(getAssetPaths("machine.extractor.active")).toHaveLength(2);
     expect(getAssetPath("machine.belt.idle")).toMatch(/^assets\/machines\//);
   });
 });
@@ -604,7 +615,7 @@ Expected: FAIL because `assetManifest.ts` is missing.
 
 - [ ] **Step 3: Author the first cohesive assets**
 
-Create transparent SVGs with a shared palette of `#101820`, `#263746`, `#4d6875`, `#c98245`, `#e0a458`, `#36c5b5`, and `#f2c14e`. Use top-down geometry, centered anchors, neutral highlights, and no directional drop shadow. The extractor idle/active frames must have distinct visible states; the belt must show a centered conveyor surface and direction-neutral geometry; resource icons must have distinct silhouettes. The manifest must list exact width, height, frame count, and path values.
+Create transparent SVGs with a shared palette of `#101820`, `#263746`, `#4d6875`, `#c98245`, `#e0a458`, `#36c5b5`, and `#f2c14e`. Use top-down geometry, centered anchors, neutral highlights, and no directional drop shadow. The extractor idle/active frames must be separate static SVG files with distinct visible states; the belt must be a readable straight conveyor whose rotation visibly changes its input/output orientation without a baked directional shadow; resource icons must have distinct silhouettes. The manifest must list exact width, height, frame count, and frame path values, and the unit test must read every actual file.
 
 - [ ] **Step 4: Verify assets and full tests**
 
