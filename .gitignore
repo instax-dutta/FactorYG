@@ -3,8 +3,14 @@ dist/
 .vite/
 *.local
 .DS_Store
-.superpowers/
 
 test-results/
 playwright-report/
 blob-report/
+
+# Local env / secrets — this project ships no backend and needs none
+.env
+.env.*
+!.env.example
+*.pem
+*.key

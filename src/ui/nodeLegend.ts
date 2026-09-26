@@ -2,7 +2,7 @@ import { ITEM_COLORS } from '../render/EntityMeshFactory';
 import type { RawResourceId } from '../sim/worldgen';
 
 /**
- * The map legend (PLAYTEST.md B5): what each resource-node disc color means.
+ * The map legend (the act-3 map audit): what each resource-node disc color means.
  * Colors come from the render palette itself — the same hex the 3D discs and
  * belt cargo use — so the legend cannot drift from what is on the ground.
  */

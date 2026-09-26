@@ -3,7 +3,7 @@ import { NODE_LEGEND, nodeLegendEntries } from '../src/ui/nodeLegend';
 import { RESOURCE_NODES } from '../src/sim/worldgen';
 
 /**
- * The map's only remaining blind spot (PLAYTEST.md B5): resource nodes are
+ * The map's only remaining blind spot (the act-3 map audit): resource nodes are
  * colored discs with nothing that says what the colors mean. The goal line's
  * first instruction ("place an Extractor on a resource node") points at them,
  * so the legend is what makes that instruction followable for a new player.

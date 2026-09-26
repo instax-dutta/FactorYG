@@ -14,7 +14,7 @@ export const SELL_VALUES: Record<RecipeId, number> = Object.fromEntries(
 ) as Record<RecipeId, number>;
 
 /**
- * The measured act-2 income (browser playthrough, PLAYTEST.md §5): four copper
+ * The measured act-2 income (browser playthrough, act 3): four copper
  * lines running into wire assemblers at t≈115s. The one number the tech-cost
  * ladder is priced against, so re-costing the tree is one edit here.
  */

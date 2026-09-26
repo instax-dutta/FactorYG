@@ -9,7 +9,7 @@ import type { Cell } from '../src/sim/placement';
 /**
  * The crossing tile — two lines pass through one cell without touching.
  *
- * Why it exists at all: the playtest's act-3 finding (PLAYTEST.md §5) is that
+ * Why it exists at all: the act-3 playthrough found that
  * act 3 is not *hard*, it is **not buildable**. With one entity per cell, no
  * splitter and no bridge, a line that descends is a wall, and the world-scale
  * motor factory needs coal lines to cross iron lines. The planner cannot route
@@ -34,7 +34,7 @@ function beltAt(sim: Simulation, cell: Cell): { item: string | null } {
   return { item: entity.item };
 }
 
-describe('crossing (act-3 unblock, PLAYTEST.md §5 fix 1)', () => {
+describe('crossing (act-3 unblock: crossing tile fix)', () => {
   it('is placeable like a belt: free on open ground, refused on occupied cells', () => {
     expect(MACHINES.crossing.requiresNode).toBe(false);
     expect(MACHINES.crossing.inputs).toBe(0);

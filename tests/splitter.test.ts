@@ -8,7 +8,7 @@ import { stateLabel } from '../src/ui/machineInfo';
 /**
  * The splitter — one belt stream serving two consumers.
  *
- * Why it exists: the act-3 playthrough (PLAYTEST.md §6) found that a stream
+ * Why it exists: the act-3 playthrough (the act-3 playtest run) found that a stream
  * serving two consumers needs duplicate machines, which doubles extractor load
  * on a hand-designed map with a fixed node count.
  *

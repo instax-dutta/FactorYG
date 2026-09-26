@@ -15,7 +15,7 @@ import {
  * The world-scale factory: eight extractors on real map nodes, corridors all the
  * way to a refinery, and a Motor out the far end.
  *
- * STATUS: UNBLOCKED by the crossing tile (PLAYTEST.md §5 fix 1).
+ * STATUS: UNBLOCKED by the crossing tile.
  *
  * When the playtest tried to beat act 3 it found the map could not express the
  * factory: with one entity per cell, a line that descends is a wall, and the

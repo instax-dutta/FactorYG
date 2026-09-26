@@ -23,7 +23,7 @@ import { RESOURCE_NODES, type RawResourceId } from '../../src/sim/worldgen';
  * placed, and the result is a data structure both the unit test and the browser
  * playthrough consume — one plan, verified headlessly, played by the UI.
  *
- * Crossings (the act-3 unblock, PLAYTEST.md §5). Before the crossing tile
+ * Crossings (the act-3 unblock). Before the crossing tile
  * existed, no routing order out of 200 completed: a line that descends is a
  * wall, and the coal lines had to cross the iron lines. Now the planner may
  * route a stream ACROSS an earlier line by converting one of its straight belt
@@ -577,7 +577,7 @@ export function planMotorFactory(): FactoryPlan {
 }
 
 export const BLOCKED_MESSAGE =
-  'no routing order produced a collision-free plan for the motor factory (see PLAYTEST.md act 3)';
+  'no routing order produced a collision-free plan for the motor factory (see the act-3 playtest)';
 
 function searchForPlan(): FactoryPlan | null {
   const connections = allConnections();

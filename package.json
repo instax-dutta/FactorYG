@@ -2,6 +2,26 @@
   "name": "factor-y",
   "private": true,
   "version": "0.1.0",
+  "description": "A 2.5D isometric idle factory game for the browser, built with React and three.js.",
+  "license": "GPL-3.0-or-later",
+  "homepage": "https://github.com/instax-dutta/factor-y#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/instax-dutta/factor-y.git"
+  },
+  "bugs": {
+    "url": "https://github.com/instax-dutta/factor-y/issues"
+  },
+  "keywords": [
+    "game",
+    "idle-game",
+    "factory",
+    "automation",
+    "threejs",
+    "react",
+    "typescript",
+    "isometric"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",

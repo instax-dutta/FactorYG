@@ -10,7 +10,7 @@ import { E2E_PLAN } from './support/e2ePlan';
  * The pacing contract, from the September 2026 playtest measurements.
  *
  * Every window here is a measured number with margin, not an aspiration: the
- * headless probes (`PLAYTEST.md` §5b) put the real values at first sale 3.4s,
+ * headless probes (the act-2 headless probes) put the real values at first sale 3.4s,
  * one-line income 2.3 cr/s, act-2 techs 18–64s, motor tech at ~115s of act-2
  * saving, and a first prestige point ~2.5 min after the endgame factory lands.
  * If a knob change pushes a scenario out of its window, that change has made
@@ -115,7 +115,7 @@ describe('balance: tech ladder', () => {
 
   it('the full ladder is still buyable: ~2.5 min of act-2 income covers every tech', () => {
     // 23 cr/s is the measured act-2 rate from the browser playthrough (four
-    // lines into wire assemblers, PLAYTEST.md §5). The whole tree must be
+    // lines into wire assemblers, act 3). The whole tree must be
     // reachable from a save that earns that, without grinding beyond 3 min.
     const totalTechCost = TECH_NODES.reduce((sum, node) => sum + node.cost, 0);
     const secondsOfSaving = totalTechCost / 23;
@@ -164,7 +164,7 @@ describe('balance: the crafting ladder', () => {
     // 60s of sequential work from the current tables; the real plan-factory
     // build lands at 21s headless / 48–66s browser (parallelism + transport).
     // If this drifts, either the tables or the estimator changed — revisit the
-    // measured anchors in PLAYTEST.md §5b before moving the window.
+    // measured anchors in the act-2 headless balance probes before moving the window.
     expect(timeToFirstMotor()).toBeGreaterThanOrEqual(40);
     expect(timeToFirstMotor()).toBeLessThanOrEqual(90);
   });

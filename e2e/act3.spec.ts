@@ -18,7 +18,7 @@ import { startingUnlocks } from '../src/sim/techTree';
 import { E2E_PLAN } from '../tests/support/e2ePlan';
 
 /**
- * Act 3, end to end in the real browser (PLAYTEST.md §6 blocker).
+ * Act 3, end to end in the real browser (the act-3 playtest run blocker).
  *
  * The unit acceptance tests (tests/factoryPlan.test.ts) prove the *sim* can run
  * the world-scale factory: applyPlan -> tick -> first Motor sale at 211 ticks
