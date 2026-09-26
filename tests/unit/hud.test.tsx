@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { getMachineUpgradeCost } from "../../src/content/machines";
 import { createInitialState } from "../../src/sim/initialState";
 import { createSnapshot } from "../../src/sim/snapshot";
 import { SimulationStore } from "../../src/sim/store";
@@ -10,6 +11,13 @@ import { Hud } from "../../src/ui/components/Hud";
 import { NotificationStack } from "../../src/ui/components/NotificationStack";
 import { OfflineSummaryModal } from "../../src/ui/components/OfflineSummaryModal";
 import { useSimulationSnapshot } from "../../src/ui/hooks/useSimulationSnapshot";
+
+const FUNDED_CURRENCY = 10_000;
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+}
+
 
 describe("useSimulationSnapshot", () => {
   it("subscribes to one store and exposes each immutable published snapshot", () => {
@@ -103,7 +111,7 @@ describe("Hud", () => {
 });
 
 describe("EntityInspector", () => {
-  it("shows selected details, keeps upgrade unavailable, and dispatches available actions", () => {
+  it("shows selected details and dispatches the available actions", () => {
     const state = createStateWithSelectedEntity();
     const store = new SimulationStore(state);
     const snapshot = {
@@ -120,20 +128,139 @@ describe("EntityInspector", () => {
     expect(screen.getByTestId("inspector-level")).toHaveTextContent("3");
     expect(screen.getByTestId("inspector-throughput")).toHaveTextContent("4.5");
 
-    const upgradeButton = screen.getByRole("button", { name: "Upgrade" });
-    expect(upgradeButton).toBeDisabled();
-    expect(upgradeButton).toHaveAttribute("title", "Upgrades will be available in a later phase");
-    expect(screen.getByTestId("inspector-upgrade-unavailable")).toHaveTextContent(
-      "Upgrade is not available yet.",
-    );
-
     fireEvent.click(screen.getByRole("button", { name: "Rotate" }));
     fireEvent.click(screen.getByRole("button", { name: "Demolish" }));
-    fireEvent.click(upgradeButton);
 
     expect(dispatch).toHaveBeenNthCalledWith(1, { type: "rotatePlacement" });
     expect(dispatch).toHaveBeenNthCalledWith(2, { type: "demolishEntity", entityId: "entity-1" });
     expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("upgrades a funded selected entity and prices the level it leaves", () => {
+    const store = new SimulationStore(createStateWithSelectedEntity(FUNDED_CURRENCY));
+    const dispatch = vi.spyOn(store, "dispatch");
+
+    render(<EntityInspector store={store} />);
+    const upgradeButton = screen.getByRole("button", { name: "Upgrade" });
+
+    expect(upgradeButton).toBeEnabled();
+    expect(screen.getByTestId("inspector-upgrade-cost")).toHaveTextContent(
+      formatNumber(getMachineUpgradeCost("extractor", 3)),
+    );
+
+    fireEvent.click(upgradeButton);
+
+    expect(dispatch).toHaveBeenCalledWith({ type: "upgradeEntity", entityId: "entity-1" });
+    expect(store.getSnapshot().selectedEntity?.level).toBe(4);
+    expect(store.getSnapshot().currency).toBe(
+      FUNDED_CURRENCY - getMachineUpgradeCost("extractor", 3),
+    );
+    expect(screen.getByTestId("inspector-level")).toHaveTextContent("4");
+    expect(screen.getByTestId("inspector-upgrade-cost")).toHaveTextContent(
+      formatNumber(getMachineUpgradeCost("extractor", 4)),
+    );
+  });
+
+  it("keeps the upgrade disabled and names the real reason when it cannot be paid", () => {
+    const store = new SimulationStore(createStateWithSelectedEntity(0));
+    const dispatch = vi.spyOn(store, "dispatch");
+
+    render(<EntityInspector store={store} />);
+    const upgradeButton = screen.getByRole("button", { name: "Upgrade" });
+
+    expect(upgradeButton).toBeDisabled();
+    expect(screen.getByTestId("inspector-upgrade-status")).toHaveAttribute(
+      "data-reason",
+      "insufficientCurrency",
+    );
+    expect(screen.getByTestId("inspector-upgrade-status")).toHaveTextContent(
+      "Not enough currency.",
+    );
+    fireEvent.click(upgradeButton);
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the upgrade unavailable for a machine a level cannot affect", () => {
+    const state = createStateWithSelectedEntity(FUNDED_CURRENCY);
+    state.grid.entities = [{ id: "belt-1", type: "belt", x: 4, y: 5, rotation: 0, level: 1 }];
+    state.selectedEntityId = "belt-1";
+    const store = new SimulationStore(state);
+    const dispatch = vi.spyOn(store, "dispatch");
+
+    render(<EntityInspector store={store} />);
+    const upgradeButton = screen.getByRole("button", { name: "Upgrade" });
+
+    expect(upgradeButton).toBeDisabled();
+    expect(screen.getByTestId("inspector-upgrade-status")).toHaveAttribute(
+      "data-reason",
+      "unsupportedMachine",
+    );
+    fireEvent.click(upgradeButton);
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the store's rejection reason when a funded upgrade is refused on dispatch", () => {
+    const store = new SimulationStore(
+      createStateWithSelectedEntity(FUNDED_CURRENCY),
+      () => 0,
+      (current) => ({ ...current, currency: 0 }),
+    );
+    const dispatch = vi.spyOn(store, "dispatch");
+    vi.spyOn(store, "subscribe").mockReturnValue(() => {});
+
+    render(<EntityInspector store={store} />);
+    expect(screen.getByRole("button", { name: "Upgrade" })).toBeEnabled();
+
+    act(() => {
+      store.advanceTicks(1);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Upgrade" }));
+
+    expect(dispatch).toHaveBeenCalledWith({ type: "upgradeEntity", entityId: "entity-1" });
+    expect(screen.getByTestId("inspector-upgrade-status")).toHaveAttribute(
+      "data-reason",
+      "insufficientCurrency",
+    );
+    expect(store.getSnapshot().selectedEntity?.level).toBe(3);
+    expect(store.getSnapshot().currency).toBe(0);
+  });
+
+  it("drops a refusal once the state that caused it no longer holds", () => {
+    let tick = 0;
+    const store = new SimulationStore(
+      createStateWithSelectedEntity(FUNDED_CURRENCY),
+      () => 0,
+      (current) => {
+        tick += 1;
+        return { ...current, currency: tick === 1 ? 0 : FUNDED_CURRENCY };
+      },
+    );
+    const subscribe = vi.spyOn(store, "subscribe").mockReturnValue(() => {});
+
+    const view = render(<EntityInspector store={store} />);
+    act(() => {
+      store.advanceTicks(1);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Upgrade" }));
+    expect(screen.getByTestId("inspector-upgrade-status")).toHaveAttribute(
+      "data-reason",
+      "insufficientCurrency",
+    );
+    expect(screen.getByRole("button", { name: "Upgrade" })).toBeDisabled();
+
+    subscribe.mockRestore();
+    act(() => {
+      store.advanceTicks(1);
+    });
+    view.rerender(<EntityInspector store={store} />);
+
+    expect(screen.getByRole("button", { name: "Upgrade" })).toBeEnabled();
+    expect(screen.getByTestId("inspector-upgrade-status")).not.toHaveAttribute("data-reason");
+    expect(screen.getByTestId("inspector-upgrade-cost")).toHaveTextContent(
+      formatNumber(getMachineUpgradeCost("extractor", 3)),
+    );
   });
 
   it("shows pending throughput instead of presenting the snapshot zero as real data", () => {
@@ -239,8 +366,11 @@ describe("OfflineSummaryModal", () => {
   });
 });
 
-function createStateWithSelectedEntity(): SimulationState {
+function createStateWithSelectedEntity(currency?: number): SimulationState {
   const state = createInitialState();
+  if (currency !== undefined) {
+    state.currency = currency;
+  }
   state.grid.entities = [
     {
       id: "entity-1",

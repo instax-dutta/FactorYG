@@ -222,7 +222,22 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
     page.getByTestId("entity-inspector"),
     "Inspector",
   );
+  const dockBox = await waitForBoundingBox(page.getByTestId("build-dock"), "Build dock");
+  const hudBox = await waitForBoundingBox(page.getByTestId("hud"), "Hud");
+  const toggleBox = await waitForBoundingBox(
+    page.getByTestId("tech-tree-toggle"),
+    "Tech tree toggle",
+  );
   expect(boxesOverlap(headerBox, inspectorBox)).toBe(false);
+  const panels = [
+    ["Header", headerBox],
+    ["Inspector", inspectorBox],
+    ["Build dock", dockBox],
+    ["Hud", hudBox],
+  ] as const;
+  expect(
+    panels.filter(([, box]) => boxesOverlap(toggleBox, box)).map(([label]) => label),
+  ).toEqual([]);
 
   expect(
     await page.evaluate(() => Object.keys(window.__FACTOR_Y__ ?? {}).sort()),
@@ -368,6 +383,54 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
   expect(
     await page.evaluate(() => Object.keys(window.__FACTOR_Y_TELEMETRY__ ?? {}).sort()),
   ).toEqual(["getSnapshot"]);
+  expect(browserErrors).toEqual([]);
+});
+
+test("opens the tech tree, buys a machine, and dismisses on Escape", async ({ page }) => {
+  const browserErrors: string[] = [];
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      browserErrors.push(message.text());
+    }
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await waitForReady(page);
+
+  const toggle = page.getByTestId("tech-tree-toggle");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+
+  const dialog = page.getByTestId("tech-tree");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
+  await expect(page.getByTestId("tech-tree-cost-machine-smelter")).toHaveText("250");
+  await expect(page.getByTestId("tech-tree-entry-machine-smelter")).toHaveAttribute(
+    "data-state",
+    "available",
+  );
+  await expect(page.getByTestId("tech-tree-entry-machine-assembler")).toHaveAttribute(
+    "data-state",
+    "prerequisite-locked",
+  );
+  await expect(page.getByTestId("build-smelter")).toBeDisabled();
+
+  const before = await page.evaluate(() => window.__FACTOR_Y__?.getSnapshot().currency);
+  await page.getByRole("button", { name: "Unlock Smelter" }).click();
+
+  await expect(page.getByTestId("tech-tree-entry-machine-smelter")).toHaveAttribute(
+    "data-state",
+    "unlocked",
+  );
+  await expect(page.getByTestId("hud-currency")).toHaveText("250");
+  await expect(page.getByTestId("build-smelter")).toBeEnabled();
+  expect(before).toBe(500);
+
+  await page.keyboard.press("Escape");
+
+  await expect(page.getByTestId("tech-tree")).toHaveCount(0);
+  await expect(toggle).toBeFocused();
   expect(browserErrors).toEqual([]);
 });
 

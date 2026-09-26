@@ -205,20 +205,41 @@ describe("upgrade command", () => {
     expect(state.currency).toBe(FUNDED_CURRENCY);
   });
 
-  it("commits a success notification keyed by the entity and the logical tick", () => {
+  it("commits a success notification keyed by the entity, the level, and the logical tick", () => {
     const state = createState([createSmelter()], FUNDED_CURRENCY);
     state.tickCount = 42;
 
     const application = upgradeEntity(state, state.grid.entities[0].id);
 
     expect(application.notification).toEqual({
-      id: `upgrade-${SMELTER_ID}`,
+      id: `upgrade-${SMELTER_ID}-l2`,
       kind: "success",
       message: "Upgraded smelter to level 2",
       createdAt: 42,
     });
     expect(application.state.notifications).toEqual([application.notification]);
     expect(state.notifications).toEqual([]);
+  });
+
+  it("keys every upgrade of one entity separately and dismisses only the chosen one", () => {
+    const store = new SimulationStore(createState([createExtractor()], FUNDED_CURRENCY));
+
+    expect(store.dispatch({ type: "upgradeEntity", entityId: EXTRACTOR_ID })).toEqual({ ok: true });
+    expect(store.dispatch({ type: "upgradeEntity", entityId: EXTRACTOR_ID })).toEqual({ ok: true });
+
+    const ids = store.getSnapshot().notifications.map((notification) => notification.id);
+    expect(ids).toEqual([`upgrade-${EXTRACTOR_ID}-l2`, `upgrade-${EXTRACTOR_ID}-l3`]);
+    expect(new Set(ids).size).toBe(2);
+
+    expect(store.dispatch({ type: "dismissNotification", id: `upgrade-${EXTRACTOR_ID}-l2` })).toEqual({
+      ok: true,
+    });
+
+    expect(store.getSnapshot().notifications.map((notification) => notification.id)).toEqual([
+      `upgrade-${EXTRACTOR_ID}-l3`,
+    ]);
+    expect(store.getSnapshot().selectedEntity?.level).toBeUndefined();
+    expect(store.getSaveGame().grid.entities[0].level).toBe(3);
   });
 
   it("writes a whole level for a fractional level and charges the normalized price", () => {
@@ -271,7 +292,7 @@ describe("store integration", () => {
     expect(after.selectedEntity?.level).toBe(2);
     expect(after.notifications).toHaveLength(1);
     expect(after.notifications[0]).toMatchObject({
-      id: `upgrade-${EXTRACTOR_ID}`,
+      id: `upgrade-${EXTRACTOR_ID}-l2`,
       kind: "success",
     });
     expect(before.currency).toBe(FUNDED_CURRENCY);

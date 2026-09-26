@@ -189,7 +189,7 @@ export function upgradeEntity(state: SimulationState, entityId: string): Upgrade
   const level = getUpgradeLevel(entity.level + 1);
   const upgraded: Entity = { ...entity, level };
   const notification: Notification = {
-    id: `upgrade-${entityId}`,
+    id: `upgrade-${entityId}-l${level}`,
     kind: "success",
     message: `Upgraded ${entity.type} to level ${level}`,
     createdAt: state.tickCount,
