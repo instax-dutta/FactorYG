@@ -55,8 +55,8 @@ React 19 · TypeScript · three.js · Zustand · Vite · Vitest · Playwright
 Requires Node.js 20.19+ (or 22.12+).
 
 ```bash
-git clone https://github.com/instax-dutta/factor-y.git
-cd factor-y
+git clone https://github.com/instax-dutta/FactorYG.git
+cd FactorYG
 npm install
 npm run dev
 ```
