@@ -193,6 +193,35 @@ async function screenPointForCell(
   );
 }
 
+async function expectNoPanelOverlap(page: Page): Promise<void> {
+  const panels = [
+    ["Header", await waitForBoundingBox(page.getByRole("banner"), "Header")],
+    ["Hud", await waitForBoundingBox(page.getByTestId("hud"), "Hud")],
+    [
+      "Entity inspector",
+      await waitForBoundingBox(page.getByTestId("entity-inspector"), "Inspector"),
+    ],
+    ["Build dock", await waitForBoundingBox(page.getByTestId("build-dock"), "Build dock")],
+    [
+      "Notification stack",
+      await waitForBoundingBox(page.getByTestId("notification-stack"), "Notification stack"),
+    ],
+    [
+      "Tech tree toggle",
+      await waitForBoundingBox(page.getByTestId("tech-tree-toggle"), "Tech tree toggle"),
+    ],
+  ] as const;
+
+  expect(
+    panels.flatMap(([leftLabel, left], index) =>
+      panels
+        .slice(index + 1)
+        .filter(([, right]) => boxesOverlap(left, right))
+        .map(([rightLabel]) => `${leftLabel} / ${rightLabel}`),
+    ),
+  ).toEqual([]);
+}
+
 test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", async ({ page }) => {
   const browserErrors: string[] = [];
   page.on("pageerror", (error) => browserErrors.push(error.message));
@@ -222,22 +251,8 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
     page.getByTestId("entity-inspector"),
     "Inspector",
   );
-  const dockBox = await waitForBoundingBox(page.getByTestId("build-dock"), "Build dock");
-  const hudBox = await waitForBoundingBox(page.getByTestId("hud"), "Hud");
-  const toggleBox = await waitForBoundingBox(
-    page.getByTestId("tech-tree-toggle"),
-    "Tech tree toggle",
-  );
   expect(boxesOverlap(headerBox, inspectorBox)).toBe(false);
-  const panels = [
-    ["Header", headerBox],
-    ["Inspector", inspectorBox],
-    ["Build dock", dockBox],
-    ["Hud", hudBox],
-  ] as const;
-  expect(
-    panels.filter(([, box]) => boxesOverlap(toggleBox, box)).map(([label]) => label),
-  ).toEqual([]);
+  await expectNoPanelOverlap(page);
 
   expect(
     await page.evaluate(() => Object.keys(window.__FACTOR_Y__ ?? {}).sort()),
@@ -416,6 +431,35 @@ test("opens the tech tree, buys a machine, and dismisses on Escape", async ({ pa
   );
   await expect(page.getByTestId("build-smelter")).toBeDisabled();
 
+  const panelBox = await waitForBoundingBox(page.getByTestId("tech-tree-panel"), "Tech tree panel");
+  const viewport = page.viewportSize();
+  if (viewport === null) {
+    throw new Error("Viewport size unavailable");
+  }
+  expect({
+    fitsViewport:
+      panelBox.y > 0 &&
+      panelBox.x > 0 &&
+      panelBox.y + panelBox.height < viewport.height &&
+      panelBox.x + panelBox.width < viewport.width,
+    panel: {
+      top: Math.round(panelBox.y),
+      left: Math.round(panelBox.x),
+      bottom: Math.round(panelBox.y + panelBox.height),
+      right: Math.round(panelBox.x + panelBox.width),
+    },
+    viewport,
+  }).toEqual({
+    fitsViewport: true,
+    panel: { top: 24, left: 240, bottom: 776, right: 760 },
+    viewport: { width: 1000, height: 800 },
+  });
+  const panelScroll = await page.getByTestId("tech-tree-panel").evaluate((panel) => ({
+    clientHeight: panel.clientHeight,
+    scrollHeight: panel.scrollHeight,
+  }));
+  expect(panelScroll.clientHeight).toBeLessThan(panelScroll.scrollHeight);
+
   const before = await page.evaluate(() => window.__FACTOR_Y__?.getSnapshot().currency);
   await page.getByRole("button", { name: "Unlock Smelter" }).click();
 
@@ -431,6 +475,7 @@ test("opens the tech tree, buys a machine, and dismisses on Escape", async ({ pa
 
   await expect(page.getByTestId("tech-tree")).toHaveCount(0);
   await expect(toggle).toBeFocused();
+  await expectNoPanelOverlap(page);
   expect(browserErrors).toEqual([]);
 });
 

@@ -43,7 +43,11 @@ function createState(overrides: {
 }
 
 function createDrainingStore(state: SimulationState): SimulationStore {
-  return new SimulationStore(state, () => 0, (current) => ({ ...current, currency: 0 }));
+  return new SimulationStore(state, () => 0, (current, count) => ({
+    ...current,
+    currency: 0,
+    tickCount: current.tickCount + count,
+  }));
 }
 
 function requirementCosts(
@@ -271,6 +275,67 @@ describe("TechTree", () => {
       "smelter",
     ]);
     expect(store.getSnapshot().currency).toBe(FUNDED_CURRENCY - SMELTER_COST);
+  });
+
+  it("keeps a refusal visible while the store keeps publishing new snapshots", () => {
+    const store = createDrainingStore(createState({ currency: FUNDED_CURRENCY }));
+    const dispatch = vi.spyOn(store, "dispatch");
+
+    openTechTree(store);
+    expect(screen.getByRole("button", { name: "Unlock Smelter" })).toBeEnabled();
+
+    act(() => {
+      store.advanceTicks(1);
+      fireEvent.click(screen.getByRole("button", { name: "Unlock Smelter" }));
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: "unlockMachine", machine: "smelter" });
+    expect(screen.getByRole("alert")).toHaveAttribute("data-reason", "insufficientCurrency");
+
+    const before = store.getSnapshot();
+    act(() => {
+      store.advanceTicks(3);
+    });
+
+    expect(store.getSnapshot()).not.toBe(before);
+    expect(store.getSaveGame().tickCount).toBe(4);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveAttribute("data-reason", "insufficientCurrency");
+    expect(screen.getByTestId("tech-tree-entry-machine-smelter")).toHaveAttribute(
+      "data-state",
+      "unaffordable",
+    );
+  });
+
+  it("clears a refusal once the entry it names is purchasable again", () => {
+    let tick = 0;
+    const store = new SimulationStore(
+      createState({ currency: FUNDED_CURRENCY }),
+      () => 0,
+      (current) => {
+        tick += 1;
+        return { ...current, currency: tick === 1 ? 0 : FUNDED_CURRENCY };
+      },
+    );
+
+    openTechTree(store);
+
+    act(() => {
+      store.advanceTicks(1);
+      fireEvent.click(screen.getByRole("button", { name: "Unlock Smelter" }));
+    });
+    expect(screen.getByRole("alert")).toHaveAttribute("data-reason", "insufficientCurrency");
+
+    act(() => {
+      store.advanceTicks(1);
+    });
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Unlock Smelter" })).toBeEnabled();
+    expect(screen.getByTestId("tech-tree-entry-machine-smelter")).toHaveAttribute(
+      "data-state",
+      "available",
+    );
   });
 
   it("opens as a focus-managed dialog with an inert background and dismisses on Escape", () => {

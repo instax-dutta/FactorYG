@@ -1,21 +1,13 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { getResource } from "../../content/resources";
 import type { SimulationStore } from "../../sim/store";
+import { useModalFocus } from "../hooks/useModalFocus";
 import { useSimulationSnapshot } from "../hooks/useSimulationSnapshot";
 
 interface OfflineSummaryModalProps {
   store: SimulationStore;
 }
-
-interface BackgroundState {
-  element: HTMLElement;
-  inertAttribute: string | null;
-  ariaHiddenAttribute: string | null;
-}
-
-const focusableSelector =
-  "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])";
 
 const numberFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
@@ -31,94 +23,7 @@ export function OfflineSummaryModal({ store }: OfflineSummaryModalProps) {
     store.dispatch({ type: "dismissOfflineSummary" });
   }, [store]);
 
-  useEffect(() => {
-    if (!isOpen || typeof document === "undefined") {
-      return undefined;
-    }
-
-    const dialog = dialogRef.current;
-    if (dialog === null) {
-      return undefined;
-    }
-
-    const previousFocus =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const portalElement = dialog.parentElement === document.body ? dialog : dialog.parentElement;
-    const background = Array.from(document.body.children).filter(
-      (child): child is HTMLElement =>
-        child instanceof HTMLElement &&
-        child !== portalElement &&
-        !(portalElement?.contains(child) ?? false),
-    );
-    const backgroundStates = background.map<BackgroundState>((element) => ({
-      element,
-      inertAttribute: element.getAttribute("inert"),
-      ariaHiddenAttribute: element.getAttribute("aria-hidden"),
-    }));
-    for (const { element } of backgroundStates) {
-      element.setAttribute("inert", "");
-      element.setAttribute("aria-hidden", "true");
-    }
-
-    continueRef.current?.focus();
-
-    const handleKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        dismiss();
-        return;
-      }
-      if (event.key !== "Tab") {
-        return;
-      }
-
-      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector)).filter(
-        (element) => element.getAttribute("aria-hidden") !== "true",
-      );
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (first === undefined || last === undefined) {
-        event.preventDefault();
-        dialog.focus();
-        return;
-      }
-
-      const activeElement = document.activeElement;
-      if (!(activeElement instanceof Node) || !dialog.contains(activeElement)) {
-        event.preventDefault();
-        (event.shiftKey ? last : first).focus();
-        return;
-      }
-      if (event.shiftKey && activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown, true);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown, true);
-      for (const state of backgroundStates) {
-        if (state.inertAttribute === null) {
-          state.element.removeAttribute("inert");
-        } else {
-          state.element.setAttribute("inert", state.inertAttribute);
-        }
-        if (state.ariaHiddenAttribute === null) {
-          state.element.removeAttribute("aria-hidden");
-        } else {
-          state.element.setAttribute("aria-hidden", state.ariaHiddenAttribute);
-        }
-      }
-      if (previousFocus?.isConnected === true) {
-        previousFocus.focus();
-      }
-    };
-  }, [dismiss, isOpen]);
+  useModalFocus({ open: isOpen, onClose: dismiss, initialFocusRef: continueRef, dialogRef });
 
   if (!isOpen || typeof document === "undefined") {
     return null;

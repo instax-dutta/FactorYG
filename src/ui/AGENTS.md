@@ -5,7 +5,7 @@ Own the React DOM overlay for Factor-I.
 ## Ownership
 
 - `components/` contains HUD, build dock, inspector, tech tree, notifications, offline modal, and header.
-- `hooks/` contains the external-store subscription bridge.
+- `hooks/` contains the external-store subscription bridge and `useModalFocus`, the one focus-trap, inert-background, and keyboard-dismissal implementation shared by every modal.
 - `presentation.ts` owns machine labels and the copy for command rejection reasons, so two components never word the same refusal differently.
 
 ## Local Contracts
@@ -15,9 +15,9 @@ Own the React DOM overlay for Factor-I.
 - Deferred actions are visibly disabled until their simulation command exists and the action is wired. A command existing in the store is necessary but not sufficient. The tech tree wires the machine and recipe purchases and the inspector wires the level upgrade, so prestige is the only action still deferred and it keeps saying so on the control itself.
 - A purchase control is enabled from the shared store preflight, `canUnlock` for a tree entry and `canUpgrade` for a level, so the affordance and the dispatch cannot disagree about whether an action is legal.
 - A refused purchase surfaces the real store reason as visible text plus a `data-reason` hook. A click that the store refuses never fails silently, because a stale affordance and a stale store are a real race.
-- A refusal is stamped with the snapshot it was taken against and is dropped as soon as a new snapshot arrives, so a reason that has stopped being true disappears on its own instead of sticking to the panel.
+- A refusal names the entry and the reason the store gave, and it holds while that entry's currently resolved reason is still the same one. It clears itself as soon as the reason changes or the entry becomes purchasable. A refusal is never decided by snapshot identity: the store publishes a new snapshot every tick, so an identity check would drop a true refusal within one tick, and a check that never drops would pin a reason that has stopped holding.
 - The tech tree renders every machine and recipe from `MACHINES`, `RECIPES`, and `UNLOCKS`, orders entries by unlock cost, prices an included entry from its table `unlockCost`, and shows a locked entry's missing prerequisites. A new machine or recipe needs a content entry and nothing else.
-- The tech tree and the offline summary are real focus-managed modals: focus moves inside on open, Tab is trapped, Escape dismisses, background content is inert while open, and focus returns to the trigger on close. Focus management stays local to the component that owns the dialog.
+- The tech tree and the offline summary are real focus-managed modals: focus moves inside on open, Tab is trapped, Escape dismisses, background content is inert while open, and focus returns to the trigger on close. The component that owns a dialog owns that dialog's lifecycle, and the mechanics are shared through `useModalFocus`, so a new modal wires the hook instead of copying an effect. The hook keeps only the topmost open dialog interactive, so two modals open at once cannot both consume Escape or mark each other's portal inert.
 - The Factor-I header must remain visible and panels must not overlap at the supported desktop viewport.
 
 ## Work Guidance
@@ -28,7 +28,7 @@ Own the React DOM overlay for Factor-I.
 
 ## Verification
 
-- `npm run test -- tests/unit/hud.test.tsx tests/unit/buildDock.test.tsx tests/unit/gameHeader.test.tsx tests/unit/techTree.test.tsx`
+- `npm run test -- tests/unit/hud.test.tsx tests/unit/buildDock.test.tsx tests/unit/gameHeader.test.tsx tests/unit/techTree.test.tsx tests/unit/modalFocus.test.tsx`
 - `npm run test:e2e -- tests/e2e/phase0.spec.ts --workers=1`
 
 ## Child DOX Index

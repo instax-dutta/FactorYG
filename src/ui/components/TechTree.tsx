@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MACHINES } from "../../content/machines";
 import { getRecipe, RECIPES } from "../../content/recipes";
@@ -7,6 +7,7 @@ import type { MachineType, RecipeId, UnlockRequirement } from "../../content/typ
 import { UNLOCKS } from "../../content/unlocks";
 import type { SimulationStore } from "../../sim/store";
 import type { SimulationSnapshot } from "../../sim/types";
+import { useModalFocus } from "../hooks/useModalFocus";
 import { useSimulationSnapshot } from "../hooks/useSimulationSnapshot";
 import { getCommandReasonMessage, getMachineLabel } from "../presentation";
 
@@ -49,7 +50,7 @@ interface ResolvedEntry {
 }
 
 interface Rejection {
-  readonly snapshot: SimulationSnapshot;
+  readonly key: string;
   readonly label: string;
   readonly reason: string;
 }
@@ -60,13 +61,13 @@ const recipeUnlocks: Readonly<Partial<Record<RecipeId, UnlockRequirement>>> = UN
 
 const MACHINE_ENTRIES: readonly MachineEntry[] = buildMachineEntries();
 const RECIPE_ENTRIES: readonly RecipeEntry[] = buildRecipeEntries();
+const ENTRY_BY_KEY: ReadonlyMap<string, TechEntry> = new Map(
+  [...MACHINE_ENTRIES, ...RECIPE_ENTRIES].map((entry) => [entry.key, entry]),
+);
 
 const numberFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
-
-const focusableSelector =
-  "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])";
 
 export function TechTree({ store }: TechTreeProps) {
   const snapshot = useSimulationSnapshot(store);
@@ -80,6 +81,8 @@ export function TechTree({ store }: TechTreeProps) {
     setRejection(null);
   }, []);
 
+  const shownRejection = resolveRejection(rejection, snapshot, store);
+
   const purchase = useCallback(
     (entry: TechEntry) => {
       const result =
@@ -91,7 +94,7 @@ export function TechTree({ store }: TechTreeProps) {
         result.ok
           ? null
           : {
-              snapshot: store.getSnapshot(),
+              key: entry.key,
               label: entry.label,
               reason: result.reason ?? "unknownUnlock",
             },
@@ -100,94 +103,7 @@ export function TechTree({ store }: TechTreeProps) {
     [store],
   );
 
-  useEffect(() => {
-    if (!open || typeof document === "undefined") {
-      return undefined;
-    }
-
-    const dialog = dialogRef.current;
-    if (dialog === null) {
-      return undefined;
-    }
-
-    const previousFocus =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const portalElement = dialog.parentElement === document.body ? dialog : dialog.parentElement;
-    const background = Array.from(document.body.children).filter(
-      (child): child is HTMLElement =>
-        child instanceof HTMLElement &&
-        child !== portalElement &&
-        !(portalElement?.contains(child) ?? false),
-    );
-    const backgroundStates = background.map((element) => ({
-      element,
-      inertAttribute: element.getAttribute("inert"),
-      ariaHiddenAttribute: element.getAttribute("aria-hidden"),
-    }));
-    for (const { element } of backgroundStates) {
-      element.setAttribute("inert", "");
-      element.setAttribute("aria-hidden", "true");
-    }
-
-    closeRef.current?.focus();
-
-    const handleKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        close();
-        return;
-      }
-      if (event.key !== "Tab") {
-        return;
-      }
-
-      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector)).filter(
-        (element) => element.getAttribute("aria-hidden") !== "true",
-      );
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (first === undefined || last === undefined) {
-        event.preventDefault();
-        dialog.focus();
-        return;
-      }
-
-      const activeElement = document.activeElement;
-      if (!(activeElement instanceof Node) || !dialog.contains(activeElement)) {
-        event.preventDefault();
-        (event.shiftKey ? last : first).focus();
-        return;
-      }
-      if (event.shiftKey && activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown, true);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown, true);
-      for (const state of backgroundStates) {
-        if (state.inertAttribute === null) {
-          state.element.removeAttribute("inert");
-        } else {
-          state.element.setAttribute("inert", state.inertAttribute);
-        }
-        if (state.ariaHiddenAttribute === null) {
-          state.element.removeAttribute("aria-hidden");
-        } else {
-          state.element.setAttribute("aria-hidden", state.ariaHiddenAttribute);
-        }
-      }
-      if (previousFocus?.isConnected === true) {
-        previousFocus.focus();
-      }
-    };
-  }, [close, open]);
+  useModalFocus({ open, onClose: close, initialFocusRef: closeRef, dialogRef });
 
   return (
     <>
@@ -216,7 +132,7 @@ export function TechTree({ store }: TechTreeProps) {
               tabIndex={-1}
               style={backdropStyle}
             >
-              <section aria-label="Tech tree unlocks" style={panelStyle}>
+              <section aria-label="Tech tree unlocks" data-testid="tech-tree-panel" style={panelStyle}>
                 <header style={panelHeaderStyle}>
                   <h2 id="tech-tree-title" style={{ margin: 0, fontSize: "1.25rem" }}>
                     Tech tree
@@ -232,14 +148,14 @@ export function TechTree({ store }: TechTreeProps) {
                     Close
                   </button>
                 </header>
-                {rejection === null || rejection.snapshot !== snapshot ? null : (
+                {shownRejection === null ? null : (
                   <p
                     role="alert"
                     data-testid="tech-tree-error"
-                    data-reason={rejection.reason}
+                    data-reason={shownRejection.reason}
                     style={alertStyle}
                   >
-                    {rejection.label}: {getCommandReasonMessage(rejection.reason)}
+                    {shownRejection.label}: {getCommandReasonMessage(shownRejection.reason)}
                   </p>
                 )}
                 <div style={sectionStyle}>
@@ -330,22 +246,35 @@ function TechSection({ label, testId, entries, snapshot, store, onPurchase }: Te
   );
 }
 
+function resolveRejection(
+  rejection: Rejection | null,
+  snapshot: SimulationSnapshot,
+  store: SimulationStore,
+): Rejection | null {
+  if (rejection === null) {
+    return null;
+  }
+
+  const entry = ENTRY_BY_KEY.get(rejection.key);
+  if (entry === undefined) {
+    return null;
+  }
+
+  return resolveEntry(entry, snapshot, store).reason === rejection.reason ? rejection : null;
+}
+
 function resolveEntry(
   entry: TechEntry,
   snapshot: SimulationSnapshot,
   store: SimulationStore,
 ): ResolvedEntry {
-  const owned =
-    entry.kind === "machine"
-      ? snapshot.unlockedMachines.includes(entry.id)
-      : snapshot.unlockedRecipes.includes(entry.id);
-
-  if (owned) {
-    return { entry, state: "unlocked", reason: undefined, missing: [] };
-  }
-
   if (entry.requirement === undefined) {
-    return { entry, state: "included", reason: undefined, missing: [] };
+    return {
+      entry,
+      state: isOwned(entry, snapshot) ? "unlocked" : "included",
+      reason: undefined,
+      missing: [],
+    };
   }
 
   const preflight =
@@ -360,13 +289,21 @@ function resolveEntry(
 
   const reason = preflight.reason ?? "unknownUnlock";
   const state: EntryState =
-    reason === "prerequisiteLocked"
-      ? "prerequisite-locked"
-      : reason === "insufficientCurrency"
-        ? "unaffordable"
-        : "unavailable";
+    reason === "alreadyUnlocked"
+      ? "unlocked"
+      : reason === "prerequisiteLocked"
+        ? "prerequisite-locked"
+        : reason === "insufficientCurrency"
+          ? "unaffordable"
+          : "unavailable";
 
   return { entry, state, reason, missing };
+}
+
+function isOwned(entry: TechEntry, snapshot: SimulationSnapshot): boolean {
+  return entry.kind === "machine"
+    ? snapshot.unlockedMachines.includes(entry.id)
+    : snapshot.unlockedRecipes.includes(entry.id);
 }
 
 function resolveMessage(resolved: ResolvedEntry): string {
