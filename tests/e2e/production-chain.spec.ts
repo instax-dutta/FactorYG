@@ -461,7 +461,8 @@ test("earns the tech tree from ore sales and runs copper to wire on a rotated as
   ]);
   expect(oreLine.results).toEqual([{ ok: true }, { ok: true }]);
   expect(oreLine.debit.before - oreLine.debit.after).toBe(ORE_LINE_COST);
-  expect(oreLine.debit.after).toBeLessThan(EXTRACTOR_COST);
+  expect(oreLine.debit.after).toBeGreaterThanOrEqual(0);
+  expect(oreLine.debit.after).toBeLessThan(ASSEMBLER_UNLOCK_COST);
 
   await advanceUntilCurrencyAtLeast(page, ASSEMBLER_UNLOCK_COST);
   await purchaseUnlock(page, {
