@@ -223,6 +223,7 @@ describe("placement validation", () => {
       input: {},
       output: {},
       active: false,
+      alreadyNotifiedBlocked: false,
     });
     expect(application.state.grid.belts["entity-1"]).toBeUndefined();
   });

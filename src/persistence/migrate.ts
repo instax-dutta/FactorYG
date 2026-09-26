@@ -50,7 +50,43 @@ export function migrateVersion1(raw: unknown): MigrationResult {
     return validation;
   }
 
-  return { ok: true, save: validation.value, migrated: false };
+  const defaulted = withBlockedProducerDefaults(validation.value);
+  return { ok: true, save: defaulted.save, migrated: defaulted.changed };
+}
+
+function withBlockedProducerDefaults(save: SaveGame): { save: SaveGame; changed: boolean } {
+  const machines = save.grid.machines as UnknownRecord;
+  const entityIds = Object.keys(machines).sort();
+  const needsDefault = entityIds.some(
+    (entityId) => typeof (machines[entityId] as UnknownRecord).alreadyNotifiedBlocked !== "boolean",
+  );
+  if (!needsDefault) {
+    return { save, changed: false };
+  }
+
+  const normalized: Record<string, MachineRuntime> = {};
+  for (const entityId of entityIds) {
+    const runtime = machines[entityId] as MachineRuntime;
+    setMachineRuntime(normalized, entityId, {
+      ...runtime,
+      alreadyNotifiedBlocked: runtime.alreadyNotifiedBlocked === true,
+    });
+  }
+
+  return { save: { ...save, grid: { ...save.grid, machines: normalized } }, changed: true };
+}
+
+function setMachineRuntime(
+  machines: Record<string, MachineRuntime>,
+  entityId: string,
+  runtime: MachineRuntime,
+): void {
+  Object.defineProperty(machines, entityId, {
+    configurable: true,
+    enumerable: true,
+    value: runtime,
+    writable: true,
+  });
 }
 
 export const SAVE_MIGRATIONS: Record<number, SaveMigration> = {
@@ -282,7 +318,9 @@ function isValidMachineRuntime(entityId: string, value: unknown): value is Machi
     isFiniteNonNegativeNumber(value.progressTicks) &&
     isResourceAmountMap(value.input) &&
     isResourceAmountMap(value.output) &&
-    typeof value.active === "boolean"
+    typeof value.active === "boolean" &&
+    (value.alreadyNotifiedBlocked === undefined ||
+      typeof value.alreadyNotifiedBlocked === "boolean")
   );
 }
 

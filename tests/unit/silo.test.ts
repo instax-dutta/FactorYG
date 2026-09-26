@@ -88,7 +88,7 @@ describe("silo capacity", () => {
     expect(repeatEvents).toEqual([]);
   });
 
-  it("refuses a machine output that would exceed capacity and keeps every unit in the smelter", () => {
+  it("refuses a machine output that would exceed capacity, keeps every unit in the smelter, and reports the smelter blocked", () => {
     const smelter = createSmelter({ id: "smelter-silo-overflow", x: SILO_AT.x - 1, y: SILO_AT.y });
     const silo = createSilo({ id: "silo-overflow" });
     const state = createState([smelter, silo]);
@@ -104,7 +104,9 @@ describe("silo capacity", () => {
     expect(next.grid.machines[silo.id]?.input).toEqual({ copperIngot: 95 });
     expect(next.grid.machines[silo.id]?.bufferedResource).toBe("copperIngot");
     expect(next.grid.machines[smelter.id]?.output).toEqual({ copperIngot: 10 });
-    expect(events).toEqual([]);
+    expect(next.grid.machines[smelter.id]?.alreadyNotifiedBlocked).toBe(true);
+    expect(next.grid.machines[silo.id]?.alreadyNotifiedBlocked).toBe(false);
+    expect(events).toEqual([{ type: "blockedFull", entityId: smelter.id }]);
   });
 
   it("conserves every unit when a full silo pushes at one occupied belt cell", () => {
@@ -256,8 +258,9 @@ describe("machine input room", () => {
     });
     expect(next.grid.machines[source.id]?.output).toEqual({ copperIngot: offered - 1 });
     expect(next.grid.machines[source.id]?.active).toBe(false);
+    expect(next.grid.machines[source.id]?.alreadyNotifiedBlocked).toBe(true);
     expect(countStoredUnits(next)).toBe(MACHINES.assembler.inputBuffer - 1 + offered);
-    expect(events).toEqual([]);
+    expect(events).toEqual([{ type: "blockedFull", entityId: source.id }]);
     expect(state).toEqual(stateBefore);
   });
 
@@ -286,7 +289,7 @@ describe("machine input room", () => {
     expect(countStoredUnits(next)).toBe(MACHINES.assembler.inputBuffer);
   });
 
-  it("refuses a transfer that fits no unit and changes neither machine", () => {
+  it("refuses a transfer that fits no unit, changes no goods, and still reports the source blocked", () => {
     const offered = MACHINES.smelter.outputBuffer;
     const source = createSmelter({ id: "smelter-refused", x: SILO_AT.x, y: SILO_AT.y });
     const target = createAssembler({
@@ -310,8 +313,11 @@ describe("machine input room", () => {
       copperIngot: MACHINES.assembler.inputBuffer,
     });
     expect(next.grid.machines[source.id]?.output).toEqual({ copperIngot: offered });
-    expect(next.grid.machines).toEqual(stateBefore.grid.machines);
-    expect(events).toEqual([]);
+    expect(next.grid.machines).toEqual({
+      ...stateBefore.grid.machines,
+      [source.id]: { ...stateBefore.grid.machines[source.id], alreadyNotifiedBlocked: true },
+    });
+    expect(events).toEqual([{ type: "blockedFull", entityId: source.id }]);
   });
 
   it("never lets a depot sell more units than the silo actually offered", () => {
@@ -444,7 +450,7 @@ describe("silo storage", () => {
     expect(next.grid.machines[silo.id]?.output).toEqual({});
   });
 
-  it("keeps stored units when a downstream silo is already full", () => {
+  it("keeps stored units when a downstream silo is already full and reports the upstream silo blocked", () => {
     const silo = createSilo({ id: "silo-blocked" });
     const neighbor = createSilo({ id: "silo-neighbor-full", x: DOWNSTREAM_AT.x, y: DOWNSTREAM_AT.y });
     const state = createState([silo, neighbor]);
@@ -462,8 +468,10 @@ describe("silo storage", () => {
 
     expect(next.grid.machines[silo.id]?.input).toEqual({ copperIngot: 3 });
     expect(next.grid.machines[silo.id]?.bufferedResource).toBe("copperIngot");
+    expect(next.grid.machines[silo.id]?.alreadyNotifiedBlocked).toBe(true);
     expect(next.grid.machines[neighbor.id]?.input).toEqual({ copperIngot: SILO_CAPACITY });
-    expect(events).toEqual([]);
+    expect(next.grid.machines[neighbor.id]?.alreadyNotifiedBlocked).toBe(false);
+    expect(events).toEqual([{ type: "blockedFull", entityId: silo.id }]);
   });
 });
 

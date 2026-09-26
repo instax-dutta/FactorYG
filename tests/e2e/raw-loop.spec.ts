@@ -22,6 +22,7 @@ interface RenderTelemetry {
   beltItemIds: readonly string[];
   beltGlowCount: number;
   beltItemEventCount: number;
+  blockedEntityIds: readonly string[];
 }
 
 interface SceneTelemetry {
@@ -492,6 +493,150 @@ test("carries a glowing iron item across a belt line and sells it", async ({ pag
   expect(soldCurrency).toBeGreaterThan(baseline);
   await expect.poll(() => hudCurrency(page)).toBeGreaterThan(baseline);
   await expect.poll(() => persistedSave(page).then((save) => save.lifetimeCurrency)).toBeGreaterThan(0);
+  expect(browserErrors).toEqual([]);
+});
+
+interface BlockedBlinkObservation {
+  readonly blockedAtTick: number;
+  readonly heldFrames: number;
+  readonly blocked: RenderTelemetry;
+  readonly clearedAtTick: number;
+  readonly cleared: RenderTelemetry;
+}
+
+async function observeBlockedBlink(
+  page: Page,
+  entityId: string,
+  maxBatches: number,
+  ticksPerBatch: number,
+): Promise<BlockedBlinkObservation> {
+  const observed = await page.evaluate(
+    async ({ observedId, batchLimit, batchTicks }) => {
+      const runtime = window as unknown as RuntimeWindow;
+      const bridge = runtime.__FACTOR_Y__;
+      const telemetry = runtime.__FACTOR_Y_TELEMETRY__;
+      if (bridge === undefined || telemetry === undefined) {
+        throw new Error("Factor-Y bridges unavailable");
+      }
+      const nextFrame = (): Promise<void> =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => resolve());
+          });
+        });
+
+      let blockedAtTick = -1;
+      let ticks = 0;
+      for (let batch = 0; batch < batchLimit && blockedAtTick < 0; batch += 1) {
+        for (let step = 0; step < batchTicks; step += 1) {
+          bridge.advanceTicks(1);
+          ticks += 1;
+        }
+        await nextFrame();
+        if (telemetry.getSnapshot().render.blockedEntityIds.includes(observedId)) {
+          blockedAtTick = ticks;
+        }
+      }
+
+      let heldFrames = 0;
+      for (let frame = 0; frame < 6; frame += 1) {
+        await nextFrame();
+        if (telemetry.getSnapshot().render.blockedEntityIds.includes(observedId)) {
+          heldFrames += 1;
+        }
+      }
+
+      const blocked = telemetry.getSnapshot().render;
+
+      bridge.dispatch({ type: "demolishEntity", entityId: "entity-2" });
+      let clearedAtTick = -1;
+      for (let batch = 0; batch < batchLimit && clearedAtTick < 0; batch += 1) {
+        for (let step = 0; step < batchTicks; step += 1) {
+          bridge.advanceTicks(1);
+          ticks += 1;
+        }
+        await nextFrame();
+        if (!telemetry.getSnapshot().render.blockedEntityIds.includes(observedId)) {
+          clearedAtTick = ticks;
+        }
+      }
+
+      return {
+        blockedAtTick,
+        heldFrames,
+        blocked,
+        clearedAtTick,
+        cleared: telemetry.getSnapshot().render,
+      };
+    },
+    { observedId: entityId, batchLimit: maxBatches, batchTicks: ticksPerBatch },
+  );
+
+  expect(observed.blockedAtTick).toBeGreaterThan(0);
+  return observed;
+}
+
+test("blinks a producer that cannot hand off its goods and stops when the line is fixed", async ({
+  page,
+}) => {
+  const browserErrors: string[] = [];
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      browserErrors.push(message.text());
+    }
+  });
+
+  await openWithClearedSave(page);
+  await expect(page.getByTestId("game-canvas")).toHaveAttribute("data-factor-y-status", "ready");
+
+  const beltCount = 3;
+  const results = await page.evaluate(
+    ({ node, belts }) => {
+      const bridge = (window as unknown as RuntimeWindow).__FACTOR_Y__;
+      if (bridge === undefined) {
+        throw new Error("Factor-Y runtime bridge unavailable");
+      }
+      const placed: CommandResult[] = [
+        bridge.dispatch({
+          type: "placeEntity",
+          machine: "extractor",
+          x: node.x,
+          y: node.y,
+          rotation: 0,
+          resourceNode: "copperOre",
+        }),
+      ];
+      for (let index = 0; index < belts; index += 1) {
+        placed.push(
+          bridge.dispatch({
+            type: "placeEntity",
+            machine: "belt",
+            x: node.x + index + 1,
+            y: node.y,
+            rotation: 0,
+          }),
+        );
+      }
+      return placed;
+    },
+    { node: COPPER_NODE, belts: beltCount },
+  );
+
+  expect(results.every((result) => result.ok)).toBe(true);
+  expect(results.filter((result) => !result.ok)).toEqual([]);
+  await expect.poll(() => renderTelemetry(page).then((render) => render.entityIds)).toHaveLength(
+    beltCount + 1,
+  );
+  expect((await renderTelemetry(page)).blockedEntityIds).toEqual([]);
+
+  const blocked = await observeBlockedBlink(page, "entity-1", 40, 5);
+
+  expect(blocked.blocked.blockedEntityIds).toEqual(["entity-1"]);
+  expect(blocked.heldFrames).toBe(6);
+  expect(blocked.clearedAtTick).toBeGreaterThan(blocked.blockedAtTick);
+  expect(blocked.cleared.blockedEntityIds).toEqual([]);
+  expect(blocked.cleared.entityIds).toEqual(["entity-1", "entity-3", "entity-4"]);
   expect(browserErrors).toEqual([]);
 });
 

@@ -211,5 +211,6 @@ function createMachineRuntime(entityId: string): MachineRuntime {
     input: {},
     output: {},
     active: false,
+    alreadyNotifiedBlocked: false,
   };
 }

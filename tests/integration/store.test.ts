@@ -148,6 +148,7 @@ describe("SimulationStore", () => {
       input: {},
       output: { copperOre: 1 },
       active: true,
+      alreadyNotifiedBlocked: false,
     };
     const belt: BeltCell = {
       entityId: entity.id,

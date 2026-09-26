@@ -56,6 +56,7 @@ export function createMachineRuntime(entity: Entity): MachineRuntime {
     input: {},
     output: {},
     active: false,
+    alreadyNotifiedBlocked: false,
   };
 }
 

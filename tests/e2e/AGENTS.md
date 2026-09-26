@@ -8,7 +8,7 @@ Own Playwright browser flows for Factor-I.
 - Tests use real canvas interaction or the development bridge, not private state.
 - Storage tests clear or seed the save deliberately and verify reload behavior.
 - No arbitrary sleeps; use condition polling, rAF synchronization, or deterministic bridge ticks.
-- Render telemetry is published from the scene update, so it trails the simulation by the events of the current tick. Read it only after a frame boundary, and never gate a frame wait on a telemetry value read earlier in the same tick; a scan that advances a tick and then reads render state synchronously steps over short-lived windows such as a belt item in flight.
+- Render telemetry is published from the scene update, so it trails the simulation by the events of the current tick. Read it only after a frame boundary, and never gate a frame wait on a telemetry value read earlier in the same tick; a scan that advances a tick and then reads render state synchronously steps over short-lived windows such as a belt item in flight. A state that persists, such as a blocked producer, may be scanned in batches of several ticks per frame instead.
 - A geometry read such as `boundingBox` auto-waits for the element to be attached but then reads the box once, so it returns `null` while an attached element has no layout yet. Poll until a box exists, and pass an explicit timeout plus a label so a failure names the element instead of waiting out the whole test deadline.
 
 ## Work Guidance

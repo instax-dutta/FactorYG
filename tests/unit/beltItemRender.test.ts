@@ -56,8 +56,22 @@ function createChainState({ beltCount, resource, startX = 1 }: ChainOptions): Si
 
   state.grid.entities = entities;
   state.grid.machines = {
-    "entity-1": { entityId: "entity-1", progressTicks: 0, input: {}, output: {}, active: false },
-    "depot-1": { entityId: "depot-1", progressTicks: 0, input: {}, output: {}, active: false },
+    "entity-1": {
+      entityId: "entity-1",
+      progressTicks: 0,
+      input: {},
+      output: {},
+      active: false,
+      alreadyNotifiedBlocked: false,
+    },
+    "depot-1": {
+      entityId: "depot-1",
+      progressTicks: 0,
+      input: {},
+      output: {},
+      active: false,
+      alreadyNotifiedBlocked: false,
+    },
   };
   state.grid.belts = Object.fromEntries(
     entities

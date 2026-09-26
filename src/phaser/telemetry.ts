@@ -5,6 +5,7 @@ export interface SceneRenderTelemetry {
   readonly beltItemIds: readonly string[];
   readonly beltGlowCount: number;
   readonly beltItemEventCount: number;
+  readonly blockedEntityIds: readonly string[];
 }
 
 export interface SceneTelemetry {
@@ -50,6 +51,7 @@ export function createSceneRenderTelemetry(input: SceneRenderTelemetry): SceneRe
     beltItemIds: Object.freeze([...input.beltItemIds]),
     beltGlowCount: input.beltGlowCount,
     beltItemEventCount: input.beltItemEventCount,
+    blockedEntityIds: Object.freeze([...input.blockedEntityIds]),
   });
 }
 
@@ -98,5 +100,6 @@ export const INITIAL_SCENE_TELEMETRY = createSceneTelemetry({
     beltItemIds: [],
     beltGlowCount: 0,
     beltItemEventCount: 0,
+    blockedEntityIds: [],
   }),
 });

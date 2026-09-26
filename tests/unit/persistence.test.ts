@@ -327,6 +327,60 @@ describe("save graph integrity and projection", () => {
     expect(parsed.save.grid.machines["entity-2"]?.input).toEqual({ copperOre: 4 });
     expect(parsed.save.grid.machines["entity-2"]).not.toHaveProperty("bufferedResource");
   });
+
+  it("carries a blocked producer flag through a save round trip", () => {
+    const state = createStateWithEntities();
+
+    const parsed = parseSave(serializeSave(state));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      throw new Error(parsed.message);
+    }
+
+    expect(parsed.save.grid.machines["entity-2"]?.alreadyNotifiedBlocked).toBe(false);
+    expect(parsed.save.grid.machines["entity-3"]?.alreadyNotifiedBlocked).toBe(true);
+
+    const written = JSON.parse(serializeSave(state)) as SaveGame;
+    expect(written.grid.machines["entity-3"]?.alreadyNotifiedBlocked).toBe(true);
+  });
+
+  it("defaults a legacy machine runtime that lacks the blocked flag to unblocked", () => {
+    const legacy = legacySaveWithoutBlockedFlag();
+
+    const parsed = parseSave(JSON.stringify(legacy));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      throw new Error(parsed.message);
+    }
+
+    expect(parsed.save.grid.machines["entity-2"]).not.toHaveProperty("bufferedResource");
+    expect(parsed.save.grid.machines["entity-2"]?.alreadyNotifiedBlocked).toBe(false);
+    expect(parsed.save.grid.machines["entity-3"]?.alreadyNotifiedBlocked).toBe(false);
+  });
+
+  it("keeps a loaded blocked producer flagged instead of re-notifying it silently", () => {
+    const legacy = legacySaveWithoutBlockedFlag();
+    const machines = (legacy.grid as Record<string, unknown>).machines as Record<string, unknown>;
+    (machines["entity-2"] as Record<string, unknown>).alreadyNotifiedBlocked = true;
+
+    const loaded = loadSave(createStorageWith(legacy));
+
+    expect(loaded.grid.machines["entity-2"]?.alreadyNotifiedBlocked).toBe(true);
+    expect(loaded.grid.machines["entity-3"]?.alreadyNotifiedBlocked).toBe(false);
+  });
+
+  it("rejects a blocked producer flag that is not a boolean", () => {
+    const legacy = legacySaveWithoutBlockedFlag();
+    const machines = (legacy.grid as Record<string, unknown>).machines as Record<string, unknown>;
+    (machines["entity-2"] as Record<string, unknown>).alreadyNotifiedBlocked = "blocked";
+
+    const parsed = parseSave(JSON.stringify(legacy));
+    expect(parsed).toEqual({
+      ok: false,
+      reason: "invalidSave",
+      message: 'Save field "grid" is invalid.',
+    });
+  });
 });
 
 function legacySaveWithoutBufferedResource(): Record<string, unknown> {
@@ -334,6 +388,21 @@ function legacySaveWithoutBufferedResource(): Record<string, unknown> {
   const machines = (legacy.grid as Record<string, unknown>).machines as Record<string, unknown>;
   delete (machines["entity-3"] as Record<string, unknown>).bufferedResource;
   return legacy;
+}
+
+function legacySaveWithoutBlockedFlag(): Record<string, unknown> {
+  const legacy = toSaveObject(createStateWithEntities());
+  const machines = (legacy.grid as Record<string, unknown>).machines as Record<string, unknown>;
+  for (const runtime of Object.values(machines)) {
+    delete (runtime as Record<string, unknown>).alreadyNotifiedBlocked;
+  }
+  return legacy;
+}
+
+function createStorageWith(save: Record<string, unknown>): SaveStorage {
+  const storage = new FakeStorage();
+  storage.setItem(SAVE_KEY, JSON.stringify(save));
+  return storage;
 }
 
 describe("save validation and migration", () => {
@@ -593,6 +662,7 @@ function createStateWithEntities(): SimulationState {
       input: {},
       output: { copperOre: 2 },
       active: true,
+      alreadyNotifiedBlocked: false,
     },
     "entity-3": {
       entityId: "entity-3",
@@ -601,6 +671,7 @@ function createStateWithEntities(): SimulationState {
       output: {},
       active: false,
       bufferedResource: "copperIngot",
+      alreadyNotifiedBlocked: true,
     },
   };
   state.grid.belts = {

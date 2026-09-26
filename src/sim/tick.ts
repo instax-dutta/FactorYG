@@ -152,56 +152,82 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
     }
 
     const target = findConnectedEntity(entity, state.grid.entities);
-    if (target === undefined) {
-      continue;
-    }
-
     const isSilo = entity.type === "silo";
     const stored = isSilo ? runtime.input : runtime.output;
-    for (const resource of Object.keys(stored) as ResourceId[]) {
-      const amount = getResourceAmount(stored, resource);
-      if (amount <= 0) {
-        continue;
+    let refused = false;
+    if (target !== undefined) {
+      for (const resource of Object.keys(stored) as ResourceId[]) {
+        const amount = getResourceAmount(stored, resource);
+        if (amount <= 0) {
+          continue;
+        }
+
+        let transferred: number;
+        if (target.type === "belt") {
+          const belt = state.grid.belts[target.id];
+          if (belt === undefined || belt.item !== undefined) {
+            refused = true;
+            continue;
+          }
+
+          transferred = Math.min(amount, getBeltCellCapacity(target));
+          if (transferred <= 0) {
+            refused = true;
+            continue;
+          }
+
+          state.grid.belts[target.id] = { ...belt, item: resource, progress: 0 };
+          emitBeltItemChanged(events, target.id, resource);
+        } else {
+          const targetRuntime = state.grid.machines[target.id];
+          if (targetRuntime === undefined) {
+            refused = true;
+            continue;
+          }
+
+          const acceptance = acceptMachineInput(target, targetRuntime, resource, amount);
+          if (acceptance.accepted <= 0) {
+            refused = true;
+            continue;
+          }
+
+          state.grid.machines[target.id] = acceptance.runtime;
+          transferred = acceptance.accepted;
+        }
+
+        state.grid.machines[entity.id] = isSilo
+          ? withdrawSiloInput(runtime, resource, transferred)
+          : { ...runtime, output: removeResource(runtime.output, resource, transferred) };
+        changed = true;
+        break;
       }
+    }
 
-      let transferred: number;
-      if (target.type === "belt") {
-        const belt = state.grid.belts[target.id];
-        if (belt === undefined || belt.item !== undefined) {
-          continue;
-        }
-
-        transferred = Math.min(amount, getBeltCellCapacity(target));
-        if (transferred <= 0) {
-          continue;
-        }
-
-        state.grid.belts[target.id] = { ...belt, item: resource, progress: 0 };
-        emitBeltItemChanged(events, target.id, resource);
-      } else {
-        const targetRuntime = state.grid.machines[target.id];
-        if (targetRuntime === undefined) {
-          continue;
-        }
-
-        const acceptance = acceptMachineInput(target, targetRuntime, resource, amount);
-        if (acceptance.accepted <= 0) {
-          continue;
-        }
-
-        state.grid.machines[target.id] = acceptance.runtime;
-        transferred = acceptance.accepted;
-      }
-
-      state.grid.machines[entity.id] = isSilo
-        ? withdrawSiloInput(runtime, resource, transferred)
-        : { ...runtime, output: removeResource(runtime.output, resource, transferred) };
+    if (applyBlockedFlag(state, entity, refused, events)) {
       changed = true;
-      break;
     }
   }
 
   return changed;
+}
+
+function applyBlockedFlag(
+  state: SimulationState,
+  entity: Entity,
+  refused: boolean,
+  events: RenderEvent[],
+): boolean {
+  const runtime = state.grid.machines[entity.id];
+  if (runtime === undefined || runtime.alreadyNotifiedBlocked === refused) {
+    return false;
+  }
+
+  state.grid.machines[entity.id] = { ...runtime, alreadyNotifiedBlocked: refused };
+  if (refused) {
+    events.push({ type: "blockedFull", entityId: entity.id });
+  }
+
+  return true;
 }
 
 function acceptMachineInput(

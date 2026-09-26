@@ -254,6 +254,7 @@ function projectMachines(
       input,
       output: projectAmounts(runtime.output),
       active: runtime.active,
+      alreadyNotifiedBlocked: runtime.alreadyNotifiedBlocked === true,
       ...projectBufferedResource(
         typeByEntityId.get(entityId),
         runtime.bufferedResource,

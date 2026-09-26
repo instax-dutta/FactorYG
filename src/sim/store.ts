@@ -80,6 +80,16 @@ export class SimulationStore {
     return Object.freeze(active);
   }
 
+  public getBlockedMachineIds(): readonly string[] {
+    const blocked: string[] = [];
+    for (const entity of this.#state.grid.entities) {
+      if (this.#state.grid.machines[entity.id]?.alreadyNotifiedBlocked === true) {
+        blocked.push(entity.id);
+      }
+    }
+    return Object.freeze(blocked);
+  }
+
   public getEntities(): readonly Entity[] {
     const entities = this.#state.grid.entities.map((entity) => Object.freeze({ ...entity }));
     return Object.freeze(entities);

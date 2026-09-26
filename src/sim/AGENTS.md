@@ -11,20 +11,23 @@ Own deterministic Factor-I simulation state and production rules.
 - `machines.ts`, `economy.ts`, `tick.ts`, and `offline.ts` own production and sales, and `tick.ts` sells through the sale terminals the machine table declares.
 - `chains.ts` owns production chain discovery and steady-state throughput.
 - `commands.ts` owns unlock purchases for machines and recipes and the entity level upgrade.
-- `store.ts` owns private state, commands, snapshots, and the fixed-step driver.
+- `store.ts` owns private state, commands, snapshots, the fixed-step driver, and the read-only `getActiveMachineIds` and `getBlockedMachineIds` views a renderer reads instead of simulating.
 - `initialState.ts` owns deterministic new-game world creation.
 
 ## Local Contracts
 
 - Simulation modules are pure TypeScript and never import React, Phaser, DOM, or persistence.
 - Production advances on a fixed 10 Hz logical clock, never Phaser render frames.
-- Runtime-only fields such as tick samples and offline summaries are not save data; `bufferedResource` is save data.
+- Runtime-only fields such as tick samples and offline summaries are not save data; `bufferedResource` and `alreadyNotifiedBlocked` are save data.
 - Extractor progress counts unemitted whole cycles plus the fractional cycle: a full output buffer pauses progress, a partly filled buffer accepts as many whole cycles as fit in that tick and banks the rest, and the bank is capped at the machine's output capacity, so the progress the save stores is always bounded and drains the instant a slot frees. At a per-tick rate of one cycle or more, credit past that cap is discarded rather than banked.
 - Processor progress is a discrete recipe-tick counter; inputs are charged once when a run starts, a blocked completion holds the counter only while the recipe remains valid, and an unresolvable recipe discards the run so a later run must pay again.
 - A silo is shared storage, not a processor: the first accepted resource locks in `bufferedResource` until the shared pool empties, capacity is enforced exactly at the acceptance boundary, and a refused acceptance consumes nothing.
 - A machine-to-belt transfer withdraws only what one belt cell can carry and leaves the remainder buffered, so a push never destroys units.
 - A machine-to-machine transfer accepts only the input room the target has left for that resource and leaves the remainder buffered. For `separate` buffers `inputBuffer` is a per-resource limit, not a buffer total, so a mixed buffer may hold several times the table value. A transfer that fits no unit is refused and changes neither machine. Shared storage stays all-or-nothing, so a shared target also refuses a partially fitting transfer even when room remains.
 - `storageFull` is emitted on the transition into a full shared pool, never on every tick it stays full.
+- A machine that cannot hand off goods to its connected target is blocked, and `alreadyNotifiedBlocked` is its save-data record of that. A producer is blocked when it holds at least one unit of a storable resource, has a connected target, and that target accepts none of what it offers, whether the target is a full shared pool, a full input buffer, or an occupied belt cell. A producer with no target at all is buffering, not blocked, and a blocked producer clears the flag the moment it transfers anything, so demolishing the refusing target clears it too.
+- `blockedFull` is emitted on the transition into a blocked producer and never again while it stays blocked. It is about the refused producer, not the refusing target: a full silo emits `storageFull` for itself and `blockedFull` for the machine pushing into it, and a blocked producer is not necessarily the machine that is full.
+- Blocked feedback needs no belt state. `moveBelts` refuses a cell that is occupied at the start of the tick, so a jam already propagates backward through a line and every item stays where it was.
 - An unlock purchase validates identity, prior ownership, prerequisites, and cost before any mutation, then commits the currency debit, the unlocked ID, and one success notification in a single state transition, so a purchase can never debit without unlocking or unlock without debiting.
 - Unlock rejection reasons are `unknownUnlock`, `alreadyUnlocked`, `prerequisiteLocked`, and `insufficientCurrency`, and the prerequisite reason is reported before the balance reason. A rejection returns the same state object, so no snapshot and no notification is published.
 - An unlock notification is keyed `unlock-machine-<id>` or `unlock-recipe-<id>` and stamps `createdAt` from the logical `tickCount`, keeping notifications deterministic.
@@ -57,6 +60,7 @@ Own deterministic Factor-I simulation state and production rules.
 
 - `npm run test -- tests/unit/upgrades.test.ts`
 - `npm run test -- tests/unit/chains.test.ts`
+- `npm run test -- tests/unit/blockedProducer.test.ts`
 - `npm run test`
 - `npm run lint`
 - `npm run typecheck`

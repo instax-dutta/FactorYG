@@ -14,6 +14,14 @@ import {
   type BeltItemViewFactory,
 } from "./render/BeltItemRenderer";
 import {
+  createMachineBlinker,
+  type MachineBlinker,
+  type MachineBlinkHost,
+  type MachineBlinkPulse,
+  type MachineBlinkPulseConfig,
+  type MachineBlinkView,
+} from "./render/machineBlink";
+import {
   frameTextureKey,
   reportMissingMachineTexture,
   resolveActiveFrameTextureKeys,
@@ -64,8 +72,10 @@ export class FactoryScene extends Phaser.Scene {
       beltItemIds: [],
       beltGlowCount: 0,
       beltItemEventCount: 0,
+      blockedEntityIds: [],
     }),
   );
+  private machineBlinker!: MachineBlinker;
   private activeFrameBucket = -1;
   private unsubscribeSnapshot: (() => void) | undefined;
   private unsubscribeEvents: (() => void) | undefined;
@@ -128,11 +138,13 @@ export class FactoryScene extends Phaser.Scene {
         return { x: world.x + TILE_SIZE_PX / 2, y: world.y + TILE_SIZE_PX / 2 };
       },
     });
+    this.machineBlinker = createMachineBlinker(this.createMachineBlinkHost());
 
     this.snapshot = this.store.getSnapshot();
     this.unsubscribeSnapshot = this.store.subscribe((snapshot) => {
       this.snapshot = snapshot;
       this.refreshGhost();
+      this.refreshBlockedMachines();
       this.publishTelemetry();
     });
     this.unsubscribeEvents = this.store.subscribeEvents((event) => this.handleRenderEvent(event));
@@ -200,10 +212,28 @@ export class FactoryScene extends Phaser.Scene {
       this.setEntityActive(entityId);
     }
 
+    for (const entityId of this.store.getBlockedMachineIds()) {
+      this.setEntityBlocked(entityId);
+    }
+
     const carriedItems = this.store.getBeltItems();
     this.beltItemRenderer.sync(carriedItems);
     for (const entityId of Object.keys(carriedItems)) {
       this.setEntityActive(entityId);
+    }
+  }
+
+  private refreshBlockedMachines(): void {
+    const blocked = this.store.getBlockedMachineIds();
+    for (const entityId of this.machineBlinker.getBlinkingEntityIds()) {
+      if (!blocked.includes(entityId)) {
+        this.machineBlinker.stop(entityId);
+        this.renderTelemetry.markDirty();
+      }
+    }
+
+    for (const entityId of blocked) {
+      this.setEntityBlocked(entityId);
     }
   }
 
@@ -287,6 +317,7 @@ export class FactoryScene extends Phaser.Scene {
         break;
       case "entityRemoved": {
         const sprite = this.entitySprites.get(event.entityId);
+        this.machineBlinker.stop(event.entityId);
         sprite?.destroy();
         this.entitySprites.delete(event.entityId);
         this.placedEntities.delete(event.entityId);
@@ -311,6 +342,9 @@ export class FactoryScene extends Phaser.Scene {
           this.setEntityActive(event.entityId);
         }
         break;
+      case "blockedFull":
+        this.setEntityBlocked(event.entityId);
+        break;
       case "storageFull":
         this.renderNotice(event.worldX, event.worldY);
         break;
@@ -324,6 +358,41 @@ export class FactoryScene extends Phaser.Scene {
 
   private assertUnreachableRenderEvent(event: never): never {
     throw new Error(`Unhandled render event: ${JSON.stringify(event)}`);
+  }
+
+  private setEntityBlocked(entityId: string): void {
+    const sprite = this.entitySprites.get(entityId);
+    if (sprite === undefined || this.machineBlinker.isBlinking(entityId)) {
+      return;
+    }
+
+    this.machineBlinker.start(entityId, sprite, sprite.tintTopLeft);
+    this.renderTelemetry.markDirty();
+  }
+
+  private createMachineBlinkHost(): MachineBlinkHost {
+    return {
+      createPulseTween: (view, config) => this.createMachineBlinkPulse(view, config),
+    };
+  }
+
+  private createMachineBlinkPulse(
+    view: MachineBlinkView,
+    config: MachineBlinkPulseConfig,
+  ): MachineBlinkPulse {
+    const tween = this.tweens.add({
+      targets: view,
+      alpha: config.hold,
+      duration: config.duration,
+      yoyo: config.yoyo,
+      repeat: config.repeat,
+    });
+    return {
+      stop: (): void => {
+        tween.stop();
+        view.alpha = 1;
+      },
+    };
   }
 
   private renderEntity(entity: Entity): void {
@@ -507,6 +576,9 @@ export class FactoryScene extends Phaser.Scene {
           beltItemIds: [...this.beltItemRenderer.getRenderedEntityIds()].sort(),
           beltGlowCount: this.beltItemRenderer.getRendered().length,
           beltItemEventCount: this.beltItemRenderer.getChangedEventCount(),
+          blockedEntityIds: [...this.machineBlinker.getBlinkingEntityIds()].sort(
+            compareEntityIds,
+          ),
         }),
     );
   }
@@ -549,6 +621,7 @@ export class FactoryScene extends Phaser.Scene {
     this.inputAdapter?.dispose();
     this.inputAdapter = undefined;
     this.beltItemRenderer?.destroy();
+    this.machineBlinker?.destroy();
     this.activeEntityIds.clear();
     this.activeFrameBucket = -1;
   };

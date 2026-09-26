@@ -5,6 +5,7 @@ import { createInitialState } from "../../src/sim/initialState";
 import { SimulationStore } from "../../src/sim/store";
 import {
   createRenderTelemetryCache,
+  createSceneRenderTelemetry,
   createSceneTelemetry,
   INITIAL_SCENE_TELEMETRY,
   type SceneRenderTelemetry,
@@ -20,6 +21,7 @@ function createRenderTelemetry(
     beltItemIds: Object.freeze([]),
     beltGlowCount: 0,
     beltItemEventCount: 0,
+    blockedEntityIds: Object.freeze([]),
     ...overrides,
   });
 }
@@ -54,6 +56,7 @@ describe("createSceneTelemetry", () => {
       beltItemIds: [] as string[],
       beltGlowCount: 0,
       beltItemEventCount: 0,
+      blockedEntityIds: [] as string[],
     };
 
     const telemetry = createSceneTelemetry({
@@ -80,7 +83,24 @@ describe("createSceneTelemetry", () => {
       beltItemIds: [],
       beltGlowCount: 0,
       beltItemEventCount: 0,
+      blockedEntityIds: [],
     });
+  });
+
+  it("freezes the blocked machine ids so a browser test cannot mutate the reported blink set", () => {
+    const render = createSceneRenderTelemetry({
+      entityIds: ["entity-1"],
+      activeEntityIds: [],
+      activeFrameKeys: [],
+      beltItemIds: [],
+      beltGlowCount: 0,
+      beltItemEventCount: 0,
+      blockedEntityIds: ["entity-3", "entity-1"],
+    });
+
+    expect(Object.isFrozen(render.blockedEntityIds)).toBe(true);
+    expect(Reflect.set(render.blockedEntityIds as string[], 0, "entity-9")).toBe(false);
+    expect(render.blockedEntityIds).toEqual(["entity-3", "entity-1"]);
   });
 });
 
