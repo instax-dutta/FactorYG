@@ -9,7 +9,7 @@ const AT = { x: 10, y: 10 };
 const COPPER_NODE = { id: "node-copper", resource: "copperOre" as const, x: 8, y: 9 };
 
 function createSmelter(recipeId: string): Entity {
-  return { id: "smelter-1", type: "smelter", x: AT.x, y: AT.y, rotation: 0, level: 1, recipeId } as Entity;
+  return { id: "smelter-1", type: "smelter", x: AT.x, y: AT.y, rotation: 0, level: 1, recipeId };
 }
 
 function createBelt(id: string, x: number, y: number, rotation = 0): Entity {

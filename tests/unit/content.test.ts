@@ -881,8 +881,8 @@ describe("Factor-Y content tables", () => {
     const snapshot = createMutableContentSnapshot();
     const smelterPorts = snapshot.machines.smelter.ports as Array<Record<string, unknown>>;
     const smelterInputs = smelterPorts
-      .map((port, index) => (port.kind === "input" ? { ...port, accepts: ["copperOre"] } : port))
-      .filter((port) => port.kind === "input");
+      .filter((port) => port.kind === "input")
+      .map((port) => ({ ...port, accepts: ["copperOre"] }));
     smelterPorts.length = 0;
     smelterPorts.push(...smelterInputs, smelterPorts.find((port) => port.kind === "output")!);
     const assemblerSnapshot = createMutableContentSnapshot();
