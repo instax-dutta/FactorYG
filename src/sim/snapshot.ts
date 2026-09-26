@@ -1,5 +1,5 @@
-import { PRESTIGE_THRESHOLD } from "./constants";
 import { getCurrencyPerSecond } from "./economy";
+import { canPrestige } from "./prestige";
 import type {
   Entity,
   MachineType,
@@ -27,7 +27,7 @@ export function createSnapshot(state: SimulationState): SimulationSnapshot {
     currency: state.currency,
     currencyPerSecond: getCurrencyPerSecond(state),
     prestigePoints: state.prestige.points,
-    prestigeReady: state.lifetimeCurrency >= PRESTIGE_THRESHOLD,
+    prestigeReady: canPrestige(state),
     unlockedMachines,
     unlockedRecipes,
     selectedEntity: selectedEntitySnapshot,

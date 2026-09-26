@@ -10,6 +10,7 @@ Own deterministic Factor-I simulation state and production rules.
 - `placement.ts` and `connections.ts` own validation and port connectivity.
 - `machines.ts`, `economy.ts`, `tick.ts`, and `offline.ts` own production and sales, and `tick.ts` sells through the sale terminals the machine table declares.
 - `chains.ts` owns production chain discovery and steady-state throughput.
+- `prestige.ts` owns the prestige points formula and the single eligibility validator, and the snapshot's `prestigeReady` flag reads that validator instead of repeating the threshold.
 - `commands.ts` owns unlock purchases for machines and recipes and the entity level upgrade.
 - `store.ts` owns private state, commands, snapshots, the fixed-step driver, and the read-only `getActiveMachineIds` and `getBlockedMachineIds` views a renderer reads instead of simulating.
 - `initialState.ts` owns deterministic new-game world creation. Resource nodes are scattered across the whole grid, eight per raw type, rather than banded into quadrants, so a straight belt line can carry any resource to any part of the map. Banded nodes made the deep production chain arithmetically unreachable: a two-raw smelter could only be fed from one band, and no two bands overlapped.
@@ -50,6 +51,10 @@ Own deterministic Factor-I simulation state and production rules.
 - `steadyStateThroughput` is realized output units per second, measured from the rolling window in `economy.ts` as the currency a chain's own claimed sale terminal recorded, divided by the resource sell value, the permanent sell multiplier, and the window length. It is zero before a full window exists and is never a static table rate, and `getSteadyStateThroughput` is the sum of the chain throughputs.
 - The store's save view is the live state, because the runtime save path measures chains from the rolling window, while `projectSaveGame` still writes only `SaveGame` fields.
 - Level one is the identity for the level model: an unupgraded machine keeps its table rate, its table recipe duration, and its table output capacity. `canRunRecipe`, `consumeRecipeInputs`, and `completeRecipe` take the entity rather than a level, so no caller can read an unleveled capacity by omitting an argument.
+- Prestige points are `floor(sqrt(lifetimeCurrency / PRESTIGE_THRESHOLD))`, dividing by the one shared `PRESTIGE_THRESHOLD` in `constants.ts` rather than a private literal, so a second threshold definition cannot drift. The formula floors, so the first point lands exactly at the threshold, each later point needs a whole perfect square of the scaled lifetime, and a value just below a square still earns the lower count rather than a rounded one.
+- Points and eligibility are separate rules. `canPrestige` is true from the threshold inclusive, so a state at the threshold and one just above it are both eligible, and it reads lifetime currency while ignoring the spendable balance, because spending currency never lowers lifetime currency.
+- A lifetime that is negative or not finite is unusable rather than large. `calculatePrestigePoints` returns zero instead of `NaN` or a negative count, and `canPrestige` is false, so a corrupt save can never be prestige-eligible for a payout worth nothing. Both reject on one finite non-negative check rather than special-casing each bad value.
+- Prestige points and eligibility read no clock and no random source, so one lifetime value always produces the same points and the same eligibility answer.
 - Content tables and shared types remain the single source of truth.
 
 ## Work Guidance
@@ -63,6 +68,7 @@ Own deterministic Factor-I simulation state and production rules.
 - `npm run test -- tests/unit/upgrades.test.ts`
 - `npm run test -- tests/unit/chains.test.ts`
 - `npm run test -- tests/unit/blockedProducer.test.ts`
+- `npm run test -- tests/unit/prestige.test.ts`
 - `npm run test`
 - `npm run lint`
 - `npm run typecheck`
