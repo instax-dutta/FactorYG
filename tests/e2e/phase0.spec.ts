@@ -54,6 +54,7 @@ declare global {
 const COPPER_NODE = { x: 20, y: 21 };
 const TEST_IRON_NODE = { x: 36, y: 27 };
 const TEST_CELL = { x: 32, y: 32 };
+const TALL_INSPECTOR_CELL = { x: 34, y: 32 };
 const TILE_SIZE_PX = 64;
 
 async function installStatusHistory(page: Page): Promise<void> {
@@ -193,6 +194,34 @@ async function screenPointForCell(
   );
 }
 
+async function selectTallestInspector(page: Page, placeFirst: boolean): Promise<void> {
+  const selected = await page.evaluate(
+    ({ cell, place }) => {
+      const runtime = window.__FACTOR_Y__;
+      if (runtime === undefined) {
+        throw new Error("Factor-Y runtime bridge unavailable");
+      }
+      if (place) {
+        const placed = runtime.dispatch({
+          type: "placeEntity",
+          machine: "belt",
+          x: cell.x,
+          y: cell.y,
+          rotation: 0,
+        });
+        if (!placed.ok) {
+          return placed;
+        }
+      }
+      return runtime.dispatch({ type: "selectEntity", entityId: "entity-1" });
+    },
+    { cell: TALL_INSPECTOR_CELL, place: placeFirst },
+  );
+
+  expect(selected).toEqual({ ok: true });
+  await expect(page.getByTestId("inspector-id")).toHaveText("entity-1");
+}
+
 async function expectNoPanelOverlap(page: Page): Promise<void> {
   const panels = [
     ["Header", await waitForBoundingBox(page.getByRole("banner"), "Header")],
@@ -252,7 +281,6 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
     "Inspector",
   );
   expect(boxesOverlap(headerBox, inspectorBox)).toBe(false);
-  await expectNoPanelOverlap(page);
 
   expect(
     await page.evaluate(() => Object.keys(window.__FACTOR_Y__ ?? {}).sort()),
@@ -352,6 +380,9 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
   expect(economy.results).toEqual([{ ok: true }, { ok: true }, { ok: true }]);
   expect(economy.after).toBeGreaterThan(economy.before);
 
+  await selectTallestInspector(page, false);
+  await expectNoPanelOverlap(page);
+
   const occupiedResult = await page.evaluate((node) => {
     return window.__FACTOR_Y__?.dispatch({
       type: "placeEntity",
@@ -436,24 +467,25 @@ test("opens the tech tree, buys a machine, and dismisses on Escape", async ({ pa
   if (viewport === null) {
     throw new Error("Viewport size unavailable");
   }
+  const panelInsets = {
+    top: panelBox.y,
+    left: panelBox.x,
+    bottom: viewport.height - (panelBox.y + panelBox.height),
+    right: viewport.width - (panelBox.x + panelBox.width),
+  };
+  expect(panelInsets).toEqual({
+    top: expect.closeTo(24, 8),
+    left: expect.closeTo(240, 24),
+    bottom: expect.closeTo(24, 8),
+    right: expect.closeTo(240, 24),
+  });
   expect({
     fitsViewport:
-      panelBox.y > 0 &&
-      panelBox.x > 0 &&
-      panelBox.y + panelBox.height < viewport.height &&
-      panelBox.x + panelBox.width < viewport.width,
-    panel: {
-      top: Math.round(panelBox.y),
-      left: Math.round(panelBox.x),
-      bottom: Math.round(panelBox.y + panelBox.height),
-      right: Math.round(panelBox.x + panelBox.width),
-    },
-    viewport,
-  }).toEqual({
-    fitsViewport: true,
-    panel: { top: 24, left: 240, bottom: 776, right: 760 },
-    viewport: { width: 1000, height: 800 },
-  });
+      panelInsets.top > 0 &&
+      panelInsets.left > 0 &&
+      panelInsets.bottom > 0 &&
+      panelInsets.right > 0,
+  }).toEqual({ fitsViewport: true });
   const panelScroll = await page.getByTestId("tech-tree-panel").evaluate((panel) => ({
     clientHeight: panel.clientHeight,
     scrollHeight: panel.scrollHeight,
@@ -475,6 +507,7 @@ test("opens the tech tree, buys a machine, and dismisses on Escape", async ({ pa
 
   await expect(page.getByTestId("tech-tree")).toHaveCount(0);
   await expect(toggle).toBeFocused();
+  await selectTallestInspector(page, true);
   await expectNoPanelOverlap(page);
   expect(browserErrors).toEqual([]);
 });

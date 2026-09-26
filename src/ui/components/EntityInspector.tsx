@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { getMachineUpgradeCost, getUpgradeLevel } from "../../content/machines";
 import type { SimulationStore } from "../../sim/store";
-import type { Entity, SimulationSnapshot } from "../../sim/types";
+import type { Entity } from "../../sim/types";
 import { useSimulationSnapshot } from "../hooks/useSimulationSnapshot";
 import { getCommandReasonMessage, getMachineLabel } from "../presentation";
 
@@ -15,22 +15,17 @@ interface UpgradeState {
   readonly message: string;
 }
 
-interface Refusal {
-  readonly snapshot: SimulationSnapshot;
-  readonly reason: string;
-}
-
 const numberFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
 export function EntityInspector({ store }: EntityInspectorProps) {
   const snapshot = useSimulationSnapshot(store);
-  const [refusal, setRefusal] = useState<Refusal | null>(null);
+  const [, setRefusedAttempts] = useState(0);
   const entity = snapshot.selectedEntity;
   const throughput =
     snapshot.selectedThroughput > 0 ? `${formatNumber(snapshot.selectedThroughput)} / sec` : "Pending";
-  const upgrade = resolveUpgrade(entity, snapshot, store, refusal);
+  const upgrade = resolveUpgrade(entity, store);
 
   return (
     <aside
@@ -107,13 +102,10 @@ export function EntityInspector({ store }: EntityInspectorProps) {
               disabled={upgrade.blocked}
               title={upgrade.message}
               onClick={() => {
-                setRefusal(null);
                 const result = store.dispatch({ type: "upgradeEntity", entityId: entity.id });
-                setRefusal(
-                  result.ok
-                    ? null
-                    : { snapshot: store.getSnapshot(), reason: result.reason ?? "notImplemented" },
-                );
+                if (!result.ok) {
+                  setRefusedAttempts((attempts) => attempts + 1);
+                }
               }}
               style={upgrade.blocked ? disabledButtonStyle : buttonStyle}
             >
@@ -153,12 +145,7 @@ const disabledButtonStyle = {
   cursor: "not-allowed",
 };
 
-function resolveUpgrade(
-  entity: Entity | undefined,
-  snapshot: SimulationSnapshot,
-  store: SimulationStore,
-  refusal: Refusal | null,
-): UpgradeState {
+function resolveUpgrade(entity: Entity | undefined, store: SimulationStore): UpgradeState {
   if (entity === undefined) {
     return {
       blocked: true,
@@ -169,16 +156,8 @@ function resolveUpgrade(
 
   const preflight = store.canUpgrade(entity.id);
   if (!preflight.ok) {
-    const reason = preflight.reason ?? "notImplemented";
+    const reason = preflight.reason;
     return { blocked: true, reason, message: getCommandReasonMessage(reason) };
-  }
-
-  if (refusal !== null && refusal.snapshot === snapshot) {
-    return {
-      blocked: true,
-      reason: refusal.reason,
-      message: getCommandReasonMessage(refusal.reason),
-    };
   }
 
   const cost = getMachineUpgradeCost(entity.type, entity.level);

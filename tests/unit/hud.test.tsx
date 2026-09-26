@@ -227,6 +227,47 @@ describe("EntityInspector", () => {
     expect(store.getSnapshot().currency).toBe(0);
   });
 
+  it("keeps a refused upgrade visible while the store keeps publishing new snapshots", () => {
+    const store = new SimulationStore(
+      createStateWithSelectedEntity(FUNDED_CURRENCY),
+      () => 0,
+      (current, count) => ({ ...current, currency: 0, tickCount: current.tickCount + count }),
+    );
+    const dispatch = vi.spyOn(store, "dispatch");
+
+    render(<EntityInspector store={store} />);
+    expect(screen.getByRole("button", { name: "Upgrade" })).toBeEnabled();
+
+    act(() => {
+      store.advanceTicks(1);
+      fireEvent.click(screen.getByRole("button", { name: "Upgrade" }));
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: "upgradeEntity", entityId: "entity-1" });
+    expect(screen.getByTestId("inspector-upgrade-status")).toHaveAttribute(
+      "data-reason",
+      "insufficientCurrency",
+    );
+    expect(screen.getByRole("button", { name: "Upgrade" })).toBeDisabled();
+    expect(store.getSnapshot().selectedEntity?.level).toBe(3);
+
+    const before = store.getSnapshot();
+    act(() => {
+      store.advanceTicks(3);
+    });
+
+    expect(store.getSnapshot()).not.toBe(before);
+    expect(store.getSaveGame().tickCount).toBe(4);
+    expect(screen.getByTestId("inspector-upgrade-status")).toHaveAttribute(
+      "data-reason",
+      "insufficientCurrency",
+    );
+    expect(screen.getByTestId("inspector-upgrade-cost")).toHaveTextContent(
+      "Not enough currency.",
+    );
+    expect(screen.getByRole("button", { name: "Upgrade" })).toBeDisabled();
+  });
+
   it("drops a refusal once the state that caused it no longer holds", () => {
     let tick = 0;
     const store = new SimulationStore(

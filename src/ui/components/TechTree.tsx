@@ -52,7 +52,7 @@ interface ResolvedEntry {
 interface Rejection {
   readonly key: string;
   readonly label: string;
-  readonly reason: string;
+  readonly reason: string | undefined;
 }
 
 const machineUnlocks: Readonly<Partial<Record<MachineType, UnlockRequirement>>> =
@@ -91,13 +91,7 @@ export function TechTree({ store }: TechTreeProps) {
           : store.dispatch({ type: "unlockRecipe", recipeId: entry.id });
 
       setRejection(
-        result.ok
-          ? null
-          : {
-              key: entry.key,
-              label: entry.label,
-              reason: result.reason ?? "unknownUnlock",
-            },
+        result.ok ? null : { key: entry.key, label: entry.label, reason: result.reason },
       );
     },
     [store],
@@ -260,7 +254,13 @@ function resolveRejection(
     return null;
   }
 
-  return resolveEntry(entry, snapshot, store).reason === rejection.reason ? rejection : null;
+  const resolved = resolveEntry(entry, snapshot, store);
+
+  if (resolved.state === "available" || resolved.state === "included") {
+    return null;
+  }
+
+  return resolved.reason === undefined ? rejection : { ...rejection, reason: resolved.reason };
 }
 
 function resolveEntry(
@@ -287,7 +287,7 @@ function resolveEntry(
     return { entry, state: "available", reason: undefined, missing };
   }
 
-  const reason = preflight.reason ?? "unknownUnlock";
+  const reason = preflight.reason;
   const state: EntryState =
     reason === "alreadyUnlocked"
       ? "unlocked"
