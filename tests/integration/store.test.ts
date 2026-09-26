@@ -209,7 +209,7 @@ describe("SimulationStore", () => {
     const initialSnapshot = store.getSnapshot();
     store.subscribe(listener);
 
-    const result = store.dispatch({ type: "prestige" });
+    const result = store.dispatch({ type: "expandGrid", width: 96, height: 96 });
 
     expect(result).toEqual({ ok: false, reason: "notImplemented" });
     expect(listener).not.toHaveBeenCalled();

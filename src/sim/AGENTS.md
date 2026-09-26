@@ -11,9 +11,9 @@ Own deterministic Factor-I simulation state and production rules.
 - `machines.ts`, `economy.ts`, `tick.ts`, and `offline.ts` own production and sales, and `tick.ts` sells through the sale terminals the machine table declares.
 - `chains.ts` owns production chain discovery and steady-state throughput.
 - `prestige.ts` owns the prestige points formula and the single eligibility validator, and the snapshot's `prestigeReady` flag reads that validator instead of repeating the threshold.
-- `commands.ts` owns unlock purchases for machines and recipes and the entity level upgrade.
+- `commands.ts` owns unlock purchases for machines and recipes, the entity level upgrade, and the prestige reset with its `canResetPrestige` preflight and `getPermanentMultipliers` read.
 - `store.ts` owns private state, commands, snapshots, the fixed-step driver, and the read-only `getActiveMachineIds` and `getBlockedMachineIds` views a renderer reads instead of simulating.
-- `initialState.ts` owns deterministic new-game world creation. Resource nodes are scattered across the whole grid, eight per raw type, rather than banded into quadrants, so a straight belt line can carry any resource to any part of the map. Banded nodes made the deep production chain arithmetically unreachable: a two-raw smelter could only be fed from one band, and no two bands overlapped.
+- `initialState.ts` owns deterministic new-game world creation and `createResetState`, the one constructor for a post-prestige world. Resource nodes are scattered across the whole grid, eight per raw type, rather than banded into quadrants, so a straight belt line can carry any resource to any part of the map. Banded nodes made the deep production chain arithmetically unreachable: a two-raw smelter could only be fed from one band, and no two bands overlapped.
 
 ## Local Contracts
 
@@ -55,6 +55,12 @@ Own deterministic Factor-I simulation state and production rules.
 - Points and eligibility are separate rules. `canPrestige` is true from the threshold inclusive, so a state at the threshold and one just above it are both eligible, and it reads lifetime currency while ignoring the spendable balance, because spending currency never lowers lifetime currency.
 - A lifetime that is negative or not finite is unusable rather than large. `calculatePrestigePoints` returns zero instead of `NaN` or a negative count, and `canPrestige` is false, so a corrupt save can never be prestige-eligible for a payout worth nothing. Both reject on one finite non-negative check rather than special-casing each bad value.
 - Prestige points and eligibility read no clock and no random source, so one lifetime value always produces the same points and the same eligibility answer.
+- A prestige reset validates eligibility through `canResetPrestige`, which reads the same `canPrestige` validator the snapshot and the preflight accessor use, and it commits the whole reset in one state transition. A rejection returns the same state object, so no snapshot and no notification is published, and the refusal reason is `insufficientLifetimeCurrency`.
+- The reset state is built by `createResetState` from a fresh initial world, so the currency returns to `STARTING_CURRENCY`, the grid entities, machine runtimes, belts, and chain summaries are dropped, the entity sequence, tick count, and sale samples restart, and selection, placement mode, and the offline summary are cleared. The pre-existing state is never mutated, because the reset constructs a new world rather than emptying the old one.
+- Only the prestige block survives a reset. Points, the prestige count, and the permanent multipliers are banked into the new world; lifetime currency, spendable currency, paid unlocks, levels, and the built grid are not, so a paid machine must be purchased again and the free starting unlock set is restored.
+- A permanent multiplier is derived from the banked point count, `1 + points * PRESTIGE_PRODUCTION_BONUS_PER_POINT` and `1 + points * PRESTIGE_SELL_BONUS_PER_POINT`, and the reset stores that derived value in the state. The getter and the stored field therefore cannot disagree, and the award is applied once per reset rather than on every read or tick, because nothing multiplies the running state.
+- The reset world is immediately serializable: every machine and belt record belongs to a surviving entity because the world is rebuilt whole, so a save written straight after a reset validates rather than failing on a dangling reference. The reset carries the new-game `lastSavedAt`, and the autosave projection stamps the current time, so a reset cannot claim offline time.
+- The store routes the `prestige` command to `performPrestige` and exposes `canResetPrestige()` and `getPermanentMultipliers()`, so the reset button and the dispatch cannot disagree.
 - Content tables and shared types remain the single source of truth.
 
 ## Work Guidance
@@ -69,6 +75,7 @@ Own deterministic Factor-I simulation state and production rules.
 - `npm run test -- tests/unit/chains.test.ts`
 - `npm run test -- tests/unit/blockedProducer.test.ts`
 - `npm run test -- tests/unit/prestige.test.ts`
+- `npm run test -- tests/integration/prestigeReset.test.ts`
 - `npm run test`
 - `npm run lint`
 - `npm run typecheck`

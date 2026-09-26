@@ -1,11 +1,15 @@
 import { FixedStepClock } from "./clock";
 import { TICK_MS } from "./constants";
 import {
+  canResetPrestige,
   canUnlock,
   canUpgrade,
+  getPermanentMultipliers,
+  performPrestige,
   unlockMachine,
   unlockRecipe,
   upgradeEntity,
+  type PermanentMultipliers,
   type UnlockTarget,
 } from "./commands";
 import { applyPlacement, validatePlacement } from "./placement";
@@ -143,6 +147,14 @@ export class SimulationStore {
 
   public canUpgrade(entityId: string): CommandResult {
     return canUpgrade(this.#state, entityId);
+  }
+
+  public canResetPrestige(): CommandResult {
+    return canResetPrestige(this.#state);
+  }
+
+  public getPermanentMultipliers(): PermanentMultipliers {
+    return getPermanentMultipliers(this.#state);
   }
 
   public dispatch(command: SimulationCommand): CommandResult {
@@ -300,6 +312,9 @@ export class SimulationStore {
       }
       case "upgradeEntity": {
         return upgradeEntity(this.#state, command.entityId);
+      }
+      case "prestige": {
+        return performPrestige(this.#state);
       }
       default:
         return {

@@ -1,12 +1,16 @@
 import { getUpgradeLevel, isLevelAffected } from "../content/machines";
 import { UNLOCKS } from "../content/unlocks";
 import type { UnlockRequirement } from "../content/types";
+import { PRESTIGE_PRODUCTION_BONUS_PER_POINT, PRESTIGE_SELL_BONUS_PER_POINT } from "./constants";
+import { createResetState } from "./initialState";
 import { getUpgradeCost } from "./machines";
+import { calculatePrestigePoints, canPrestige } from "./prestige";
 import type {
   CommandResult,
   Entity,
   MachineType,
   Notification,
+  PrestigeState,
   SimulationCommand,
   SimulationState,
 } from "./types";
@@ -215,4 +219,58 @@ export function upgradeEntity(state: SimulationState, entityId: string): Upgrade
 
 function findEntity(state: SimulationState, entityId: string): Entity | undefined {
   return state.grid.entities.find((candidate) => candidate.id === entityId);
+}
+
+export type PermanentMultipliers = PrestigeState["permanentMultipliers"];
+
+export interface PrestigeApplication {
+  state: SimulationState;
+  changed: boolean;
+  result: CommandResult;
+  awardedPoints?: number;
+  notification?: Notification;
+}
+
+export function getPermanentMultipliers(state: SimulationState): PermanentMultipliers {
+  return permanentMultipliersForPoints(state.prestige.points);
+}
+
+export function canResetPrestige(state: SimulationState): CommandResult {
+  return canPrestige(state) ? { ok: true } : { ok: false, reason: "insufficientLifetimeCurrency" };
+}
+
+export function performPrestige(state: SimulationState): PrestigeApplication {
+  const result = canResetPrestige(state);
+  if (!result.ok) {
+    return { state, changed: false, result };
+  }
+
+  const awardedPoints = calculatePrestigePoints(state.lifetimeCurrency);
+  const permanent: PrestigeState = {
+    points: state.prestige.points + awardedPoints,
+    totalPrestiges: state.prestige.totalPrestiges + 1,
+    permanentMultipliers: permanentMultipliersForPoints(state.prestige.points + awardedPoints),
+  };
+  const notification: Notification = {
+    id: `prestige-${permanent.totalPrestiges}`,
+    kind: "success",
+    message: `Prestige complete: +${awardedPoints} prestige points`,
+    createdAt: state.tickCount,
+  };
+
+  return {
+    state: { ...createResetState(permanent), notifications: [notification] },
+    changed: true,
+    result: { ok: true },
+    awardedPoints,
+    notification,
+  };
+}
+
+function permanentMultipliersForPoints(points: number): PermanentMultipliers {
+  const earned = Number.isFinite(points) ? Math.max(0, points) : 0;
+  return {
+    productionSpeed: 1 + earned * PRESTIGE_PRODUCTION_BONUS_PER_POINT,
+    sellValue: 1 + earned * PRESTIGE_SELL_BONUS_PER_POINT,
+  };
 }

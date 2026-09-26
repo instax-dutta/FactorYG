@@ -5,7 +5,7 @@ import {
   STARTING_CURRENCY,
   TILE_SIZE_PX,
 } from "./constants";
-import type { ResourceId, ResourceNode, SimulationState } from "./types";
+import type { PrestigeState, ResourceId, ResourceNode, SimulationState } from "./types";
 
 const RAW_RESOURCES: ResourceId[] = ["copperOre", "ironOre", "coal", "stone"];
 const NODES_PER_RESOURCE = 8;
@@ -92,5 +92,19 @@ export function createInitialState(seed = 1337): SimulationState {
     pendingRotation: 0,
     notifications: [],
     offlineSummary: undefined,
+  };
+}
+
+export function createResetState(permanent: PrestigeState): SimulationState {
+  return {
+    ...createInitialState(),
+    prestige: {
+      points: permanent.points,
+      totalPrestiges: permanent.totalPrestiges,
+      permanentMultipliers: {
+        productionSpeed: permanent.permanentMultipliers.productionSpeed,
+        sellValue: permanent.permanentMultipliers.sellValue,
+      },
+    },
   };
 }
