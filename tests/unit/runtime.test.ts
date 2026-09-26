@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SAVE_KEY } from "../../src/sim/constants";
+import { permanentMultipliersForPoints } from "../../src/sim/prestige";
 import { createInitialState } from "../../src/sim/initialState";
 import { serializeSave } from "../../src/persistence/save";
 import type { SimulationState } from "../../src/sim/types";
@@ -58,12 +59,16 @@ describe("browser simulation runtime", () => {
   });
 });
 
+const SELL_MULTIPLIER_POINTS = 4;
+
 function createPersistedState(): SimulationState {
   const state = createInitialState();
   state.lastSavedAt = 10_000;
   state.currency = 100;
   state.lifetimeCurrency = 200;
-  state.prestige.permanentMultipliers.sellValue = 2;
+  state.prestige.points = SELL_MULTIPLIER_POINTS;
+  state.prestige.totalPrestiges = 1;
+  state.prestige.permanentMultipliers = permanentMultipliersForPoints(SELL_MULTIPLIER_POINTS);
   state.productionChains = {
     copper: {
       id: "copper",

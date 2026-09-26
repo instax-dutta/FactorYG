@@ -1,10 +1,11 @@
+import { STARTING_CURRENCY } from "../content/balance";
 import {
   GRID_HEIGHT,
   GRID_WIDTH,
   NEW_GAME_TIMESTAMP,
-  STARTING_CURRENCY,
   TILE_SIZE_PX,
 } from "./constants";
+import { permanentMultipliersForPoints } from "./prestige";
 import type {
   GridDimensions,
   GridState,
@@ -167,10 +168,7 @@ export function createInitialState(
     prestige: {
       points: 0,
       totalPrestiges: 0,
-      permanentMultipliers: {
-        productionSpeed: 1,
-        sellValue: 1,
-      },
+      permanentMultipliers: permanentMultipliersForPoints(0),
     },
     unlocked: {
       machines: ["extractor", "belt", "depot"],
@@ -204,10 +202,7 @@ export function createResetState(
     prestige: {
       points: permanent.points,
       totalPrestiges: permanent.totalPrestiges,
-      permanentMultipliers: {
-        productionSpeed: permanent.permanentMultipliers.productionSpeed,
-        sellValue: permanent.permanentMultipliers.sellValue,
-      },
+      permanentMultipliers: permanentMultipliersForPoints(permanent.points),
     },
   };
 }

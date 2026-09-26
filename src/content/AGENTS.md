@@ -10,6 +10,7 @@ Own immutable Factor-I content definitions.
 - `validation.ts` validates shipped or candidate content as unknown input.
 - `assetManifest.ts` connects content keys to static art.
 - `unlocks.ts` owns the initial free lists and the paid cost and prerequisite requirements for every other machine and recipe.
+- `balance.ts` owns every number that prices progression rather than describing content: `STARTING_CURRENCY`, `PRESTIGE_THRESHOLD`, the two per-point prestige bonuses, `GRID_EXPANSION_COST`, and the per-tier sell value bands. Nothing else declares a balance number, and the simulation reads them from here.
 - `machines.ts` owns the machine table, level normalization, the upgrade price of a level, and which machine types a level can affect.
 
 ## Local Contracts
@@ -27,6 +28,8 @@ Own immutable Factor-I content definitions.
 - A machine eligible for a level upgrade must have a positive integer `cost`, because that field is the upgrade base price; `validateContent` rejects a zero, negative, or fractional cost on such a machine.
 - A level affects a machine only where the machine produces. Shared storage is not upgrade-eligible, and a machine that takes an input port without running a recipe only transports what others make, so extractors and recipe machines are the upgrade-eligible types. The gate is derived from the machine table and the recipe table, never from a hand-written type list.
 - A machine that sells everything it receives declares `saleTerminal`, and the sales tick and chain analysis read that flag rather than naming a machine type. The flag must be a boolean, and such a machine must accept every resource on one of its input ports, because it sells its whole input buffer.
+- Sell values live only in the resource table, and `balance.ts` never copies a per-resource value; it owns the band each tier's values must fall inside instead. A new resource is balanced by its table row, and moving a tier's band is a balance decision recorded in one place. `SELL_VALUE_BANDS` is ordered and non-overlapping, so a later tier can never undercut an earlier one, and tier 0 is capped by the named `RAW_SELL_VALUE_CEILING` so raw units cannot be farmed past the rest of the tree.
+- The two per-point prestige bonuses are exactly representable binary fractions, so a multiplier derived from a point count is the same double whether the simulation or a preview computes it, and the number a player is shown cannot drift from the number the award stores.
 
 ## Work Guidance
 
@@ -35,7 +38,7 @@ Own immutable Factor-I content definitions.
 
 ## Verification
 
-- `npm run test -- tests/unit/content.test.ts tests/unit/assetManifest.test.ts tests/unit/upgrades.test.ts`
+- `npm run test -- tests/unit/content.test.ts tests/unit/assetManifest.test.ts tests/unit/upgrades.test.ts tests/unit/balance.test.ts`
 - `npm run typecheck`
 
 ## Child DOX Index

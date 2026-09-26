@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createInitialState } from "../../src/sim/initialState";
+import { STARTING_CURRENCY } from "../../src/content/balance";
 import {
   GRID_HEIGHT,
   GRID_WIDTH,
   NEW_GAME_TIMESTAMP,
-  STARTING_CURRENCY,
   TILE_SIZE_PX,
 } from "../../src/sim/constants";
 import type { SimulationCommand } from "../../src/sim/types";

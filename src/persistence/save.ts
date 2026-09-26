@@ -3,6 +3,7 @@ import { SAVE_KEY } from "../sim/constants";
 import { getMachine } from "../content/machines";
 import { RESOURCES } from "../content/resources";
 import { applyOfflineProgress, calculateOfflineProgress } from "../sim/offline";
+import { repairPermanentMultipliers } from "../sim/prestige";
 import type {
   BeltCell,
   Entity,
@@ -176,7 +177,7 @@ function stateFromSave(save: SaveGame): SimulationState {
   const initial = createInitialState();
   const projected = projectSaveGame(save);
 
-  return {
+  return repairPermanentMultipliers({
     ...initial,
     version: projected.version,
     lastSavedAt: projected.lastSavedAt,
@@ -191,7 +192,7 @@ function stateFromSave(save: SaveGame): SimulationState {
     currencySamples: [],
     pendingRotation: 0,
     notifications: [],
-  };
+  });
 }
 
 function getNextEntitySequence(entities: readonly Entity[]): number {

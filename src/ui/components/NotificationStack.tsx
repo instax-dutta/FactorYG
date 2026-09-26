@@ -15,10 +15,12 @@ export function NotificationStack({ store }: NotificationStackProps) {
       data-testid="notification-stack"
       style={{
         position: "absolute",
-        top: 220,
+        bottom: 24,
         right: 24,
         zIndex: 4,
-        display: "grid",
+        display: "flex",
+        flexDirection: "column-reverse",
+        alignItems: "stretch",
         gap: 8,
         width: "min(320px, calc(100vw - 48px))",
         pointerEvents: "none",

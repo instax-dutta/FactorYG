@@ -10,12 +10,12 @@ import {
   performPrestige,
 } from "../../src/sim/commands";
 import {
-  NEW_GAME_TIMESTAMP,
   PRESTIGE_PRODUCTION_BONUS_PER_POINT,
   PRESTIGE_SELL_BONUS_PER_POINT,
   PRESTIGE_THRESHOLD,
   STARTING_CURRENCY,
-} from "../../src/sim/constants";
+} from "../../src/content/balance";
+import { NEW_GAME_TIMESTAMP } from "../../src/sim/constants";
 import { sellResource } from "../../src/sim/economy";
 import { NEW_GAME_SEED, createInitialState, createResetState } from "../../src/sim/initialState";
 import { getExtractorRate } from "../../src/sim/machines";

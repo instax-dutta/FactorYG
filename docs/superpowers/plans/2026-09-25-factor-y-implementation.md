@@ -1645,26 +1645,28 @@ git commit -m "test: prove grid expansion in the browser and correct its contrac
 - Create: `tests/unit/balance.test.ts`
 - Create: `tests/e2e/prestige.spec.ts`
 
+**Files beyond the list, and why:** moving the balance numbers out of `src/sim/constants.ts` touches the simulation and persistence, and wiring the control touches presentation. Shipped alongside the five planned files: `src/sim/constants.ts`, `src/sim/prestige.ts`, `src/sim/commands.ts`, `src/sim/grid.ts`, `src/sim/initialState.ts`, `src/sim/snapshot.ts`, `src/sim/types.ts`, `src/persistence/save.ts`, `src/ui/presentation.ts`, `src/ui/components/NotificationStack.tsx`, and the specs whose imports or fixtures move with them (`tests/unit/permanentMultipliers.test.ts`, `tests/unit/prestigeControl.test.tsx`, `tests/unit/expansion.test.ts`, `tests/unit/hud.test.tsx`, `tests/unit/prestige.test.ts`, `tests/unit/offline.test.ts`, `tests/unit/runtime.test.ts`, `tests/unit/initialState.test.ts`, `tests/unit/techTree.test.tsx`, `tests/integration/store.test.ts`, `tests/integration/prestigeReset.test.ts`, `tests/e2e/phase0.spec.ts`, `tests/e2e/production-chain.spec.ts`).
+
 **Interfaces:**
 - Consumes: `prestigeReady`, points, current multipliers, and balance scenario fixtures.
-- Produces: a prestige confirmation modal, disabled/enabled button state, and repeatable economic scenario assertions.
+- Produces: a prestige confirmation modal, disabled/enabled button state, a plot expansion control, and repeatable economic scenario assertions.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Assert the button is disabled below threshold, opens confirmation at threshold, previews the new permanent multipliers, performs one reset, and shows a new-run HUD. Balance tests assert Tier 3 value is greater than Tier 2 and raw values remain low.
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 ```bash
 npm run test -- tests/unit/balance.test.ts
 npm run test:e2e -- tests/e2e/prestige.spec.ts
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Move numeric balance values into `balance.ts`, keep sell values in resource data linked to the balance module, and render the modal from the store snapshot.
 
-- [ ] **Step 4: Verify green**
+- [x] **Step 4: Verify green**
 
 ```bash
 npm run test -- tests/unit/balance.test.ts
@@ -1675,12 +1677,16 @@ npm run typecheck
 npm run build
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/ui/components/Hud.tsx src/ui/components/PrestigeModal.tsx src/content/balance.ts tests/unit/balance.test.ts tests/e2e/prestige.spec.ts
 git commit -m "feat: add prestige UI and balance scenarios"
 ```
+
+**Decided here: the permanent multiplier source of truth.** Moving the balance numbers into `content/balance.ts` and retuning them makes `getPermanentMultipliers` and the stored `prestige.permanentMultipliers` field disagree for every existing save, because the getter derived from points while `getExtractorRate`, `sellResource`, `calculateOfflineProgress`, and chain throughput all read the stored field. The field is the single source of truth the simulation reads, so the getter now returns the field, the rule that decides its value is `permanentMultipliersForPoints` in `prestige.ts`, and a load-time `repairPermanentMultipliers` reprices a save written under older numbers from the points the player banked. The snapshot publishes the award and the resulting pair, so the preview is the award.
+
+**Decided here: the expansion price.** The plot cost lives in `content/balance.ts` as `GRID_EXPANSION_COST` and is layered on the one plot-rights predicate: `isGridExpansionUnlocked` is the conjunction of `hasGridExpansionRights` and `canAffordGridExpansion`, the command reads the halves to word the refusal, and the HUD shows the price and enables the control from the shared preflight.
 
 ## Task 3.5: Verify Save Migration Across Prestige and Expansion
 
@@ -1723,12 +1729,12 @@ git commit -m "feat: preserve saves across progression migrations"
 
 ## Phase 3 Exit Check
 
-- [ ] Prestige threshold, points, reset, and permanent multipliers work end to end.
-- [ ] Grid expansion preserves existing entities and updates camera bounds.
+- [x] Prestige threshold, points, reset, and permanent multipliers work end to end.
+- [x] Grid expansion preserves existing entities and updates camera bounds.
 - [ ] Save migration preserves permanent progression.
-- [ ] Balance scenarios cover all resource tiers.
-- [ ] Prestige browser flow passes.
-- [ ] Phase 3 unit, integration, browser, lint, typecheck, and build checks pass.
+- [x] Balance scenarios cover all resource tiers.
+- [x] Prestige browser flow passes.
+- [ ] Phase 3 unit, integration, browser, lint, typecheck, and build checks pass. Task 3.5 is still open.
 
 ---
 

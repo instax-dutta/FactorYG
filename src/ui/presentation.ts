@@ -24,6 +24,7 @@ const commandReasonMessages: Readonly<Record<string, string>> = {
   gridAlreadyExpanded: "The plot is already that size.",
   entityOutOfBounds: "Something is standing outside the plot.",
   nodeOutOfBounds: "The plot does not cover the whole world.",
+  insufficientExpansionCost: "The plot costs more currency than this run holds.",
   notImplemented: "That action is not available yet.",
 };
 

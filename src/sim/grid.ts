@@ -1,3 +1,4 @@
+import { GRID_EXPANSION_COST } from "../content/balance";
 import {
   GRID_EXPANSION_STEP,
   GRID_HEIGHT,
@@ -27,8 +28,16 @@ export function isAlignedGridDimension(dimension: number): boolean {
   return dimension % GRID_EXPANSION_STEP === 0;
 }
 
-export function isGridExpansionUnlocked(state: SimulationState): boolean {
+export function hasGridExpansionRights(state: SimulationState): boolean {
   return state.prestige.totalPrestiges > 0;
+}
+
+export function canAffordGridExpansion(state: SimulationState): boolean {
+  return Number.isFinite(state.currency) && state.currency >= GRID_EXPANSION_COST;
+}
+
+export function isGridExpansionUnlocked(state: SimulationState): boolean {
+  return hasGridExpansionRights(state) && canAffordGridExpansion(state);
 }
 
 export function isGridGrowth(previous: GridDimensions, next: GridDimensions): boolean {

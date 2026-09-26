@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { RESOURCES } from "../../src/content/resources";
 import { UNLOCKS } from "../../src/content/unlocks";
-import { SAVE_KEY, STARTING_CURRENCY } from "../../src/sim/constants";
+import { STARTING_CURRENCY } from "../../src/content/balance";
+import { SAVE_KEY } from "../../src/sim/constants";
 
 interface CommandResult {
   ok: boolean;

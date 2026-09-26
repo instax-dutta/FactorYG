@@ -65,13 +65,15 @@ export interface GridState {
   belts: Record<string, BeltCell>;
 }
 
+export interface PermanentMultipliers {
+  productionSpeed: number;
+  sellValue: number;
+}
+
 export interface PrestigeState {
   points: number;
   totalPrestiges: number;
-  permanentMultipliers: {
-    productionSpeed: number;
-    sellValue: number;
-  };
+  permanentMultipliers: PermanentMultipliers;
 }
 
 export interface ProductionChainSummary {
@@ -118,6 +120,12 @@ export interface SimulationSnapshot {
   currencyPerSecond: number;
   prestigePoints: number;
   prestigeReady: boolean;
+  permanentMultipliers: PermanentMultipliers;
+  prestigeAwardPoints: number;
+  prestigeNextMultipliers: PermanentMultipliers;
+  expansionUnlocked: boolean;
+  gridWidth: number;
+  gridHeight: number;
   unlockedMachines: MachineType[];
   unlockedRecipes: string[];
   selectedEntity?: Entity;

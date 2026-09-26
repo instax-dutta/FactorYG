@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PRESTIGE_THRESHOLD } from "../../src/sim/constants";
+import { PRESTIGE_THRESHOLD } from "../../src/content/balance";
 import { createInitialState } from "../../src/sim/initialState";
 import { calculatePrestigePoints, canPrestige } from "../../src/sim/prestige";
 import type { SimulationState } from "../../src/sim/types";
@@ -11,8 +11,8 @@ const prestigeSource = readFileSync(
   "utf8",
 );
 
-const constantsSource = readFileSync(
-  resolve(process.cwd(), "src", "sim", "constants.ts"),
+const balanceSource = readFileSync(
+  resolve(process.cwd(), "src", "content", "balance.ts"),
   "utf8",
 );
 
@@ -209,12 +209,12 @@ describe("canPrestige", () => {
 });
 
 describe("prestige threshold contract", () => {
-  it("shares the threshold from the constants module", () => {
+  it("shares the threshold from the balance module", () => {
     expect(PRESTIGE_THRESHOLD).toBe(100_000);
   });
 
-  it("declares the threshold once, in the constants module", () => {
-    const declarations = constantsSource.match(
+  it("declares the threshold once, in the balance module", () => {
+    const declarations = balanceSource.match(
       /export const PRESTIGE_THRESHOLD/g,
     );
 

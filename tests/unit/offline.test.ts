@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { NEW_GAME_TIMESTAMP, SAVE_KEY } from "../../src/sim/constants";
+import { permanentMultipliersForPoints } from "../../src/sim/prestige";
 import { createInitialState } from "../../src/sim/initialState";
 import {
   applyOfflineProgress,
@@ -236,7 +237,7 @@ describe("offline-aware loading", () => {
     });
     save.currency = 100;
     save.lifetimeCurrency = 200;
-    save.prestige.permanentMultipliers.sellValue = 2;
+    withPersistedSellBonus(save);
     storage.values.set(SAVE_KEY, serializeSave(save));
 
     const result = loadSaveWithOfflineResult(storage, 71_000);
@@ -260,7 +261,7 @@ describe("offline-aware loading", () => {
     });
     save.currency = 100;
     save.lifetimeCurrency = 200;
-    save.prestige.permanentMultipliers.sellValue = 2;
+    withPersistedSellBonus(save);
     storage.values.set(SAVE_KEY, serializeSave(save));
 
     const first = loadSaveWithOfflineResult(storage, 71_000);
@@ -313,7 +314,7 @@ describe("offline-aware loading", () => {
     });
     save.currency = 100;
     save.lifetimeCurrency = 200;
-    save.prestige.permanentMultipliers.sellValue = 2;
+    withPersistedSellBonus(save);
     const setItem = vi.fn(() => {
       throw new Error("quota exceeded");
     });
@@ -386,6 +387,15 @@ describe("offline runtime state", () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 });
+
+const SELL_MULTIPLIER_POINTS = 4;
+
+function withPersistedSellBonus(state: SimulationState): SimulationState {
+  state.prestige.points = SELL_MULTIPLIER_POINTS;
+  state.prestige.totalPrestiges = 1;
+  state.prestige.permanentMultipliers = permanentMultipliersForPoints(SELL_MULTIPLIER_POINTS);
+  return state;
+}
 
 function createSave(
   lastSavedAt: number,

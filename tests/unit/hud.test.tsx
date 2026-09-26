@@ -89,9 +89,9 @@ describe("Hud", () => {
     expect(screen.getByTestId("hud-currency-rate")).toHaveTextContent("4");
   });
 
-  it("keeps prestige visibly unavailable without dispatching at the threshold", () => {
+  it("keeps prestige disabled below the threshold and explains why", () => {
     const state = createInitialState();
-    state.lifetimeCurrency = 100_000;
+    state.lifetimeCurrency = 99_999;
     const store = new SimulationStore(state);
     const dispatch = vi.spyOn(store, "dispatch");
 
@@ -99,14 +99,27 @@ describe("Hud", () => {
     const prestigeButton = screen.getByRole("button", { name: "Prestige" });
 
     expect(prestigeButton).toBeDisabled();
-    expect(prestigeButton).toHaveAttribute("title", "Prestige will be available in a later phase");
-    expect(prestigeButton).toHaveAttribute("data-prestige-ready", "true");
+    expect(prestigeButton).toHaveAttribute("data-prestige-ready", "false");
+    expect(prestigeButton).toHaveAttribute("title", "This run has not earned a prestige yet.");
     expect(screen.getByTestId("prestige-unavailable")).toHaveTextContent(
-      "Prestige is not available yet.",
+      "This run has not earned a prestige yet.",
     );
 
     fireEvent.click(prestigeButton);
     expect(dispatch).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("prestige-modal")).toBeNull();
+  });
+
+  it("enables prestige at the threshold and names the permanent plot expansion price", () => {
+    const state = createInitialState();
+    state.lifetimeCurrency = 100_000;
+    const store = new SimulationStore(state);
+
+    render(<Hud store={store} />);
+
+    expect(screen.getByRole("button", { name: "Prestige" })).toBeEnabled();
+    expect(screen.queryByTestId("prestige-unavailable")).toBeNull();
+    expect(screen.getByTestId("expand-cost")).toHaveTextContent("100,000");
   });
 });
 

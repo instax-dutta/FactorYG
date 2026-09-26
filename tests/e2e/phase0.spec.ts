@@ -1,8 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { CAMERA_MARGIN_PX } from "../../src/phaser/cameraConfig";
-import { SAVE_KEY, STARTING_CURRENCY } from "../../src/sim/constants";
+import { STARTING_CURRENCY } from "../../src/content/balance";
+import { SAVE_KEY } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
 import { serializeSave } from "../../src/persistence/save";
+import { permanentMultipliersForPoints } from "../../src/sim/prestige";
 import type { ResourceId } from "../../src/sim/types";
 
 interface RuntimeBridge {
@@ -56,6 +58,7 @@ declare global {
 }
 
 const COPPER_NODE = { x: 40, y: 37 };
+const OFFLINE_SELL_MULTIPLIER_POINTS = 4;
 const TEST_CELL = { x: 32, y: 32 };
 const TALL_INSPECTOR_CELL = { x: 34, y: 32 };
 const TILE_SIZE_PX = 64;
@@ -617,7 +620,11 @@ test("loads and anchors persisted offline state during browser startup", async (
   save.lastSavedAt = 10_000;
   save.currency = 100;
   save.lifetimeCurrency = 200;
-  save.prestige.permanentMultipliers.sellValue = 2;
+  save.prestige.points = OFFLINE_SELL_MULTIPLIER_POINTS;
+  save.prestige.totalPrestiges = 1;
+  save.prestige.permanentMultipliers = permanentMultipliersForPoints(
+    OFFLINE_SELL_MULTIPLIER_POINTS,
+  );
   save.productionChains = {
     copper: {
       id: "copper",

@@ -1,10 +1,12 @@
 import { getCurrencyPerSecond } from "./economy";
-import { canPrestige } from "./prestige";
+import { isGridExpansionUnlocked } from "./grid";
+import { calculatePrestigePoints, canPrestige, permanentMultipliersForPoints } from "./prestige";
 import type {
   Entity,
   MachineType,
   Notification,
   OfflineSummary,
+  PermanentMultipliers,
   ResourceId,
   SimulationSnapshot,
   SimulationState,
@@ -22,12 +24,21 @@ export function createSnapshot(state: SimulationState): SimulationSnapshot {
     copyNotification(notification),
   );
   Object.freeze(notifications);
+  const permanentMultipliers = copyPermanentMultipliers(state.prestige.permanentMultipliers);
 
   const snapshot: SimulationSnapshot = {
     currency: state.currency,
     currencyPerSecond: getCurrencyPerSecond(state),
     prestigePoints: state.prestige.points,
     prestigeReady: canPrestige(state),
+    permanentMultipliers,
+    prestigeAwardPoints: calculatePrestigePoints(state.lifetimeCurrency),
+    prestigeNextMultipliers: permanentMultipliersForPoints(
+      state.prestige.points + calculatePrestigePoints(state.lifetimeCurrency),
+    ),
+    expansionUnlocked: isGridExpansionUnlocked(state),
+    gridWidth: state.grid.width,
+    gridHeight: state.grid.height,
     unlockedMachines,
     unlockedRecipes,
     selectedEntity: selectedEntitySnapshot,
@@ -40,6 +51,15 @@ export function createSnapshot(state: SimulationState): SimulationSnapshot {
   };
 
   return Object.freeze(snapshot);
+}
+
+function copyPermanentMultipliers(multipliers: PermanentMultipliers): PermanentMultipliers {
+  const copy: PermanentMultipliers = {
+    productionSpeed: multipliers.productionSpeed,
+    sellValue: multipliers.sellValue,
+  };
+  Object.freeze(copy);
+  return copy;
 }
 
 function copyEntity(entity: Entity): Entity {

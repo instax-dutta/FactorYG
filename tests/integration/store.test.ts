@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import * as constants from "../../src/sim/constants";
+import * as balance from "../../src/content/balance";
+import { SAVE_KEY } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
 import { createSnapshot } from "../../src/sim/snapshot";
 import { SimulationStore } from "../../src/sim/store";
@@ -15,7 +16,7 @@ import type {
 
 describe("createSnapshot", () => {
   it("exports the shared prestige threshold", () => {
-    expect(constants).toHaveProperty("PRESTIGE_THRESHOLD", 100_000);
+    expect(balance).toHaveProperty("PRESTIGE_THRESHOLD", 100_000);
   });
 
   it("keeps a fresh state not ready for prestige", () => {
@@ -289,8 +290,8 @@ describe("a blocked producer across a save and reload", () => {
     store.advanceTicks(200);
 
     expect(store.getBlockedMachineIds()).toEqual(["entity-1"]);
-    storage.setItem(constants.SAVE_KEY, serializeSave(store.getSaveGame()));
-    expect(values.get(constants.SAVE_KEY)).toBeDefined();
+    storage.setItem(SAVE_KEY, serializeSave(store.getSaveGame()));
+    expect(values.get(SAVE_KEY)).toBeDefined();
 
     const reloaded = new SimulationStore(loadSave(storage));
     const events: string[] = [];

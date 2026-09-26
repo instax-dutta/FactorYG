@@ -1,19 +1,32 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import {
+  GRID_EXPANSION_COST,
+  PRESTIGE_THRESHOLD,
+} from "../../src/content/balance";
 import { createCameraConfig } from "../../src/phaser/cameraConfig";
 import { createFloorTileData } from "../../src/phaser/render/floorGrid";
 import { canExpandGrid, expandGrid } from "../../src/sim/commands";
+import {
+  canAffordGridExpansion,
+  hasGridExpansionRights,
+  isGridExpansionUnlocked,
+} from "../../src/sim/grid";
 import {
   GRID_EXPANSION_STEP,
   GRID_HEIGHT,
   GRID_MAX_SIZE,
   GRID_MIN_SIZE,
   GRID_WIDTH,
-  PRESTIGE_THRESHOLD,
   TILE_SIZE_PX,
 } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
 import { SimulationStore } from "../../src/sim/store";
 import type { BeltCell, Entity, ResourceNode, SimulationState } from "../../src/sim/types";
+
+const commandsSource = readFileSync(resolve(process.cwd(), "src", "sim", "commands.ts"), "utf8");
+const gridSource = readFileSync(resolve(process.cwd(), "src", "sim", "grid.ts"), "utf8");
 
 const EXPANDED_WIDTH = 96;
 const EXPANDED_HEIGHT = 96;
@@ -21,6 +34,7 @@ const EXPANDED_HEIGHT = 96;
 function stateWithPlotRights(): SimulationState {
   const state = createInitialState();
   state.prestige.totalPrestiges = 1;
+  state.currency = GRID_EXPANSION_COST * 2;
   return state;
 }
 
@@ -177,25 +191,172 @@ describe("the expansion unlock", () => {
     });
   });
 
-  it("grants the plot after a completed prestige", () => {
+  it("grants the plot rights after a completed prestige", () => {
     const state = createInitialState();
     state.lifetimeCurrency = PRESTIGE_THRESHOLD;
     const store = new SimulationStore(state);
 
-    expect(store.canExpandGrid(EXPANDED_WIDTH, EXPANDED_HEIGHT)).toEqual({
-      ok: false,
-      reason: "expansionLocked",
-    });
+    expect(hasGridExpansionRights(store.getSaveGame())).toBe(false);
 
     expect(store.dispatch({ type: "prestige" })).toEqual({ ok: true });
 
-    expect(store.canExpandGrid(EXPANDED_WIDTH, EXPANDED_HEIGHT)).toEqual({ ok: true });
+    expect(hasGridExpansionRights(store.getSaveGame())).toBe(true);
   });
 
-  it("accepts the plot for a run that has prestiged", () => {
+  it("accepts the plot for a run that has prestiged and can afford it", () => {
     expect(canExpandGrid(stateWithPlotRights(), EXPANDED_WIDTH, EXPANDED_HEIGHT)).toEqual({
       ok: true,
     });
+  });
+});
+
+describe("the expansion cost", () => {
+  it("refuses a prestiged run that cannot pay the cost the balance module prices", () => {
+    const state = createInitialState();
+    state.prestige.totalPrestiges = 1;
+    state.currency = GRID_EXPANSION_COST - 1;
+
+    expect(canExpandGrid(state, EXPANDED_WIDTH, EXPANDED_HEIGHT)).toEqual({
+      ok: false,
+      reason: "insufficientExpansionCost",
+    });
+  });
+
+  it("refuses a run that is one currency short", () => {
+    const state = stateWithPlotRights();
+    state.currency = GRID_EXPANSION_COST - 1;
+
+    expect(canExpandGrid(state, EXPANDED_WIDTH, EXPANDED_HEIGHT)).toEqual({
+      ok: false,
+      reason: "insufficientExpansionCost",
+    });
+  });
+
+  it("accepts a run holding exactly the cost", () => {
+    const state = stateWithPlotRights();
+    state.currency = GRID_EXPANSION_COST;
+
+    expect(canExpandGrid(state, EXPANDED_WIDTH, EXPANDED_HEIGHT)).toEqual({ ok: true });
+  });
+
+  it("reports the missing rights before the missing currency", () => {
+    const state = createInitialState();
+    state.currency = 0;
+
+    expect(canExpandGrid(state, EXPANDED_WIDTH, EXPANDED_HEIGHT)).toEqual({
+      ok: false,
+      reason: "expansionLocked",
+    });
+  });
+
+  it("reports a malformed request before either gate", () => {
+    const state = createInitialState();
+    state.currency = 0;
+
+    expect(canExpandGrid(state, 100, EXPANDED_HEIGHT)).toEqual({
+      ok: false,
+      reason: "invalidGridStep",
+    });
+  });
+
+  it("reports a request that grows nothing before the cost", () => {
+    const state = stateWithPlotRights();
+    state.currency = 0;
+
+    expect(canExpandGrid(state, GRID_WIDTH, GRID_HEIGHT)).toEqual({
+      ok: false,
+      reason: "gridAlreadyExpanded",
+    });
+  });
+
+  it("debits the cost exactly once and leaves the rest of the balance alone", () => {
+    const state = stateWithPlotRights();
+    state.currency = GRID_EXPANSION_COST + 4_321;
+    const currencyBefore = state.currency;
+
+    const application = expandGrid(state, {
+      type: "expandGrid",
+      width: EXPANDED_WIDTH,
+      height: EXPANDED_HEIGHT,
+    });
+
+    expect(application.result).toEqual({ ok: true });
+    expect(application.state.currency).toBe(currencyBefore - GRID_EXPANSION_COST);
+    expect(state.currency).toBe(currencyBefore);
+  });
+
+  it("debits the same cost for a second growth on the same plot", () => {
+    const widened = expandGrid(stateWithPlotRights(), {
+      type: "expandGrid",
+      width: EXPANDED_WIDTH,
+      height: EXPANDED_HEIGHT,
+    }).state;
+    widened.currency = GRID_EXPANSION_COST + 10;
+
+    const squared = expandGrid(widened, {
+      type: "expandGrid",
+      width: 128,
+      height: 128,
+    });
+
+    expect(squared.result).toEqual({ ok: true });
+    expect(squared.state.currency).toBe(10);
+  });
+
+  it("keeps the growth permanent: a reset does not refund the plot or the cost", () => {
+    const store = new SimulationStore({
+      ...stateWithPlotRights(),
+      lifetimeCurrency: PRESTIGE_THRESHOLD,
+    });
+    expect(
+      store.dispatch({ type: "expandGrid", width: EXPANDED_WIDTH, height: EXPANDED_HEIGHT }),
+    ).toEqual({ ok: true });
+    const currencyBeforeReset = store.getSnapshot().currency;
+
+    expect(store.dispatch({ type: "prestige" })).toEqual({ ok: true });
+
+    expect(store.getGridDimensions()).toEqual({
+      width: EXPANDED_WIDTH,
+      height: EXPANDED_HEIGHT,
+    });
+    expect(currencyBeforeReset).toBe(GRID_EXPANSION_COST);
+  });
+
+  it("reads the cost from the balance module rather than a private literal", () => {
+    expect(gridSource).toMatch(/import \{ GRID_EXPANSION_COST \} from "\.\.\/content\/balance"/);
+    expect(gridSource).toMatch(/state\.currency >= GRID_EXPANSION_COST/);
+    expect(gridSource).not.toMatch(/state\.currency >= \d/);
+    expect(commandsSource).toMatch(/import \{ GRID_EXPANSION_COST \} from "\.\.\/content\/balance"/);
+    expect(commandsSource).toMatch(/state\.currency - GRID_EXPANSION_COST/);
+  });
+
+  it("layers the cost on the one plot-rights predicate rather than a second gate", () => {
+    const rights = stateWithPlotRights();
+    const broke = stateWithPlotRights();
+    broke.currency = GRID_EXPANSION_COST - 1;
+    const noRights = createInitialState();
+    noRights.currency = GRID_EXPANSION_COST * 2;
+
+    expect(isGridExpansionUnlocked(rights)).toBe(true);
+    expect(isGridExpansionUnlocked(broke)).toBe(false);
+    expect(isGridExpansionUnlocked(noRights)).toBe(false);
+    expect(isGridExpansionUnlocked(rights)).toBe(
+      hasGridExpansionRights(rights) && canAffordGridExpansion(rights),
+    );
+  });
+
+  it("agrees with the command verdict for a request that actually grows the plot", () => {
+    const rights = stateWithPlotRights();
+    const broke = stateWithPlotRights();
+    broke.currency = GRID_EXPANSION_COST - 1;
+    const noRights = createInitialState();
+    noRights.currency = GRID_EXPANSION_COST * 2;
+
+    for (const state of [rights, broke, noRights]) {
+      expect(isGridExpansionUnlocked(state)).toBe(
+        canExpandGrid(state, EXPANDED_WIDTH, EXPANDED_HEIGHT).ok,
+      );
+    }
   });
 });
 

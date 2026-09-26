@@ -6,7 +6,7 @@ import { MACHINES } from "../../src/content/machines";
 import { RECIPES } from "../../src/content/recipes";
 import type { MachineType, RecipeId, UnlockRequirement } from "../../src/content/types";
 import { UNLOCKS } from "../../src/content/unlocks";
-import { STARTING_CURRENCY } from "../../src/sim/constants";
+import { STARTING_CURRENCY } from "../../src/content/balance";
 import { createInitialState } from "../../src/sim/initialState";
 import { SimulationStore } from "../../src/sim/store";
 import type { SimulationState } from "../../src/sim/types";

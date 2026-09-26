@@ -1,27 +1,35 @@
 import { getUpgradeLevel, isLevelAffected } from "../content/machines";
+import { GRID_EXPANSION_COST } from "../content/balance";
 import { UNLOCKS } from "../content/unlocks";
 import type { UnlockRequirement } from "../content/types";
-import { PRESTIGE_PRODUCTION_BONUS_PER_POINT, PRESTIGE_SELL_BONUS_PER_POINT } from "./constants";
 import {
+  canAffordGridExpansion,
+  hasGridExpansionRights,
   isAlignedGridDimension,
-  isGridExpansionUnlocked,
   isGridGrowth,
   isInsideGrid,
   isValidGridDimension,
 } from "./grid";
 import { NEW_GAME_SEED, createExpansionNodes, createResetState } from "./initialState";
 import { getUpgradeCost } from "./machines";
-import { calculatePrestigePoints, canPrestige } from "./prestige";
+import {
+  calculatePrestigePoints,
+  canPrestige,
+  permanentMultipliersForPoints,
+} from "./prestige";
 import type {
   CommandResult,
   Entity,
   MachineType,
   Notification,
+  PermanentMultipliers,
   PrestigeState,
   RenderEvent,
   SimulationCommand,
   SimulationState,
 } from "./types";
+
+export type { PermanentMultipliers } from "./types";
 
 export type UnlockMachineCommand = Extract<SimulationCommand, { type: "unlockMachine" }>;
 export type UnlockRecipeCommand = Extract<SimulationCommand, { type: "unlockRecipe" }>;
@@ -229,8 +237,6 @@ function findEntity(state: SimulationState, entityId: string): Entity | undefine
   return state.grid.entities.find((candidate) => candidate.id === entityId);
 }
 
-export type PermanentMultipliers = PrestigeState["permanentMultipliers"];
-
 export interface PrestigeApplication {
   state: SimulationState;
   changed: boolean;
@@ -241,7 +247,10 @@ export interface PrestigeApplication {
 }
 
 export function getPermanentMultipliers(state: SimulationState): PermanentMultipliers {
-  return permanentMultipliersForPoints(state.prestige.points);
+  return {
+    productionSpeed: state.prestige.permanentMultipliers.productionSpeed,
+    sellValue: state.prestige.permanentMultipliers.sellValue,
+  };
 }
 
 export function canResetPrestige(state: SimulationState): CommandResult {
@@ -287,14 +296,6 @@ function removalEventsFor(state: SimulationState): RenderEvent[] {
   }));
 }
 
-function permanentMultipliersForPoints(points: number): PermanentMultipliers {
-  const earned = Number.isFinite(points) ? Math.max(0, points) : 0;
-  return {
-    productionSpeed: 1 + earned * PRESTIGE_PRODUCTION_BONUS_PER_POINT,
-    sellValue: 1 + earned * PRESTIGE_SELL_BONUS_PER_POINT,
-  };
-}
-
 export type ExpandGridCommand = Extract<SimulationCommand, { type: "expandGrid" }>;
 
 export interface GridExpansionApplication {
@@ -316,7 +317,7 @@ export function canExpandGrid(
     return { ok: false, reason: "invalidGridStep" };
   }
 
-  if (!isGridExpansionUnlocked(state)) {
+  if (!hasGridExpansionRights(state)) {
     return { ok: false, reason: "expansionLocked" };
   }
 
@@ -336,6 +337,10 @@ export function canExpandGrid(
     return { ok: false, reason: "nodeOutOfBounds" };
   }
 
+  if (!canAffordGridExpansion(state)) {
+    return { ok: false, reason: "insufficientExpansionCost" };
+  }
+
   return { ok: true };
 }
 
@@ -351,6 +356,7 @@ export function expandGrid(
   return {
     state: {
       ...state,
+      currency: state.currency - GRID_EXPANSION_COST,
       grid: {
         ...state.grid,
         width: command.width,
