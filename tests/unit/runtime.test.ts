@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SAVE_KEY } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";

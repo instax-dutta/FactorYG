@@ -4,12 +4,11 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [react()],
   test: {
-    environment: "jsdom",
+    environment: "node",
     globals: true,
     include: ["tests/**/*.{test,spec}.{ts,tsx}"],
     exclude: [...configDefaults.exclude, "tests/e2e/**"],
     passWithNoTests: true,
     setupFiles: ["./tests/setup.ts"],
-    testTimeout: 20_000,
   },
 });

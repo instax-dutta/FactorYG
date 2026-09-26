@@ -14,6 +14,8 @@ Own automated verification for Factor-I.
 - Unit tests do not require a live Phaser game; render seams use injected fakes.
 - Browser tests use the public runtime bridge or real pointer interaction and avoid arbitrary sleeps.
 - Vitest must not collect Playwright specs.
+- A spec takes a jsdom environment only by declaring it, never by inheriting it; the shared default is `node`, so per-file environment cost tracks what each file actually needs.
+- `playwright.config.ts` is the single source of truth for browser parallelism and retries, so verification runs without extra flags.
 
 ## Work Guidance
 
@@ -23,7 +25,7 @@ Own automated verification for Factor-I.
 ## Verification
 
 - `npm run test`
-- `npm run test:e2e -- --workers=1`
+- `npm run test:e2e`
 - `npm run lint`
 - `npm run typecheck`
 - `npm run build`
