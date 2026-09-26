@@ -42,6 +42,8 @@ interface RuntimeWindow {
 const COPPER_NODE = { x: 20, y: 21 };
 const IRON_NODE = { x: 40, y: 11 };
 const MAX_SCAN_TICKS = 80;
+const BLINK_SAMPLE_FRAMES = 6;
+const BLINK_EXPECTED_WHILE_STUCK = [true, true, true, true, true, true];
 
 test.use({ viewport: { width: 1000, height: 800 } });
 
@@ -498,7 +500,7 @@ test("carries a glowing iron item across a belt line and sells it", async ({ pag
 
 interface BlockedBlinkObservation {
   readonly blockedAtTick: number;
-  readonly heldFrames: number;
+  readonly blinkSequence: boolean[];
   readonly blocked: RenderTelemetry;
   readonly clearedAtTick: number;
   readonly cleared: RenderTelemetry;
@@ -511,7 +513,7 @@ async function observeBlockedBlink(
   ticksPerBatch: number,
 ): Promise<BlockedBlinkObservation> {
   const observed = await page.evaluate(
-    async ({ observedId, batchLimit, batchTicks }) => {
+    async ({ observedId, batchLimit, batchTicks, blinkFrames }) => {
       const runtime = window as unknown as RuntimeWindow;
       const bridge = runtime.__FACTOR_Y__;
       const telemetry = runtime.__FACTOR_Y_TELEMETRY__;
@@ -538,12 +540,10 @@ async function observeBlockedBlink(
         }
       }
 
-      let heldFrames = 0;
-      for (let frame = 0; frame < 6; frame += 1) {
+      const blinkSequence: boolean[] = [];
+      for (let frame = 0; frame < blinkFrames; frame += 1) {
         await nextFrame();
-        if (telemetry.getSnapshot().render.blockedEntityIds.includes(observedId)) {
-          heldFrames += 1;
-        }
+        blinkSequence.push(telemetry.getSnapshot().render.blockedEntityIds.includes(observedId));
       }
 
       const blocked = telemetry.getSnapshot().render;
@@ -563,13 +563,18 @@ async function observeBlockedBlink(
 
       return {
         blockedAtTick,
-        heldFrames,
+        blinkSequence,
         blocked,
         clearedAtTick,
         cleared: telemetry.getSnapshot().render,
       };
     },
-    { observedId: entityId, batchLimit: maxBatches, batchTicks: ticksPerBatch },
+    {
+      observedId: entityId,
+      batchLimit: maxBatches,
+      batchTicks: ticksPerBatch,
+      blinkFrames: BLINK_SAMPLE_FRAMES,
+    },
   );
 
   expect(observed.blockedAtTick).toBeGreaterThan(0);
@@ -633,7 +638,7 @@ test("blinks a producer that cannot hand off its goods and stops when the line i
   const blocked = await observeBlockedBlink(page, "entity-1", 40, 5);
 
   expect(blocked.blocked.blockedEntityIds).toEqual(["entity-1"]);
-  expect(blocked.heldFrames).toBe(6);
+  expect(blocked.blinkSequence).toEqual(BLINK_EXPECTED_WHILE_STUCK);
   expect(blocked.clearedAtTick).toBeGreaterThan(blocked.blockedAtTick);
   expect(blocked.cleared.blockedEntityIds).toEqual([]);
   expect(blocked.cleared.entityIds).toEqual(["entity-1", "entity-3", "entity-4"]);

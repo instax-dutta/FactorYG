@@ -6,7 +6,7 @@ Own pure Phaser render helpers for Factor-I.
 
 - `textureKeys.ts` resolves machine and resource texture keys and frame paths.
 - `BeltItemRenderer.ts` converts typed belt-item events into injected views and glows.
-- `machineBlink.ts` owns the blocked-machine pulse rate, tint, and hold, and converts a start or stop into an injected tween.
+- `machineBlink.ts` owns the blocked-machine pulse rate, tint, and hold, converts a start or stop into an injected tween, and exposes `createMachineBlinkTweenSpec` as the one place the pulse becomes a real Phaser tween.
 
 ## Local Contracts
 

@@ -18,6 +18,27 @@ export interface MachineBlinkPulse {
   stop(): void;
 }
 
+export interface MachineBlinkTweenSpec {
+  targets: MachineBlinkView;
+  alpha: number;
+  duration: number;
+  yoyo: boolean;
+  repeat: number;
+}
+
+export function createMachineBlinkTweenSpec(
+  view: MachineBlinkView,
+  config: MachineBlinkPulseConfig,
+): MachineBlinkTweenSpec {
+  return {
+    targets: view,
+    alpha: config.hold,
+    duration: config.duration,
+    yoyo: config.yoyo,
+    repeat: config.repeat,
+  };
+}
+
 export interface MachineBlinkHost {
   createPulseTween(view: MachineBlinkView, config: MachineBlinkPulseConfig): MachineBlinkPulse;
 }

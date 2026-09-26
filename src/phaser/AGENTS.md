@@ -18,8 +18,9 @@ Own the Phaser scene, camera, world input, and render orchestration.
 - The scene signals readiness only after store subscriptions and input are installed.
 - Cleanup is idempotent and handles both shutdown and destroy events.
 - A blocked machine blinks and nothing else does. The blink is a persistent machine-sprite tint plus a repeating pulse, never the one-shot `vfx.spark` sprite `renderNotice` uses, so a sale and a block never share one visual.
-- The blink puts state in the tint channel and motion in the alpha channel: the blocked red is set once per transition and the tint the machine carried is restored exactly when the flow resumes, so a future recipe tint can never mask a block. `machineBlink.ts` owns those constants, and no shipped machine sprite carries a tint today.
-- The blink is started by `blockedFull` and reconciled against `getBlockedMachineIds` on every snapshot, because the event reports only the transition into a blocked state. A `machineStateChanged` event never stops a blink: a blocked producer is also idle, so both events land in the same tick.
+- The blink puts state in the tint channel and motion in the alpha channel: the blocked red is set once per transition and the tint the machine carried is restored exactly when the flow resumes, so a future recipe tint can never mask a block. `machineBlink.ts` owns those constants and builds the tween through `createMachineBlinkTweenSpec`, which is the single place the pulse becomes a real Phaser tween and is asserted directly so the motion cannot be silently flattened. No shipped machine sprite carries a tint today.
+- The snapshot reconcile owns the blink in both directions. `SimulationStore` publishes the snapshot before it publishes events, so `refreshBlockedMachines` always starts a blocked machine first and the `blockedFull` arm always finds it already blinking. The event is kept as the documented contract for the exhaustive switch and as the seam for a future immediate effect; it is not what starts the visual today.
+- A `machineStateChanged` event never starts or stops a blink: a blocked producer is also idle, so both events land in the same tick.
 - Render telemetry publishes `blockedEntityIds` so a browser test can observe which machines are blinking without reaching into a sprite or a tween.
 
 ## Work Guidance

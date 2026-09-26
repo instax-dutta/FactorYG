@@ -41,6 +41,7 @@ export interface MachineRuntime {
   active: boolean;
   bufferedResource?: ResourceId;
   alreadyNotifiedBlocked: boolean;
+  blockedRefusalTicks?: number;
 }
 
 export interface BeltCell {

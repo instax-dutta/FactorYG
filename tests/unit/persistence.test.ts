@@ -102,6 +102,7 @@ describe("save serialization", () => {
     expect(parsed.save).not.toHaveProperty("selectedEntityId");
     expect(parsed.save).not.toHaveProperty("placementMode");
     expect(parsed.save).not.toHaveProperty("notifications");
+    expect(parsed.save.grid.machines["entity-3"]).not.toHaveProperty("blockedRefusalTicks");
   });
 
   it("preserves entity coordinates and rotation", () => {

@@ -3,6 +3,7 @@ import * as constants from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
 import { createSnapshot } from "../../src/sim/snapshot";
 import { SimulationStore } from "../../src/sim/store";
+import { loadSave, serializeSave, type SaveStorage } from "../../src/persistence/save";
 import type {
   BeltCell,
   Entity,
@@ -253,6 +254,83 @@ describe("SimulationStore", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("a blocked producer across a save and reload", () => {
+  it("reports the reloaded machine as blocked so a renderer blinks it without a new event", () => {
+    const values = new Map<string, string>();
+    const storage: SaveStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => {
+        values.set(key, value);
+      },
+    };
+    const store = new SimulationStore(createInitialState(1337));
+    store.dispatch({
+      type: "placeEntity",
+      machine: "extractor",
+      x: 20,
+      y: 21,
+      rotation: 0,
+      resourceNode: "copperOre",
+    });
+    for (let index = 0; index < 3; index += 1) {
+      store.dispatch({
+        type: "placeEntity",
+        machine: "belt",
+        x: 21 + index,
+        y: 21,
+        rotation: 0,
+      });
+    }
+    store.advanceTicks(200);
+
+    expect(store.getBlockedMachineIds()).toEqual(["entity-1"]);
+    storage.setItem(constants.SAVE_KEY, serializeSave(store.getSaveGame()));
+    expect(values.get(constants.SAVE_KEY)).toBeDefined();
+
+    const reloaded = new SimulationStore(loadSave(storage));
+    const events: string[] = [];
+    reloaded.subscribeEvents((event) => {
+      events.push(event.type);
+    });
+
+    expect(reloaded.getBlockedMachineIds()).toEqual(["entity-1"]);
+
+    reloaded.advanceTicks(200);
+
+    expect(reloaded.getBlockedMachineIds()).toEqual(["entity-1"]);
+    expect(events).not.toContain("blockedFull");
+  });
+
+  it("does not persist the refusal counter, because it is debounce bookkeeping", () => {
+    const store = new SimulationStore(createInitialState(1337));
+    store.dispatch({
+      type: "placeEntity",
+      machine: "extractor",
+      x: 20,
+      y: 21,
+      rotation: 0,
+      resourceNode: "copperOre",
+    });
+    for (let index = 0; index < 3; index += 1) {
+      store.dispatch({
+        type: "placeEntity",
+        machine: "belt",
+        x: 21 + index,
+        y: 21,
+        rotation: 0,
+      });
+    }
+    store.advanceTicks(200);
+
+    const saved = JSON.parse(serializeSave(store.getSaveGame())) as {
+      grid: { machines: Record<string, Record<string, unknown>> };
+    };
+
+    expect(saved.grid.machines["entity-1"]?.alreadyNotifiedBlocked).toBe(true);
+    expect(saved.grid.machines["entity-1"]).not.toHaveProperty("blockedRefusalTicks");
   });
 });
 

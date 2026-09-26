@@ -99,7 +99,7 @@ describe("silo capacity", () => {
     });
 
     const events: RenderEvent[] = [];
-    const next = advanceSimulation(state, 1, events);
+    const next = advanceSimulation(state, 2, events);
 
     expect(next.grid.machines[silo.id]?.input).toEqual({ copperIngot: 95 });
     expect(next.grid.machines[silo.id]?.bufferedResource).toBe("copperIngot");
@@ -315,7 +315,11 @@ describe("machine input room", () => {
     expect(next.grid.machines[source.id]?.output).toEqual({ copperIngot: offered });
     expect(next.grid.machines).toEqual({
       ...stateBefore.grid.machines,
-      [source.id]: { ...stateBefore.grid.machines[source.id], alreadyNotifiedBlocked: true },
+      [source.id]: {
+        ...stateBefore.grid.machines[source.id],
+        alreadyNotifiedBlocked: true,
+        blockedRefusalTicks: 2,
+      },
     });
     expect(events).toEqual([{ type: "blockedFull", entityId: source.id }]);
   });
@@ -464,7 +468,7 @@ describe("silo storage", () => {
     });
 
     const events: RenderEvent[] = [];
-    const next = advanceSimulation(state, 1, events);
+    const next = advanceSimulation(state, 2, events);
 
     expect(next.grid.machines[silo.id]?.input).toEqual({ copperIngot: 3 });
     expect(next.grid.machines[silo.id]?.bufferedResource).toBe("copperIngot");

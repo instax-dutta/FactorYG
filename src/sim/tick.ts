@@ -36,9 +36,16 @@ const PRODUCING_MACHINE_TYPES: ReadonlySet<MachineType> = new Set<MachineType>([
   "assembler",
 ]);
 
+const BLOCKED_REFUSAL_TICKS_REQUIRED = 2;
+
 interface MachineAcceptance {
   runtime: MachineRuntime;
   accepted: number;
+}
+
+interface TransferOutcome {
+  refused: boolean;
+  moved: boolean;
 }
 
 export function advanceSimulation(
@@ -154,7 +161,7 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
     const target = findConnectedEntity(entity, state.grid.entities);
     const isSilo = entity.type === "silo";
     const stored = isSilo ? runtime.input : runtime.output;
-    let refused = false;
+    const outcome: TransferOutcome = { refused: false, moved: false };
     if (target !== undefined) {
       for (const resource of Object.keys(stored) as ResourceId[]) {
         const amount = getResourceAmount(stored, resource);
@@ -166,13 +173,13 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
         if (target.type === "belt") {
           const belt = state.grid.belts[target.id];
           if (belt === undefined || belt.item !== undefined) {
-            refused = true;
+            outcome.refused = true;
             continue;
           }
 
           transferred = Math.min(amount, getBeltCellCapacity(target));
           if (transferred <= 0) {
-            refused = true;
+            outcome.refused = true;
             continue;
           }
 
@@ -181,13 +188,13 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
         } else {
           const targetRuntime = state.grid.machines[target.id];
           if (targetRuntime === undefined) {
-            refused = true;
+            outcome.refused = true;
             continue;
           }
 
           const acceptance = acceptMachineInput(target, targetRuntime, resource, amount);
           if (acceptance.accepted <= 0) {
-            refused = true;
+            outcome.refused = true;
             continue;
           }
 
@@ -198,12 +205,13 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
         state.grid.machines[entity.id] = isSilo
           ? withdrawSiloInput(runtime, resource, transferred)
           : { ...runtime, output: removeResource(runtime.output, resource, transferred) };
+        outcome.moved = true;
         changed = true;
         break;
       }
     }
 
-    if (applyBlockedFlag(state, entity, refused, events)) {
+    if (applyBlockedFlag(state, entity, outcome, events)) {
       changed = true;
     }
   }
@@ -214,16 +222,34 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
 function applyBlockedFlag(
   state: SimulationState,
   entity: Entity,
-  refused: boolean,
+  outcome: TransferOutcome,
   events: RenderEvent[],
 ): boolean {
   const runtime = state.grid.machines[entity.id];
-  if (runtime === undefined || runtime.alreadyNotifiedBlocked === refused) {
+  if (runtime === undefined) {
     return false;
   }
 
-  state.grid.machines[entity.id] = { ...runtime, alreadyNotifiedBlocked: refused };
-  if (refused) {
+  const stuck = outcome.refused && !outcome.moved;
+  const refusalTicks = stuck
+    ? Math.min(
+        (runtime.blockedRefusalTicks ?? 0) + 1,
+        BLOCKED_REFUSAL_TICKS_REQUIRED,
+      )
+    : 0;
+  const blocked =
+    stuck &&
+    (refusalTicks >= BLOCKED_REFUSAL_TICKS_REQUIRED || runtime.alreadyNotifiedBlocked);
+  if (refusalTicks === runtime.blockedRefusalTicks && blocked === runtime.alreadyNotifiedBlocked) {
+    return false;
+  }
+
+  state.grid.machines[entity.id] = {
+    ...runtime,
+    alreadyNotifiedBlocked: blocked,
+    ...(refusalTicks === 0 ? { blockedRefusalTicks: undefined } : { blockedRefusalTicks: refusalTicks }),
+  };
+  if (blocked && !runtime.alreadyNotifiedBlocked) {
     events.push({ type: "blockedFull", entityId: entity.id });
   }
 

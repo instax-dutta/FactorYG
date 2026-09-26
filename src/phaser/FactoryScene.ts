@@ -15,6 +15,7 @@ import {
 } from "./render/BeltItemRenderer";
 import {
   createMachineBlinker,
+  createMachineBlinkTweenSpec,
   type MachineBlinker,
   type MachineBlinkHost,
   type MachineBlinkPulse,
@@ -380,13 +381,7 @@ export class FactoryScene extends Phaser.Scene {
     view: MachineBlinkView,
     config: MachineBlinkPulseConfig,
   ): MachineBlinkPulse {
-    const tween = this.tweens.add({
-      targets: view,
-      alpha: config.hold,
-      duration: config.duration,
-      yoyo: config.yoyo,
-      repeat: config.repeat,
-    });
+    const tween = this.tweens.add(createMachineBlinkTweenSpec(view, config));
     return {
       stop: (): void => {
         tween.stop();
