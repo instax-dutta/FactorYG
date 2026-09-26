@@ -1574,6 +1574,11 @@ git commit -m "feat: implement prestige reset loop"
 
 ## Task 3.3: Add Grid Expansion and Camera Bounds
 
+**Carried forward from Task 3.2, and not decided here:**
+- **Does grid expansion survive a prestige reset?** `createResetState` in `src/sim/initialState.ts` copies only the prestige block, so a reset rebuilds a 64 by 64 world and any expansion the player paid for is lost. This is an open balance decision, not an implementation detail, and this task must not settle it by accident. It blocks Task 3.4, which sells expansion to the player, because a player who buys area and loses it on prestige has been charged for a privilege that disappears. Decide it explicitly, record the decision in `src/sim/AGENTS.md`, and thread the surviving dimensions through `createResetState` if expansion is permanent. Whichever way it goes, a prestige reset must keep emitting one `entityRemoved` per removed entity, so the browser stops drawing the old run.
+- **`createResourceNodes` iterates the module constants `GRID_WIDTH` and `GRID_HEIGHT`, not `state.grid.width` and `state.grid.height`.** An expanded grid would therefore have node-free cells across the new area, and `createResetState` would always hand back 64 by 64 because it builds from `createInitialState()`. Thread the grid dimensions into node generation in this task regardless of how the permanence question above is answered, otherwise expansion ships with unreachable resource.
+- **`tests/integration/store.test.ts` names `expandGrid` as its unimplemented command.** That fixture stops working the moment this task implements `expandGrid`, so the deferred-command test needs a different command, and the deferred-command assertion must survive the swap.
+
 **Files:**
 - Modify: `src/sim/commands.ts`
 - Modify: `src/sim/grid.ts`

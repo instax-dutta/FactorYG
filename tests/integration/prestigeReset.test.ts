@@ -22,7 +22,7 @@ import { getExtractorRate } from "../../src/sim/machines";
 import { calculatePrestigePoints, canPrestige } from "../../src/sim/prestige";
 import { SimulationStore } from "../../src/sim/store";
 import { loadSave, saveToStorage, serializeSave, type SaveStorage } from "../../src/persistence/save";
-import type { Entity, PrestigeState, SimulationState } from "../../src/sim/types";
+import type { Entity, PrestigeState, RenderEvent, SimulationState } from "../../src/sim/types";
 
 const AWARDED_POINTS = 2;
 const ELIGIBLE_LIFETIME = 4 * PRESTIGE_THRESHOLD;
@@ -170,6 +170,161 @@ describe("an eligible prestige reset", () => {
     expect(snapshot.unlockedRecipes).toEqual([]);
     expect(snapshot.selectedEntity).toBeUndefined();
     expect(snapshot.notifications.map((notification) => notification.id)).toEqual(["prestige-1"]);
+  });
+});
+
+describe("the render events a reset emits", () => {
+  it("returns one entityRemoved event per removed entity, in the order the world held them", () => {
+    const state = eligibleState();
+    const application = performPrestige(state);
+
+    expect(application.events).toEqual([
+      { type: "entityRemoved", entityId: "entity-1" },
+      { type: "entityRemoved", entityId: "entity-2" },
+      { type: "entityRemoved", entityId: "entity-3" },
+    ]);
+    expect(state.grid.entities.map((entity) => entity.id)).toEqual([
+      "entity-1",
+      "entity-2",
+      "entity-3",
+    ]);
+  });
+
+  it("publishes those removals through the store event stream", () => {
+    const store = new SimulationStore(eligibleState());
+    const events: RenderEvent[] = [];
+    store.subscribeEvents((event) => {
+      events.push(event);
+    });
+    const heldIds = store.getEntities().map((entity) => entity.id);
+    expect(heldIds).toHaveLength(3);
+
+    const result = store.dispatch({ type: "prestige" });
+
+    expect(result).toEqual({ ok: true });
+    expect(events).toEqual([
+      { type: "entityRemoved", entityId: "entity-1" },
+      { type: "entityRemoved", entityId: "entity-2" },
+      { type: "entityRemoved", entityId: "entity-3" },
+    ]);
+    expect(store.getEntities()).toEqual([]);
+  });
+
+  it("emits each removal exactly once and never for an entity the world did not hold", () => {
+    const store = new SimulationStore(eligibleState());
+    const events: RenderEvent[] = [];
+    store.subscribeEvents((event) => {
+      events.push(event);
+    });
+    const heldIds = store.getEntities().map((entity) => entity.id);
+
+    store.dispatch({ type: "prestige" });
+
+    const emitted = events.map((event) =>
+      event.type === "entityRemoved" ? event.entityId : event.type,
+    );
+
+    expect(emitted).toHaveLength(heldIds.length);
+    expect(new Set(emitted)).toEqual(new Set(heldIds));
+    expect(store.getEntities().map((entity) => entity.id)).not.toContain("entity-1");
+  });
+
+  it("emits no removal the second time, because the first reset already cleared the world", () => {
+    const first = new SimulationStore(eligibleState());
+    const firstEvents: RenderEvent[] = [];
+    first.subscribeEvents((event) => {
+      firstEvents.push(event);
+    });
+
+    expect(first.dispatch({ type: "prestige" })).toEqual({ ok: true });
+    expect(firstEvents).toHaveLength(3);
+
+    const second = new SimulationStore(
+      earnLifetimeCurrency(first.getSaveGame(), ELIGIBLE_LIFETIME),
+    );
+    const secondEvents: RenderEvent[] = [];
+    second.subscribeEvents((event) => {
+      secondEvents.push(event);
+    });
+    expect(second.getEntities()).toEqual([]);
+
+    expect(second.dispatch({ type: "prestige" })).toEqual({ ok: true });
+    expect(secondEvents).toEqual([]);
+  });
+
+  it("releases the blocked producer the rebuilt world no longer owns", () => {
+    const state = eligibleState();
+    const blocked = state.grid.machines["entity-1"];
+    expect(blocked).toBeDefined();
+    if (blocked === undefined) {
+      throw new Error("the fixture machine runtime is missing");
+    }
+    state.grid.machines["entity-1"] = { ...blocked, alreadyNotifiedBlocked: true };
+    const store = new SimulationStore(state);
+    const events: RenderEvent[] = [];
+    store.subscribeEvents((event) => {
+      events.push(event);
+    });
+    expect(store.getBlockedMachineIds()).toEqual(["entity-1"]);
+
+    store.dispatch({ type: "prestige" });
+
+    expect(events).toContainEqual({ type: "entityRemoved", entityId: "entity-1" });
+    expect(store.getBlockedMachineIds()).toEqual([]);
+  });
+
+  it("publishes the rebuilt snapshot before the removals, so the scene reconciles the new world first", () => {
+    const store = new SimulationStore(eligibleState());
+    const order: string[] = [];
+    store.subscribe(() => {
+      order.push("snapshot");
+    });
+    store.subscribeEvents((event) => {
+      order.push(event.type);
+    });
+
+    store.dispatch({ type: "prestige" });
+
+    expect(order).toEqual([
+      "snapshot",
+      "entityRemoved",
+      "entityRemoved",
+      "entityRemoved",
+    ]);
+  });
+});
+
+describe("rebuilding after a reset", () => {
+  it("places an extractor on a restored node and still refuses a cell that has none", () => {
+    const store = new SimulationStore(eligibleState());
+    store.dispatch({ type: "prestige" });
+    const nodes = store.getSaveGame().grid.nodes;
+    expect(nodes.length).toBeGreaterThan(0);
+    const node = nodes[0];
+    const emptyCell = { x: 63, y: 63 };
+    const nodeIsNotEmptyCell =
+      node === undefined || node.x !== emptyCell.x || node.y !== emptyCell.y;
+    expect(nodeIsNotEmptyCell).toBe(true);
+
+    expect(
+      store.dispatch({
+        type: "placeEntity",
+        machine: "extractor",
+        x: node?.x ?? -1,
+        y: node?.y ?? -1,
+        rotation: 0,
+        ...(node === undefined ? {} : { resourceNode: node.resource }),
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      store.dispatch({
+        type: "placeEntity",
+        machine: "extractor",
+        x: emptyCell.x,
+        y: emptyCell.y,
+        rotation: 0,
+      }),
+    ).toEqual({ ok: false, reason: "missingResourceNode" });
   });
 });
 

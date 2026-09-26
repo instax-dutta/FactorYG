@@ -11,6 +11,7 @@ import type {
   MachineType,
   Notification,
   PrestigeState,
+  RenderEvent,
   SimulationCommand,
   SimulationState,
 } from "./types";
@@ -229,6 +230,7 @@ export interface PrestigeApplication {
   result: CommandResult;
   awardedPoints?: number;
   notification?: Notification;
+  events?: RenderEvent[];
 }
 
 export function getPermanentMultipliers(state: SimulationState): PermanentMultipliers {
@@ -264,7 +266,15 @@ export function performPrestige(state: SimulationState): PrestigeApplication {
     result: { ok: true },
     awardedPoints,
     notification,
+    events: removalEventsFor(state),
   };
+}
+
+function removalEventsFor(state: SimulationState): RenderEvent[] {
+  return state.grid.entities.map((entity) => ({
+    type: "entityRemoved",
+    entityId: entity.id,
+  }));
 }
 
 function permanentMultipliersForPoints(points: number): PermanentMultipliers {

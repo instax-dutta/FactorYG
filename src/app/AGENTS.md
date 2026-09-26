@@ -14,6 +14,7 @@ Own the browser application runtime and React shell.
 - Runtime creation and autosave disposal must be safe under React StrictMode.
 - Browser storage access stays in the app layer; `src/sim` remains platform-independent.
 - `projectRuntimeSave` is the one place a runtime save is built, and it refreshes `productionChains` from the live state so an offline session pays out from the chains the player actually built.
+- `projectRuntimeSave` is also what stamps `lastSavedAt` with the current time, so the app layer owns that guarantee rather than the simulation. A command that rebuilds the world, such as a prestige reset, can hand back the new-game `lastSavedAt` and rely on the projection to stamp the real one before the write, which is what stops a reset from claiming offline time. `src/sim` does not know about autosave and must not describe it.
 - The development bridge exposes only dispatch, manual tick, and snapshot methods.
 
 ## Work Guidance
