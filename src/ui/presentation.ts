@@ -16,6 +16,14 @@ const commandReasonMessages: Readonly<Record<string, string>> = {
   insufficientCurrency: "Not enough currency.",
   entityNotFound: "That entity is gone.",
   unsupportedMachine: "This machine cannot be upgraded.",
+  insufficientLifetimeCurrency: "This run has not earned a prestige yet.",
+  outOfRange: "That is not a plot size this game can build.",
+  invalidGridStep: "The plot only grows in fixed steps.",
+  expansionLocked: "Prestige to unlock more plot.",
+  gridShrink: "The plot cannot shrink.",
+  gridAlreadyExpanded: "The plot is already that size.",
+  entityOutOfBounds: "Something is standing outside the plot.",
+  nodeOutOfBounds: "The plot does not cover the whole world.",
   notImplemented: "That action is not available yet.",
 };
 

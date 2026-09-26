@@ -14,6 +14,8 @@ export interface SceneTelemetry {
     readonly scrollX: number;
     readonly scrollY: number;
     readonly zoom: number;
+    readonly boundsWidth: number;
+    readonly boundsHeight: number;
   };
   readonly ghost: {
     readonly visible: boolean;
@@ -29,6 +31,8 @@ export interface SceneTelemetryInput {
     scrollX: number;
     scrollY: number;
     zoom: number;
+    boundsWidth: number;
+    boundsHeight: number;
   };
   ghost: {
     visible: boolean;
@@ -91,7 +95,7 @@ export function createSceneTelemetry(input: SceneTelemetryInput): SceneTelemetry
 
 export const INITIAL_SCENE_TELEMETRY = createSceneTelemetry({
   ready: false,
-  camera: { scrollX: 0, scrollY: 0, zoom: 1 },
+  camera: { scrollX: 0, scrollY: 0, zoom: 1, boundsWidth: 0, boundsHeight: 0 },
   ghost: { visible: false, valid: false, rotation: 0 },
   render: createSceneRenderTelemetry({
     entityIds: [],

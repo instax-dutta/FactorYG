@@ -11,7 +11,12 @@ import type {
   SimulationSnapshot,
 } from "../sim/types";
 import { SimulationStore } from "../sim/store";
-import { createCameraConfig } from "./cameraConfig";
+import {
+  CAMERA_INITIAL_ZOOM,
+  CAMERA_MAX_ZOOM,
+  CAMERA_MIN_ZOOM,
+  createCameraConfig,
+} from "./cameraConfig";
 import { createInputAdapter, type CameraInputAdapter } from "./inputAdapter";
 import { createPrimaryCanvasCommand } from "./primaryInteraction";
 import {
@@ -120,9 +125,8 @@ export class FactoryScene extends Phaser.Scene {
     }
 
     const dimensions = this.store.getGridDimensions();
-    const cameraConfig = createCameraConfig(dimensions.width, dimensions.height);
     const camera = this.cameras.main;
-    camera.setZoom(cameraConfig.initialZoom);
+    camera.setZoom(CAMERA_INITIAL_ZOOM);
     camera.centerOn((dimensions.width * TILE_SIZE_PX) / 2, (dimensions.height * TILE_SIZE_PX) / 2);
 
     this.refreshGridBounds();
@@ -159,8 +163,8 @@ export class FactoryScene extends Phaser.Scene {
     });
     this.unsubscribeEvents = this.store.subscribeEvents((event) => this.handleRenderEvent(event));
     this.inputAdapter = createInputAdapter(this, camera, {
-      minZoom: cameraConfig.minZoom,
-      maxZoom: cameraConfig.maxZoom,
+      minZoom: CAMERA_MIN_ZOOM,
+      maxZoom: CAMERA_MAX_ZOOM,
       onPrimaryClick: (cell) => this.handlePrimaryClick(cell),
       onSecondaryClick: (cell) => this.demolishAt(cell),
       onPointerMove: (cell) => this.updateGhost(cell),
@@ -620,6 +624,7 @@ export class FactoryScene extends Phaser.Scene {
       return;
     }
     const camera = this.cameras.main;
+    const bounds = camera.getBounds();
     this.onTelemetry(
       createSceneTelemetry({
         ready: this.ready,
@@ -627,6 +632,8 @@ export class FactoryScene extends Phaser.Scene {
           scrollX: camera.scrollX,
           scrollY: camera.scrollY,
           zoom: camera.zoom,
+          boundsWidth: bounds.width,
+          boundsHeight: bounds.height,
         },
         ghost: {
           visible: this.ghost?.visible ?? false,
@@ -652,6 +659,11 @@ export class FactoryScene extends Phaser.Scene {
     this.unsubscribeEvents = undefined;
     this.inputAdapter?.dispose();
     this.inputAdapter = undefined;
+    this.floorLayer?.destroy();
+    this.floorLayer = undefined;
+    this.floorMap?.destroy();
+    this.floorMap = undefined;
+    this.gridDimensions = undefined;
     this.beltItemRenderer?.destroy();
     this.machineBlinker?.destroy();
     this.activeEntityIds.clear();

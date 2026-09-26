@@ -7,7 +7,7 @@ Own the Phaser scene, camera, world input, and render orchestration.
 - `FactoryScene.ts` owns scene lifecycle, entity sprites, ghost preview, the floor tilemap, camera bounds, and render events.
 - `createGame.ts` owns Phaser boot configuration and renderer/scale setup.
 - `inputAdapter.ts` owns pan, zoom, pointer, keyboard, and drag state.
-- `telemetry.ts` owns the development/test scene snapshot.
+- `telemetry.ts` owns the development/test scene snapshot, and `cameraConfig.ts` owns the camera margin and the zoom range as exported constants so the scene and a browser assertion read the same numbers.
 - `render/` owns pure render helpers and adapters, including the blocked-machine blink.
 
 ## Local Contracts
@@ -26,6 +26,8 @@ Own the Phaser scene, camera, world input, and render orchestration.
 - `refreshGridBounds` rebuilds the floor tilemap and calls `camera.setBounds` with the new dimensions, and it runs on every published snapshot rather than on a render event, because the store publishes the snapshot before it publishes events and an expansion changes no entity. It compares the dimensions first and does nothing when they match, so a 10 Hz tick does not rebuild the map.
 - The floor tile data is a pure function of the plot size in `render/floorGrid.ts`, and the previous map and layer are destroyed before a rebuild, so an expanded plot cannot leave a stale 64 by 64 floor under the new one. Keeping the data pure is what makes the rebuild testable without a live scene.
 - Render telemetry publishes `blockedEntityIds` so a browser test can observe which machines are blinking without reaching into a sprite or a tween.
+- Render telemetry also publishes `camera.boundsWidth` and `camera.boundsHeight`, read back from `camera.getBounds()` rather than recomputed from the config the scene intended to apply. Reporting the intent would report a correct-looking number even when `setBounds` was never called, so the observable is the camera's real bounds. A browser test seeds an expanded save and reads them, which is the only proof that a world loaded at a non-default size sizes its floor and its camera from the store.
+- The scene owns the floor tilemap for its whole lifetime: `rebuildFloor` destroys the previous map and layer before building, and `cleanup` destroys the current map and layer and clears the remembered dimensions, so shutdown and a rebuild cannot leave a stale floor behind.
 
 ## Work Guidance
 

@@ -32,13 +32,13 @@ describe("createSceneTelemetry", () => {
 
     const first = createSceneTelemetry({
       ready: true,
-      camera: { scrollX: 0, scrollY: 0, zoom: 1 },
+      camera: { scrollX: 0, scrollY: 0, zoom: 1, boundsWidth: 4352, boundsHeight: 4352 },
       ghost: { visible: false, valid: false, rotation: 0 },
       render,
     });
     const second = createSceneTelemetry({
       ready: true,
-      camera: { scrollX: 12, scrollY: 34, zoom: 2 },
+      camera: { scrollX: 12, scrollY: 34, zoom: 2, boundsWidth: 6400, boundsHeight: 6400 },
       ghost: { visible: true, valid: true, rotation: 90 },
       render,
     });
@@ -46,6 +46,38 @@ describe("createSceneTelemetry", () => {
     expect(first.render).toBe(render);
     expect(second.render).toBe(render);
     expect(second.camera).not.toBe(first.camera);
+  });
+
+  it("carries the camera bounds so a browser test can observe a resized world", () => {
+    const telemetry = createSceneTelemetry({
+      ready: true,
+      camera: { scrollX: 0, scrollY: 0, zoom: 1, boundsWidth: 6400, boundsHeight: 6016 },
+      ghost: { visible: false, valid: false, rotation: 0 },
+      render: createRenderTelemetry(),
+    });
+
+    expect(telemetry.camera).toEqual({
+      scrollX: 0,
+      scrollY: 0,
+      zoom: 1,
+      boundsWidth: 6400,
+      boundsHeight: 6016,
+    });
+    expect(Object.isFrozen(telemetry.camera)).toBe(true);
+    expect(
+      Reflect.set(telemetry.camera as { boundsWidth: number }, "boundsWidth", 1),
+    ).toBe(false);
+    expect(telemetry.camera.boundsWidth).toBe(6400);
+  });
+
+  it("reports empty camera bounds before the scene has set any", () => {
+    expect(INITIAL_SCENE_TELEMETRY.camera).toEqual({
+      scrollX: 0,
+      scrollY: 0,
+      zoom: 1,
+      boundsWidth: 0,
+      boundsHeight: 0,
+    });
   });
 
   it("defensively copies and freezes a mutable render block", () => {
@@ -61,7 +93,7 @@ describe("createSceneTelemetry", () => {
 
     const telemetry = createSceneTelemetry({
       ready: true,
-      camera: { scrollX: 0, scrollY: 0, zoom: 1 },
+      camera: { scrollX: 0, scrollY: 0, zoom: 1, boundsWidth: 4352, boundsHeight: 4352 },
       ghost: { visible: false, valid: false, rotation: 0 },
       render: mutable,
     });

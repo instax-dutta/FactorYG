@@ -13,7 +13,7 @@ import {
 } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
 import { SimulationStore } from "../../src/sim/store";
-import type { Entity, ResourceNode, SimulationState } from "../../src/sim/types";
+import type { BeltCell, Entity, ResourceNode, SimulationState } from "../../src/sim/types";
 
 const EXPANDED_WIDTH = 96;
 const EXPANDED_HEIGHT = 96;
@@ -135,8 +135,35 @@ describe("grid expansion dimensions", () => {
 
   it("bounds the plot between the starting grid and the locked ceiling", () => {
     expect(GRID_EXPANSION_STEP).toBe(32);
-    expect(GRID_MIN_SIZE).toBe(GRID_WIDTH);
+    expect(GRID_MIN_SIZE).toBe(Math.min(GRID_WIDTH, GRID_HEIGHT));
+    expect(GRID_MAX_SIZE).toBe(Math.max(GRID_WIDTH, GRID_HEIGHT) * 4);
     expect(GRID_MAX_SIZE % GRID_EXPANSION_STEP).toBe(0);
+  });
+
+  it("derives the bounds from both starting axes so a rectangular plot stays in contract", () => {
+    expect(GRID_MIN_SIZE).toBeLessThanOrEqual(GRID_WIDTH);
+    expect(GRID_MIN_SIZE).toBeLessThanOrEqual(GRID_HEIGHT);
+    expect(GRID_MAX_SIZE).toBeGreaterThanOrEqual(GRID_WIDTH);
+    expect(GRID_MAX_SIZE).toBeGreaterThanOrEqual(GRID_HEIGHT);
+  });
+
+  it("enforces the ceiling and the floor on each axis independently", () => {
+    const state = stateWithPlotRights();
+
+    expect(canExpandGrid(state, GRID_MAX_SIZE, GRID_HEIGHT)).toEqual({ ok: true });
+    expect(canExpandGrid(state, GRID_WIDTH, GRID_MAX_SIZE)).toEqual({ ok: true });
+    expect(canExpandGrid(state, GRID_MAX_SIZE + GRID_EXPANSION_STEP, GRID_HEIGHT)).toEqual({
+      ok: false,
+      reason: "outOfRange",
+    });
+    expect(canExpandGrid(state, GRID_WIDTH, GRID_MAX_SIZE + GRID_EXPANSION_STEP)).toEqual({
+      ok: false,
+      reason: "outOfRange",
+    });
+    expect(canExpandGrid(state, GRID_WIDTH, GRID_MIN_SIZE - GRID_EXPANSION_STEP)).toEqual({
+      ok: false,
+      reason: "outOfRange",
+    });
   });
 });
 
@@ -273,7 +300,78 @@ describe("a valid expansion", () => {
     );
   });
 
-  it("grows only upward and rightward from the current origin", () => {
+  it("reuses the existing machine, belt, and chain records rather than rebuilding them", () => {
+    const state = stateWithDepot("entity-1", 40, 37);
+    const belt: BeltCell = { entityId: "entity-2", item: "copperOre", progress: 0.5 };
+    state.grid.entities = [...state.grid.entities, { id: "entity-2", type: "belt", x: 41, y: 37, rotation: 0, level: 1 }];
+    state.grid.belts["entity-2"] = belt;
+    state.productionChains["chain-entity-1"] = {
+      id: "chain-entity-1",
+      outputResource: "copperIngot",
+      steadyStateThroughput: 3,
+      sellValue: 6,
+    };
+    const nodes = state.grid.nodes;
+
+    const expanded = expandGrid(state, {
+      type: "expandGrid",
+      width: EXPANDED_WIDTH,
+      height: EXPANDED_HEIGHT,
+    }).state;
+
+    expect(expanded.grid.machines).toBe(state.grid.machines);
+    expect(expanded.grid.belts).toBe(state.grid.belts);
+    expect(expanded.grid.belts["entity-2"]).toBe(belt);
+    expect(expanded.productionChains).toBe(state.productionChains);
+    expect(expanded.grid.nodes).not.toBe(nodes);
+  });
+
+  it("keeps the plot origin and the far edge usable after growing", () => {
+    const store = storeWithPlotRights();
+    store.dispatch({ type: "expandGrid", width: EXPANDED_WIDTH, height: EXPANDED_HEIGHT });
+
+    expect(
+      store.validatePlacement({ type: "placeEntity", machine: "depot", x: 0, y: 0, rotation: 0 }),
+    ).toEqual({ ok: true });
+    expect(
+      store.validatePlacement({
+        type: "placeEntity",
+        machine: "depot",
+        x: EXPANDED_WIDTH - 1,
+        y: EXPANDED_HEIGHT - 1,
+        rotation: 0,
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      store.validatePlacement({
+        type: "placeEntity",
+        machine: "depot",
+        x: EXPANDED_WIDTH,
+        y: 0,
+        rotation: 0,
+      }),
+    ).toEqual({ ok: false, reason: "outOfBounds" });
+    expect(
+      store.validatePlacement({
+        type: "placeEntity",
+        machine: "depot",
+        x: 0,
+        y: EXPANDED_HEIGHT,
+        rotation: 0,
+      }),
+    ).toEqual({ ok: false, reason: "outOfBounds" });
+    expect(
+      store.validatePlacement({
+        type: "placeEntity",
+        machine: "depot",
+        x: -1,
+        y: 0,
+        rotation: 0,
+      }),
+    ).toEqual({ ok: false, reason: "outOfBounds" });
+  });
+
+  it("keeps every existing cell inside the plot origin and bounds", () => {
     const state = stateWithDepot("entity-1", 40, 37);
 
     const expanded = expandGrid(state, {
@@ -477,9 +575,28 @@ describe("expansion across a prestige reset", () => {
 
     expect(store.dispatch({ type: "prestige" })).toEqual({ ok: true });
 
-    expect(store.validatePlacement({ type: "placeEntity", machine: "depot", x: 0, y: 0, rotation: 0 })).toEqual(
-      { ok: true },
-    );
+    expect(store.getGridDimensions()).toEqual({
+      width: EXPANDED_WIDTH,
+      height: EXPANDED_HEIGHT,
+    });
+    expect(
+      store.validatePlacement({
+        type: "placeEntity",
+        machine: "depot",
+        x: EXPANDED_WIDTH,
+        y: EXPANDED_HEIGHT,
+        rotation: 0,
+      }),
+    ).toEqual({ ok: false, reason: "outOfBounds" });
+    expect(
+      store.validatePlacement({
+        type: "placeEntity",
+        machine: "depot",
+        x: EXPANDED_WIDTH - 1,
+        y: EXPANDED_HEIGHT - 1,
+        rotation: 0,
+      }),
+    ).toEqual({ ok: true });
     const after = nodeInNewArea(store.getSaveGame());
     expect(after.x >= GRID_WIDTH || after.y >= GRID_HEIGHT).toBe(true);
     expect(

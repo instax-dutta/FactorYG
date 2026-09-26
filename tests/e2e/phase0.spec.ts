@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { SAVE_KEY } from "../../src/sim/constants";
+import { CAMERA_MARGIN_PX } from "../../src/phaser/cameraConfig";
+import { SAVE_KEY, STARTING_CURRENCY } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
 import { serializeSave } from "../../src/persistence/save";
 import type { ResourceId } from "../../src/sim/types";
@@ -26,6 +27,8 @@ interface SceneTelemetry {
     scrollX: number;
     scrollY: number;
     zoom: number;
+    boundsWidth: number;
+    boundsHeight: number;
   };
   ghost: {
     visible: boolean;
@@ -661,4 +664,75 @@ test("loads and anchors persisted offline state during browser startup", async (
   expect(persisted.currency).toBe(432_100);
   expect(persisted.lifetimeCurrency).toBe(432_200);
   expect(persisted.lastSavedAt).toBeGreaterThan(10_000);
+});
+
+async function seedSave(page: Page, save: Parameters<typeof serializeSave>[0]): Promise<void> {
+  const serialized = serializeSave(save);
+  await page.addInitScript(
+    ({ key, value }) => {
+      window.localStorage.setItem(key, value);
+    },
+    { key: SAVE_KEY, value: serialized },
+  );
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await waitForReady(page);
+}
+
+test("sizes the floor and the camera bounds from an expanded save", async ({ page }) => {
+  const browserErrors: string[] = [];
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      browserErrors.push(message.text());
+    }
+  });
+
+  const save = createInitialState();
+  save.grid.width = 96;
+  save.grid.height = 96;
+  save.grid.nodes = [
+    ...save.grid.nodes,
+    { id: "node-expanded", resource: "coal", x: 95, y: 95 },
+  ];
+
+  await seedSave(page, save);
+
+  await expect
+    .poll(() => getTelemetry(page).then((telemetry) => telemetry.camera.boundsWidth))
+    .toBe(96 * TILE_SIZE_PX + CAMERA_MARGIN_PX);
+  const telemetry = await getTelemetry(page);
+  expect(telemetry.camera.boundsHeight).toBe(96 * TILE_SIZE_PX + CAMERA_MARGIN_PX);
+  expect(browserErrors).toEqual([]);
+});
+
+test("falls back to a new game when a saved plot is out of contract", async ({ page }) => {
+  const browserErrors: string[] = [];
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      browserErrors.push(message.text());
+    }
+  });
+
+  const save = createInitialState();
+  save.grid.width = 100_000;
+  save.grid.height = 100_000;
+  save.currency = 432_100;
+
+  await page.addInitScript(
+    ({ key, value }) => {
+      window.localStorage.setItem(key, value);
+    },
+    { key: SAVE_KEY, value: JSON.stringify(save) },
+  );
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await waitForReady(page);
+
+  const telemetry = await getTelemetry(page);
+  expect(telemetry.camera.boundsWidth).toBe(64 * TILE_SIZE_PX + CAMERA_MARGIN_PX);
+  expect(telemetry.camera.boundsHeight).toBe(64 * TILE_SIZE_PX + CAMERA_MARGIN_PX);
+  expect(await page.evaluate(() => window.__FACTOR_Y__?.getSnapshot().currency)).toBe(
+    STARTING_CURRENCY,
+  );
+  expect(browserErrors).toEqual([]);
 });

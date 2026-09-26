@@ -1589,9 +1589,11 @@ git commit -m "feat: implement prestige reset loop"
 - Modify: `src/phaser/FactoryScene.ts`
 - Create: `src/phaser/render/floorGrid.ts`
 - Create: `tests/unit/expansion.test.ts`
+- Modify: `src/persistence/migrate.ts`
+- Modify: `tests/unit/persistence.test.ts`
 - Modify: `tests/integration/store.test.ts`
 - Modify: `tests/integration/prestigeReset.test.ts`
-- No change: `src/phaser/cameraConfig.ts` already derived its bounds from a width and height, so the expanded-grid contract is a new assertion about existing code rather than new code.
+- Modified after review: `src/phaser/cameraConfig.ts` exports the margin and the zoom range, `src/phaser/telemetry.ts` publishes the camera bounds, `src/ui/presentation.ts` words the expansion refusals, and the expansion, telemetry, camera, and presentation specs cover them.
 
 **Interfaces:**
 - Consumes: `expandGrid(width, height)`, the current grid, the expansion unlock, and camera bounds.
@@ -1621,8 +1623,17 @@ npm run test
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/sim/commands.ts src/sim/grid.ts src/sim/constants.ts src/sim/types.ts src/sim/store.ts src/sim/initialState.ts src/phaser/FactoryScene.ts src/phaser/render/floorGrid.ts tests/unit/expansion.test.ts tests/integration/store.test.ts tests/integration/prestigeReset.test.ts
+git add src/sim/commands.ts src/sim/grid.ts src/sim/constants.ts src/sim/types.ts src/sim/store.ts src/sim/initialState.ts src/phaser/FactoryScene.ts src/phaser/render/floorGrid.ts src/persistence/migrate.ts tests/unit/expansion.test.ts tests/unit/persistence.test.ts tests/integration/store.test.ts tests/integration/prestigeReset.test.ts
 git commit -m "feat: add grid expansion"
+```
+
+- [ ] **Step 6: Prove the wiring in a browser, then correct the contracts review found**
+
+Shipped in `test: prove grid expansion in the browser and correct its contracts`, after `feat: add grid expansion` was approved with the caveat that the scene wiring was unproven and several claims overstated their tests. That follow-up publishes `camera.boundsWidth` and `camera.boundsHeight` in render telemetry, adds browser tests that seed a 96 by 96 save and a 100000 by 100000 save, pins the new plot boundary in the unit spec, words the expansion refusals for the player, derives the plot bounds from both starting axes, and completes the floor teardown in the scene. Its files:
+
+```bash
+git add src/phaser/FactoryScene.ts src/phaser/cameraConfig.ts src/phaser/telemetry.ts src/ui/presentation.ts src/sim/constants.ts tests/e2e/phase0.spec.ts tests/unit/expansion.test.ts tests/unit/sceneTelemetry.test.ts tests/unit/cameraConfig.test.ts tests/unit/presentation.test.ts
+git commit -m "test: prove grid expansion in the browser and correct its contracts"
 ```
 
 ## Task 3.4: Add Prestige UI and Balance Scenarios
@@ -1680,11 +1691,11 @@ git commit -m "feat: add prestige UI and balance scenarios"
 
 **Interfaces:**
 - Consumes: versioned save fixtures for base, post-prestige, and expanded-grid states.
-- Produces: explicit migration functions that preserve permanent fields and expand bounds.
+- Produces: explicit migration functions that preserve permanent fields and keep an expanded plot valid.
 
 - [ ] **Step 1: Write failing migration fixtures**
 
-Create valid fixture objects representing version 1 and test that a future version 2 migration adds the expanded grid field, preserves prestige multipliers, and rejects unsupported version 3.
+Create valid fixture objects representing version 1 and test that an expanded-grid save, a post-prestige save, and both together all migrate through unchanged, that prestige multipliers survive, and that an unsupported version 3 is rejected. There is **no expanded grid field to add**: `grid.width` and `grid.height` have been `SaveGame` fields since version 1, so an expanded plot is already a valid version-1 save and needs no version-2 step. Do not write a fixture that adds a field the schema does not have. What this task must actually prove is that the existing version-1 path is total over the shapes the game can now produce, which is the same claim a new field would have implied.
 
 - [ ] **Step 2: Verify red**
 

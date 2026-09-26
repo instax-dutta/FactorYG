@@ -10,6 +10,9 @@ Own the React DOM overlay for Factor-I.
 
 ## Local Contracts
 
+- Every refusal a shipped control can surface has its own sentence in `commandReasonMessages`, covering the unlock, upgrade, prestige, and grid expansion reasons. A missing entry falls through to `The store refused that action: <reason>.`, which shows a player an internal token, so `tests/unit/presentation.test.ts` asserts that no reachable reason reaches the fallback and that no message repeats its own reason string. A command that adds a rejection reason adds its copy in the same change.
+- `notImplemented` is the copy for a command the store has not routed yet, and it stays. It is unreachable from every shipped control today, but a command added to the shared union and not yet wired is a real intermediate state during development, and a refusal from one must read as "not available yet" rather than echo the token.
+
 - UI reads immutable `SimulationSnapshot` values through `useSyncExternalStore`.
 - UI dispatches commands but never imports simulation math or mutates private store state.
 - Deferred actions are visibly disabled until their simulation command exists and the action is wired. A command existing in the store is necessary but not sufficient. The tech tree wires the machine and recipe purchases and the inspector wires the level upgrade. The prestige command now exists in the store with a `canResetPrestige` preflight, but the prestige button and its confirmation modal are still unwired, so prestige remains deferred and no control may present it as available until the UI is built.
@@ -28,7 +31,7 @@ Own the React DOM overlay for Factor-I.
 
 ## Verification
 
-- `npm run test -- tests/unit/hud.test.tsx tests/unit/buildDock.test.tsx tests/unit/gameHeader.test.tsx tests/unit/techTree.test.tsx tests/unit/modalFocus.test.tsx`
+- `npm run test -- tests/unit/hud.test.tsx tests/unit/buildDock.test.tsx tests/unit/gameHeader.test.tsx tests/unit/techTree.test.tsx tests/unit/modalFocus.test.tsx tests/unit/presentation.test.ts`
 - `npm run test:e2e -- tests/e2e/phase0.spec.ts --workers=1`
 
 ## Child DOX Index
