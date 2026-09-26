@@ -1,6 +1,7 @@
 import { MACHINES } from "../content/machines";
 import { RECIPES } from "../content/recipes";
 import { RESOURCES } from "../content/resources";
+import { isAlignedGridDimension, isValidGridDimension } from "../sim/grid";
 import type {
   BeltCell,
   Entity,
@@ -202,8 +203,10 @@ export function validateSaveGame(input: unknown): ValidationResult {
 
 function validateGrid(grid: UnknownRecord): boolean {
   if (
-    !isPositiveInteger(grid.width) ||
-    !isPositiveInteger(grid.height) ||
+    !isValidGridDimension(grid.width) ||
+    !isValidGridDimension(grid.height) ||
+    !isAlignedGridDimension(grid.width) ||
+    !isAlignedGridDimension(grid.height) ||
     grid.tileSizePx !== 64 ||
     !Array.isArray(grid.nodes) ||
     !Array.isArray(grid.entities) ||

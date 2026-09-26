@@ -5,11 +5,23 @@ import {
   STARTING_CURRENCY,
   TILE_SIZE_PX,
 } from "./constants";
-import type { PrestigeState, ResourceId, ResourceNode, SimulationState } from "./types";
+import type {
+  GridDimensions,
+  GridState,
+  PrestigeState,
+  ResourceId,
+  ResourceNode,
+  SimulationState,
+} from "./types";
 
 const RAW_RESOURCES: ResourceId[] = ["copperOre", "ironOre", "coal", "stone"];
 const NODES_PER_RESOURCE = 8;
+const BASE_AREA = GRID_WIDTH * GRID_HEIGHT;
 const RANDOM_RANGE = 0x100000000;
+
+export const NEW_GAME_SEED = 1337;
+
+type GridPointTuple = [number, number];
 
 function createRandom(seed: number): () => number {
   let state = seed >>> 0;
@@ -20,16 +32,41 @@ function createRandom(seed: number): () => number {
   };
 }
 
-function createResourceNodes(seed: number): ResourceNode[] {
-  const random = createRandom(seed);
-  const coordinates: GridPointTuple[] = [];
+function nodesPerResource(width: number, height: number): number {
+  return Math.max(NODES_PER_RESOURCE, Math.floor((NODES_PER_RESOURCE * width * height) / BASE_AREA));
+}
 
-  for (let y = 0; y < GRID_HEIGHT; y += 1) {
-    for (let x = 0; x < GRID_WIDTH; x += 1) {
-      coordinates.push([x, y]);
+function gridCells(width: number, height: number): GridPointTuple[] {
+  const cells: GridPointTuple[] = [];
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      cells.push([x, y]);
     }
   }
 
+  return cells;
+}
+
+function addedGridCells(
+  previous: GridDimensions,
+  width: number,
+  height: number,
+): GridPointTuple[] {
+  const cells: GridPointTuple[] = [];
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (x >= previous.width || y >= previous.height) {
+        cells.push([x, y]);
+      }
+    }
+  }
+
+  return cells;
+}
+
+function shuffle(random: () => number, coordinates: GridPointTuple[]): void {
   for (let index = coordinates.length - 1; index > 0; index -= 1) {
     const swapIndex = Math.floor(random() * (index + 1));
     const current = coordinates[index];
@@ -37,15 +74,29 @@ function createResourceNodes(seed: number): ResourceNode[] {
     coordinates[index] = swap;
     coordinates[swapIndex] = current;
   }
+}
+
+function takeNodes(
+  random: () => number,
+  coordinates: GridPointTuple[],
+  perResource: number,
+  idOffset: number,
+): ResourceNode[] {
+  const shuffled = [...coordinates];
+  shuffle(random, shuffled);
 
   const nodes: ResourceNode[] = [];
 
-  for (let slot = 0; slot < NODES_PER_RESOURCE; slot += 1) {
+  for (let slot = 0; slot < perResource; slot += 1) {
     for (let resourceIndex = 0; resourceIndex < RAW_RESOURCES.length; resourceIndex += 1) {
-      const coordinate = coordinates[slot * RAW_RESOURCES.length + resourceIndex];
+      const coordinate = shuffled[slot * RAW_RESOURCES.length + resourceIndex];
+      if (coordinate === undefined) {
+        break;
+      }
+
       const [x, y] = coordinate;
       nodes.push({
-        id: `node-${nodes.length}`,
+        id: `node-${idOffset + nodes.length}`,
         resource: RAW_RESOURCES[resourceIndex],
         x,
         y,
@@ -56,9 +107,58 @@ function createResourceNodes(seed: number): ResourceNode[] {
   return nodes;
 }
 
-type GridPointTuple = [number, number];
+function nextNodeIdOffset(nodes: readonly ResourceNode[]): number {
+  let highest = -1;
 
-export function createInitialState(seed = 1337): SimulationState {
+  for (const node of nodes) {
+    const match = /^node-(\d+)$/.exec(node.id);
+    if (match === null) {
+      continue;
+    }
+
+    const index = Number(match[1]);
+    if (Number.isSafeInteger(index) && index > highest) {
+      highest = index;
+    }
+  }
+
+  return highest + 1;
+}
+
+function createResourceNodes(seed: number, width: number, height: number): ResourceNode[] {
+  return takeNodes(
+    createRandom(seed),
+    gridCells(width, height),
+    nodesPerResource(width, height),
+    0,
+  );
+}
+
+export function createExpansionNodes(
+  seed: number,
+  previous: GridState,
+  width: number,
+  height: number,
+): ResourceNode[] {
+  const added =
+    nodesPerResource(width, height) - nodesPerResource(previous.width, previous.height);
+  if (added <= 0) {
+    return [];
+  }
+
+  return takeNodes(
+    createRandom(seed),
+    addedGridCells(previous, width, height),
+    added,
+    nextNodeIdOffset(previous.nodes),
+  );
+}
+
+export function createInitialState(
+  seed = NEW_GAME_SEED,
+  width = GRID_WIDTH,
+  height = GRID_HEIGHT,
+): SimulationState {
   return {
     version: 1,
     lastSavedAt: NEW_GAME_TIMESTAMP,
@@ -77,10 +177,10 @@ export function createInitialState(seed = 1337): SimulationState {
       recipes: [],
     },
     grid: {
-      width: GRID_WIDTH,
-      height: GRID_HEIGHT,
+      width,
+      height,
       tileSizePx: TILE_SIZE_PX,
-      nodes: createResourceNodes(seed),
+      nodes: createResourceNodes(seed, width, height),
       entities: [],
       machines: {},
       belts: {},
@@ -95,9 +195,12 @@ export function createInitialState(seed = 1337): SimulationState {
   };
 }
 
-export function createResetState(permanent: PrestigeState): SimulationState {
+export function createResetState(
+  permanent: PrestigeState,
+  dimensions: GridDimensions,
+): SimulationState {
   return {
-    ...createInitialState(),
+    ...createInitialState(NEW_GAME_SEED, dimensions.width, dimensions.height),
     prestige: {
       points: permanent.points,
       totalPrestiges: permanent.totalPrestiges,

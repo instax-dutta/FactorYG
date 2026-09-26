@@ -6,6 +6,7 @@ Own pure Phaser render helpers for Factor-I.
 
 - `textureKeys.ts` resolves machine and resource texture keys and frame paths.
 - `BeltItemRenderer.ts` converts typed belt-item events into injected views and glows.
+- `floorGrid.ts` owns the floor tile data as a pure function of the plot size, so a floor rebuild is assertable without a live scene.
 - `machineBlink.ts` owns the blocked-machine pulse rate, tint, and hold, converts a start or stop into an injected tween, and exposes `createMachineBlinkTweenSpec` as the one place the pulse becomes a real Phaser tween.
 
 ## Local Contracts
@@ -22,7 +23,7 @@ Own pure Phaser render helpers for Factor-I.
 
 ## Verification
 
-- `npm run test -- tests/unit/beltItemRender.test.ts tests/unit/sceneTelemetry.test.ts tests/unit/machineBlink.test.ts`
+- `npm run test -- tests/unit/beltItemRender.test.ts tests/unit/sceneTelemetry.test.ts tests/unit/machineBlink.test.ts tests/unit/expansion.test.ts`
 
 ## Child DOX Index
 

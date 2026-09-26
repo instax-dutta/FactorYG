@@ -1,9 +1,11 @@
 import { FixedStepClock } from "./clock";
 import { TICK_MS } from "./constants";
 import {
+  canExpandGrid,
   canResetPrestige,
   canUnlock,
   canUpgrade,
+  expandGrid,
   getPermanentMultipliers,
   performPrestige,
   unlockMachine,
@@ -18,6 +20,7 @@ import { advanceSimulation } from "./tick";
 import type {
   CommandResult,
   Entity,
+  GridDimensions,
   RenderEvent,
   ResourceId,
   SimulationCommand,
@@ -94,6 +97,13 @@ export class SimulationStore {
     return Object.freeze(blocked);
   }
 
+  public getGridDimensions(): GridDimensions {
+    return Object.freeze({
+      width: this.#state.grid.width,
+      height: this.#state.grid.height,
+    });
+  }
+
   public getEntities(): readonly Entity[] {
     const entities = this.#state.grid.entities.map((entity) => Object.freeze({ ...entity }));
     return Object.freeze(entities);
@@ -151,6 +161,10 @@ export class SimulationStore {
 
   public canResetPrestige(): CommandResult {
     return canResetPrestige(this.#state);
+  }
+
+  public canExpandGrid(width: number, height: number): CommandResult {
+    return canExpandGrid(this.#state, width, height);
   }
 
   public getPermanentMultipliers(): PermanentMultipliers {
@@ -315,6 +329,9 @@ export class SimulationStore {
       }
       case "prestige": {
         return performPrestige(this.#state);
+      }
+      case "expandGrid": {
+        return expandGrid(this.#state, command);
       }
       default:
         return {

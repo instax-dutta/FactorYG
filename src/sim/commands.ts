@@ -2,7 +2,14 @@ import { getUpgradeLevel, isLevelAffected } from "../content/machines";
 import { UNLOCKS } from "../content/unlocks";
 import type { UnlockRequirement } from "../content/types";
 import { PRESTIGE_PRODUCTION_BONUS_PER_POINT, PRESTIGE_SELL_BONUS_PER_POINT } from "./constants";
-import { createResetState } from "./initialState";
+import {
+  isAlignedGridDimension,
+  isGridExpansionUnlocked,
+  isGridGrowth,
+  isInsideGrid,
+  isValidGridDimension,
+} from "./grid";
+import { NEW_GAME_SEED, createExpansionNodes, createResetState } from "./initialState";
 import { getUpgradeCost } from "./machines";
 import { calculatePrestigePoints, canPrestige } from "./prestige";
 import type {
@@ -261,7 +268,10 @@ export function performPrestige(state: SimulationState): PrestigeApplication {
   };
 
   return {
-    state: { ...createResetState(permanent), notifications: [notification] },
+    state: {
+      ...createResetState(permanent, state.grid),
+      notifications: [notification],
+    },
     changed: true,
     result: { ok: true },
     awardedPoints,
@@ -282,5 +292,76 @@ function permanentMultipliersForPoints(points: number): PermanentMultipliers {
   return {
     productionSpeed: 1 + earned * PRESTIGE_PRODUCTION_BONUS_PER_POINT,
     sellValue: 1 + earned * PRESTIGE_SELL_BONUS_PER_POINT,
+  };
+}
+
+export type ExpandGridCommand = Extract<SimulationCommand, { type: "expandGrid" }>;
+
+export interface GridExpansionApplication {
+  state: SimulationState;
+  changed: boolean;
+  result: CommandResult;
+}
+
+export function canExpandGrid(
+  state: SimulationState,
+  width: number,
+  height: number,
+): CommandResult {
+  if (!isValidGridDimension(width) || !isValidGridDimension(height)) {
+    return { ok: false, reason: "outOfRange" };
+  }
+
+  if (!isAlignedGridDimension(width) || !isAlignedGridDimension(height)) {
+    return { ok: false, reason: "invalidGridStep" };
+  }
+
+  if (!isGridExpansionUnlocked(state)) {
+    return { ok: false, reason: "expansionLocked" };
+  }
+
+  if (width < state.grid.width || height < state.grid.height) {
+    return { ok: false, reason: "gridShrink" };
+  }
+
+  if (!isGridGrowth(state.grid, { width, height })) {
+    return { ok: false, reason: "gridAlreadyExpanded" };
+  }
+
+  if (state.grid.entities.some((entity) => !isInsideGrid(entity, width, height))) {
+    return { ok: false, reason: "entityOutOfBounds" };
+  }
+
+  if (state.grid.nodes.some((node) => !isInsideGrid(node, width, height))) {
+    return { ok: false, reason: "nodeOutOfBounds" };
+  }
+
+  return { ok: true };
+}
+
+export function expandGrid(
+  state: SimulationState,
+  command: ExpandGridCommand,
+): GridExpansionApplication {
+  const result = canExpandGrid(state, command.width, command.height);
+  if (!result.ok) {
+    return { state, changed: false, result };
+  }
+
+  return {
+    state: {
+      ...state,
+      grid: {
+        ...state.grid,
+        width: command.width,
+        height: command.height,
+        nodes: [
+          ...state.grid.nodes,
+          ...createExpansionNodes(NEW_GAME_SEED, state.grid, command.width, command.height),
+        ],
+      },
+    },
+    changed: true,
+    result: { ok: true },
   };
 }

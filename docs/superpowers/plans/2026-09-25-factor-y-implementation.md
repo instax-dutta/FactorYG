@@ -1574,17 +1574,24 @@ git commit -m "feat: implement prestige reset loop"
 
 ## Task 3.3: Add Grid Expansion and Camera Bounds
 
-**Carried forward from Task 3.2, and not decided here:**
-- **Does grid expansion survive a prestige reset?** `createResetState` in `src/sim/initialState.ts` copies only the prestige block, so a reset rebuilds a 64 by 64 world and any expansion the player paid for is lost. This is an open balance decision, not an implementation detail, and this task must not settle it by accident. It blocks Task 3.4, which sells expansion to the player, because a player who buys area and loses it on prestige has been charged for a privilege that disappears. Decide it explicitly, record the decision in `src/sim/AGENTS.md`, and thread the surviving dimensions through `createResetState` if expansion is permanent. Whichever way it goes, a prestige reset must keep emitting one `entityRemoved` per removed entity, so the browser stops drawing the old run.
-- **`createResourceNodes` iterates the module constants `GRID_WIDTH` and `GRID_HEIGHT`, not `state.grid.width` and `state.grid.height`.** An expanded grid would therefore have node-free cells across the new area, and `createResetState` would always hand back 64 by 64 because it builds from `createInitialState()`. Thread the grid dimensions into node generation in this task regardless of how the permanence question above is answered, otherwise expansion ships with unreachable resource.
-- **`tests/integration/store.test.ts` names `expandGrid` as its unimplemented command.** That fixture stops working the moment this task implements `expandGrid`, so the deferred-command test needs a different command, and the deferred-command assertion must survive the swap.
+**Carried forward from Task 3.2, and resolved in this task:**
+- **Does grid expansion survive a prestige reset? Decided: yes.** A plot is a permanent privilege, and Task 3.4 sells it, so a reset that rebuilt the starting grid would charge the player twice for area they already own. `createResetState` now takes the surviving dimensions and rebuilds a fresh world at that size, and the decision is recorded in `src/sim/AGENTS.md`. The reset still drops the entities themselves and still emits one `entityRemoved` per removed entity, so the browser stops drawing the old run.
+- **`createResourceNodes` iterated the module constants `GRID_WIDTH` and `GRID_HEIGHT`.** Node generation now takes the grid dimensions, an expansion appends only the nodes the new area needs and never moves an existing node, and the count per raw type scales with area so density does not fall as the plot grows. `createInitialState` takes the dimensions too, so a reset world scatters across the whole surviving plot.
+- **`tests/integration/store.test.ts` named `expandGrid` as its unimplemented command.** Every declared command variant is now implemented, so the deferred-command test dispatches a command outside the union instead. Its assertions are unchanged and still prove the store's default branch returns a `CommandResult` and publishes nothing.
 
 **Files:**
 - Modify: `src/sim/commands.ts`
 - Modify: `src/sim/grid.ts`
-- Modify: `src/phaser/cameraConfig.ts`
+- Modify: `src/sim/constants.ts`
+- Modify: `src/sim/types.ts`
+- Modify: `src/sim/store.ts`
+- Modify: `src/sim/initialState.ts`
 - Modify: `src/phaser/FactoryScene.ts`
+- Create: `src/phaser/render/floorGrid.ts`
 - Create: `tests/unit/expansion.test.ts`
+- Modify: `tests/integration/store.test.ts`
+- Modify: `tests/integration/prestigeReset.test.ts`
+- No change: `src/phaser/cameraConfig.ts` already derived its bounds from a width and height, so the expanded-grid contract is a new assertion about existing code rather than new code.
 
 **Interfaces:**
 - Consumes: `expandGrid(width, height)`, the current grid, the expansion unlock, and camera bounds.
@@ -1614,7 +1621,7 @@ npm run test
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/sim/commands.ts src/sim/grid.ts src/phaser/cameraConfig.ts src/phaser/FactoryScene.ts tests/unit/expansion.test.ts
+git add src/sim/commands.ts src/sim/grid.ts src/sim/constants.ts src/sim/types.ts src/sim/store.ts src/sim/initialState.ts src/phaser/FactoryScene.ts src/phaser/render/floorGrid.ts tests/unit/expansion.test.ts tests/integration/store.test.ts tests/integration/prestigeReset.test.ts
 git commit -m "feat: add grid expansion"
 ```
 

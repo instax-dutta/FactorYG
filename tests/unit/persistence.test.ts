@@ -229,6 +229,48 @@ describe("save graph integrity and projection", () => {
     expectInvalidSave(save);
   });
 
+  it("rejects a grid whose dimensions are not a whole number of expansion steps", () => {
+    const save = toSaveObject(createStateWithEntities());
+    const grid = save.grid as Record<string, unknown>;
+    grid.width = 100;
+
+    expectInvalidSave(save);
+  });
+
+  it("rejects a grid larger than the expansion ceiling", () => {
+    const save = toSaveObject(createStateWithEntities());
+    const grid = save.grid as Record<string, unknown>;
+    grid.width = 100_000;
+    grid.height = 100_000;
+
+    expectInvalidSave(save);
+  });
+
+  it("accepts an expanded grid and reads its nodes and entities against the saved dimensions", () => {
+    const state = createStateWithEntities();
+    state.grid.width = 96;
+    state.grid.height = 96;
+    state.grid.nodes = [
+      ...state.grid.nodes,
+      { id: "node-new", resource: "coal", x: 95, y: 95 },
+    ];
+
+    const result = parseSave(serializeSave(state));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+
+    expect(result.save.grid.width).toBe(96);
+    expect(result.save.grid.nodes).toContainEqual({
+      id: "node-new",
+      resource: "coal",
+      x: 95,
+      y: 95,
+    });
+  });
+
   it("projects only explicit node and nested record fields", () => {
     const state = createStateWithEntities();
     Object.assign(state.grid.nodes[0], { unknownNodeField: "node" });

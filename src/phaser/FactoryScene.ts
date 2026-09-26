@@ -1,8 +1,15 @@
 import Phaser from "phaser";
 import { ASSET_MANIFEST, type AssetKey } from "../content/assetManifest";
 import { getMachine } from "../content/machines";
+import { TILE_SIZE_PX } from "../sim/constants";
 import { cellToWorld } from "../sim/grid";
-import type { Entity, MachineType, RenderEvent, SimulationSnapshot } from "../sim/types";
+import type {
+  Entity,
+  GridDimensions,
+  MachineType,
+  RenderEvent,
+  SimulationSnapshot,
+} from "../sim/types";
 import { SimulationStore } from "../sim/store";
 import { createCameraConfig } from "./cameraConfig";
 import { createInputAdapter, type CameraInputAdapter } from "./inputAdapter";
@@ -13,6 +20,7 @@ import {
   type BeltItemView,
   type BeltItemViewFactory,
 } from "./render/BeltItemRenderer";
+import { createFloorTileData } from "./render/floorGrid";
 import {
   createMachineBlinker,
   createMachineBlinkTweenSpec,
@@ -36,9 +44,6 @@ import {
   type SceneTelemetry,
 } from "./telemetry";
 
-const GRID_WIDTH = 64;
-const GRID_HEIGHT = 64;
-const TILE_SIZE_PX = 64;
 const ACTIVE_FRAME_INTERVAL_MS = 160;
 const BELT_GLOW_SCALE = 3.4;
 const BELT_GLOW_ALPHA = 0.6;
@@ -48,6 +53,9 @@ export class FactoryScene extends Phaser.Scene {
   private readonly store: SimulationStore;
   private readonly onReady: () => void;
   private readonly onTelemetry: (telemetry: SceneTelemetry) => void;
+  private floorMap: Phaser.Tilemaps.Tilemap | undefined;
+  private floorLayer: Phaser.Tilemaps.TilemapLayer | undefined;
+  private gridDimensions: GridDimensions | undefined;
   private machineLayer!: Phaser.GameObjects.Layer;
   private beltLayer!: Phaser.GameObjects.Layer;
   private beltItemLayer!: Phaser.GameObjects.Layer;
@@ -111,13 +119,13 @@ export class FactoryScene extends Phaser.Scene {
       return;
     }
 
-    const cameraConfig = createCameraConfig(GRID_WIDTH, GRID_HEIGHT);
+    const dimensions = this.store.getGridDimensions();
+    const cameraConfig = createCameraConfig(dimensions.width, dimensions.height);
     const camera = this.cameras.main;
-    camera.setBounds(0, 0, cameraConfig.boundsWidth, cameraConfig.boundsHeight);
     camera.setZoom(cameraConfig.initialZoom);
-    camera.centerOn((GRID_WIDTH * TILE_SIZE_PX) / 2, (GRID_HEIGHT * TILE_SIZE_PX) / 2);
+    camera.centerOn((dimensions.width * TILE_SIZE_PX) / 2, (dimensions.height * TILE_SIZE_PX) / 2);
 
-    this.createFloor();
+    this.refreshGridBounds();
     this.machineLayer = this.add.layer().setName("machine-layer").setDepth(10);
     this.beltLayer = this.add.layer().setName("belt-layer").setDepth(11);
     this.beltItemLayer = this.add.layer().setName("belt-item-layer").setDepth(12);
@@ -144,6 +152,7 @@ export class FactoryScene extends Phaser.Scene {
     this.snapshot = this.store.getSnapshot();
     this.unsubscribeSnapshot = this.store.subscribe((snapshot) => {
       this.snapshot = snapshot;
+      this.refreshGridBounds();
       this.refreshGhost();
       this.refreshBlockedMachines();
       this.publishTelemetry();
@@ -177,16 +186,35 @@ export class FactoryScene extends Phaser.Scene {
     this.publishTelemetry();
   }
 
-  private createFloor(): void {
-    const floorData = Array.from({ length: GRID_HEIGHT }, () =>
-      Array.from({ length: GRID_WIDTH }, () => 1),
-    );
+  private refreshGridBounds(): void {
+    const dimensions = this.store.getGridDimensions();
+    const current = this.gridDimensions;
+    if (
+      current !== undefined &&
+      current.width === dimensions.width &&
+      current.height === dimensions.height
+    ) {
+      return;
+    }
+
+    const cameraConfig = createCameraConfig(dimensions.width, dimensions.height);
+    this.cameras.main.setBounds(0, 0, cameraConfig.boundsWidth, cameraConfig.boundsHeight);
+    this.rebuildFloor(dimensions);
+  }
+
+  private rebuildFloor(dimensions: GridDimensions): void {
+    this.gridDimensions = { ...dimensions };
+    this.floorLayer?.destroy();
+    this.floorLayer = undefined;
+    this.floorMap?.destroy();
+    this.floorMap = undefined;
+
     const map = this.make.tilemap({
-      data: floorData,
+      data: createFloorTileData(dimensions.width, dimensions.height),
       tileWidth: TILE_SIZE_PX,
       tileHeight: TILE_SIZE_PX,
-      width: GRID_WIDTH,
-      height: GRID_HEIGHT,
+      width: dimensions.width,
+      height: dimensions.height,
     });
     const tileset = map.addTilesetImage(
       "floor",
@@ -198,10 +226,19 @@ export class FactoryScene extends Phaser.Scene {
       1,
     );
     if (tileset === null) {
+      map.destroy();
       return;
     }
+
     const floorLayer = map.createLayer(0, tileset, 0, 0);
-    floorLayer?.setDepth(0);
+    if (floorLayer === null) {
+      map.destroy();
+      return;
+    }
+
+    floorLayer.setDepth(0);
+    this.floorLayer = floorLayer;
+    this.floorMap = map;
   }
 
   private syncExistingWorld(): void {

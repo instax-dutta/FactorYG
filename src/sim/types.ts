@@ -50,6 +50,11 @@ export interface BeltCell {
   progress: number;
 }
 
+export interface GridDimensions {
+  width: number;
+  height: number;
+}
+
 export interface GridState {
   width: number;
   height: number;

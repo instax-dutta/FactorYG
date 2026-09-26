@@ -4,7 +4,7 @@ Own the Phaser scene, camera, world input, and render orchestration.
 
 ## Ownership
 
-- `FactoryScene.ts` owns scene lifecycle, entity sprites, ghost preview, and render events.
+- `FactoryScene.ts` owns scene lifecycle, entity sprites, ghost preview, the floor tilemap, camera bounds, and render events.
 - `createGame.ts` owns Phaser boot configuration and renderer/scale setup.
 - `inputAdapter.ts` owns pan, zoom, pointer, keyboard, and drag state.
 - `telemetry.ts` owns the development/test scene snapshot.
@@ -22,6 +22,9 @@ Own the Phaser scene, camera, world input, and render orchestration.
 - The snapshot reconcile owns the blink in both directions. `SimulationStore` publishes the snapshot before it publishes events, so `refreshBlockedMachines` always starts a blocked machine first and the `blockedFull` arm always finds it already blinking. The event is kept as the documented contract for the exhaustive switch and as the seam for a future immediate effect; it is not what starts the visual today.
 - A `machineStateChanged` event never starts or stops a blink: a blocked producer is also idle, so both events land in the same tick.
 - The scene's world bookkeeping is event-driven and never reconciled from a snapshot: `syncExistingWorld` runs once at boot, and `entitySprites`, `placedEntities`, `activeEntityIds`, and the belt-item views move only on `entityPlaced` and `entityRemoved`. A command that clears or replaces the world, such as a prestige reset, must publish one `entityRemoved` per removed entity, because nothing in the scene notices an entity that vanished without its event and the browser keeps drawing it, hit-testing it, and reporting it in telemetry entity ids.
+- The scene reads the plot size from `store.getGridDimensions()` and never from a local grid constant, so a world that boots from an expanded save starts with the floor and the camera bounds the save actually describes. A duplicated local constant would silently floor a 96 by 96 world at 64 by 64.
+- `refreshGridBounds` rebuilds the floor tilemap and calls `camera.setBounds` with the new dimensions, and it runs on every published snapshot rather than on a render event, because the store publishes the snapshot before it publishes events and an expansion changes no entity. It compares the dimensions first and does nothing when they match, so a 10 Hz tick does not rebuild the map.
+- The floor tile data is a pure function of the plot size in `render/floorGrid.ts`, and the previous map and layer are destroyed before a rebuild, so an expanded plot cannot leave a stale 64 by 64 floor under the new one. Keeping the data pure is what makes the rebuild testable without a live scene.
 - Render telemetry publishes `blockedEntityIds` so a browser test can observe which machines are blinking without reaching into a sprite or a tween.
 
 ## Work Guidance
@@ -31,7 +34,7 @@ Own the Phaser scene, camera, world input, and render orchestration.
 
 ## Verification
 
-- `npm run test -- tests/unit/cameraConfig.test.ts tests/unit/primaryInteraction.test.ts tests/unit/sceneTelemetry.test.ts tests/unit/renderEventContract.test.ts tests/unit/machineBlink.test.ts`
+- `npm run test -- tests/unit/cameraConfig.test.ts tests/unit/expansion.test.ts tests/unit/primaryInteraction.test.ts tests/unit/sceneTelemetry.test.ts tests/unit/renderEventContract.test.ts tests/unit/machineBlink.test.ts`
 - `npm run test:e2e -- tests/e2e/phase0.spec.ts --workers=1`
 
 ## Child DOX Index

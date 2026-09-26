@@ -6,7 +6,7 @@ Own tests that cross module boundaries without a real browser.
 
 - Integration tests may combine store, snapshot, persistence, and runtime seams.
 - They must not import Phaser, React DOM components, or browser globals.
-- A deferred-command test names a command the store does not implement yet, so it has a one-task shelf life. `store.test.ts` uses `expandGrid` today, and the moment Task 3.3 implements that command the test needs a different deferred command; the assertion that the store returns a `CommandResult` and publishes no snapshot must survive that swap rather than be deleted.
+- The store's default branch must stay proven. Every declared `SimulationCommand` variant is now implemented, so `store.test.ts` reaches that branch with a command that is not in the union rather than with a variant that is merely late. The assertion that the store returns a `CommandResult` and publishes no snapshot is the durable part and must survive any further change to the command list.
 
 ## Work Guidance
 

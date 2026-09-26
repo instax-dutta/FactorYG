@@ -1,6 +1,9 @@
 export const GRID_WIDTH = 64;
 export const GRID_HEIGHT = 64;
 export const TILE_SIZE_PX = 64;
+export const GRID_EXPANSION_STEP = 32;
+export const GRID_MIN_SIZE = GRID_WIDTH;
+export const GRID_MAX_SIZE = GRID_WIDTH * 4;
 export const TICKS_PER_SECOND = 10;
 export const TICK_MS = 100;
 export const STARTING_CURRENCY = 500;

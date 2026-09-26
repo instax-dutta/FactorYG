@@ -9,6 +9,7 @@ import type {
   Entity,
   MachineRuntime,
   Notification,
+  SimulationCommand,
   SimulationState,
 } from "../../src/sim/types";
 
@@ -203,13 +204,14 @@ describe("SimulationStore", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it("returns a CommandResult for a deferred command without publishing", () => {
+  it("returns a CommandResult for an unrecognised command without publishing", () => {
     const store = new SimulationStore(createInitialState());
     const listener = vi.fn();
     const initialSnapshot = store.getSnapshot();
     store.subscribe(listener);
 
-    const result = store.dispatch({ type: "expandGrid", width: 96, height: 96 });
+    const unrecognised = { type: "expandPlot", width: 96, height: 96 } as unknown as SimulationCommand;
+    const result = store.dispatch(unrecognised);
 
     expect(result).toEqual({ ok: false, reason: "notImplemented" });
     expect(listener).not.toHaveBeenCalled();

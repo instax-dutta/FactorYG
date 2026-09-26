@@ -17,7 +17,7 @@ import {
   STARTING_CURRENCY,
 } from "../../src/sim/constants";
 import { sellResource } from "../../src/sim/economy";
-import { createInitialState, createResetState } from "../../src/sim/initialState";
+import { NEW_GAME_SEED, createInitialState, createResetState } from "../../src/sim/initialState";
 import { getExtractorRate } from "../../src/sim/machines";
 import { calculatePrestigePoints, canPrestige } from "../../src/sim/prestige";
 import { SimulationStore } from "../../src/sim/store";
@@ -593,10 +593,20 @@ describe("what a reset preserves", () => {
 
   it("builds the reset world through the one reset-state constructor", () => {
     const permanent = expectedPermanentPrestige();
-    const built = createResetState(permanent);
+    const built = createResetState(permanent, createInitialState().grid);
 
     expect(built).toEqual({ ...createInitialState(), prestige: permanent });
     expect(built.prestige).not.toBe(permanent);
+  });
+
+  it("carries the surviving grid dimensions through the reset-state constructor", () => {
+    const permanent = expectedPermanentPrestige();
+    const dimensions = { width: 96, height: 96 };
+    const built = createResetState(permanent, dimensions);
+
+    expect(built).toEqual({ ...createInitialState(NEW_GAME_SEED, 96, 96), prestige: permanent });
+    expect(built.grid.width).toBe(96);
+    expect(built.grid.height).toBe(96);
   });
 });
 
