@@ -170,8 +170,8 @@ describe("SimulationStore read-only views", () => {
       store.dispatch({
         type: "placeEntity",
         machine: "extractor",
-        x: 20,
-        y: 21,
+        x: 40,
+        y: 37,
         rotation: 0,
         resourceNode: "copperOre",
       }),

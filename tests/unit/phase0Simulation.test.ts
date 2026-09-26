@@ -3,7 +3,7 @@ import { createInitialState } from "../../src/sim/initialState";
 import { SimulationStore } from "../../src/sim/store";
 import type { ResourceId } from "../../src/sim/types";
 
-const COPPER_NODE = { x: 20, y: 21, resource: "copperOre" as ResourceId };
+const COPPER_NODE = { x: 40, y: 37, resource: "copperOre" as ResourceId };
 
 function buildChain(store: SimulationStore): void {
   expect(

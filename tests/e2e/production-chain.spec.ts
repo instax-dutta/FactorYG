@@ -75,22 +75,22 @@ const SMELTER_COST = 250;
 const ASSEMBLER_COST = 500;
 
 const ROTATED = 90;
-const CHAIN_X = 23;
-const ORE_NODE_Y = 9;
-const SMELTER_Y = 10;
-const BELT_Y = 11;
-const BELT_MID_Y = 12;
-const BELT_TAIL_Y = 13;
-const ROTATED_ASSEMBLER_Y = 14;
-const DEPOT_Y = 15;
+const CHAIN_X = 22;
+const ORE_NODE_Y = 19;
+const SMELTER_Y = 20;
+const BELT_Y = 21;
+const BELT_MID_Y = 22;
+const BELT_TAIL_Y = 23;
+const ROTATED_ASSEMBLER_Y = 24;
+const DEPOT_Y = 25;
 
 const COAL_LINES: ReadonlyArray<{
   readonly node: readonly [number, number];
   readonly depot: readonly [number, number];
 }> = [
-  { node: [17, 48], depot: [18, 48] },
-  { node: [25, 48], depot: [26, 48] },
-  { node: [11, 53], depot: [12, 53] },
+  { node: [0, 47], depot: [1, 47] },
+  { node: [28, 37], depot: [29, 37] },
+  { node: [40, 54], depot: [41, 54] },
 ];
 
 const COAL_LINE_COST = EXTRACTOR_COST + DEPOT_COST;

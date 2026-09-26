@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { SAVE_KEY } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
 import { serializeSave } from "../../src/persistence/save";
+import type { ResourceId } from "../../src/sim/types";
 
 interface RuntimeBridge {
   dispatch(command: Record<string, unknown>): { ok: boolean; reason?: string };
@@ -51,8 +52,7 @@ declare global {
   }
 }
 
-const COPPER_NODE = { x: 20, y: 21 };
-const TEST_IRON_NODE = { x: 36, y: 27 };
+const COPPER_NODE = { x: 40, y: 37 };
 const TEST_CELL = { x: 32, y: 32 };
 const TALL_INSPECTOR_CELL = { x: 34, y: 32 };
 const TILE_SIZE_PX = 64;
@@ -192,6 +192,39 @@ async function screenPointForCell(
     },
     { cell, tileSize: TILE_SIZE_PX },
   );
+}
+
+async function visibleNodeCell(page: Page, resource: ResourceId): Promise<{ x: number; y: number }> {
+  const window_ = await page.evaluate(({ wanted, tileSize }) => {
+    const telemetry = window.__FACTOR_Y_TELEMETRY__;
+    const canvas = document.querySelector<HTMLCanvasElement>("[data-testid=game-canvas] canvas");
+    if (telemetry === undefined || canvas === null) {
+      throw new Error("Factor-Y canvas or telemetry unavailable");
+    }
+    const { camera } = telemetry.getSnapshot();
+    const rect = canvas.getBoundingClientRect();
+    const scale = Math.min(rect.width / canvas.width, rect.height / canvas.height);
+    const firstCellX = Math.ceil(camera.scrollX / tileSize);
+    const firstCellY = Math.ceil(camera.scrollY / tileSize);
+    const lastCellX = Math.floor((camera.scrollX + canvas.width / scale) / tileSize);
+    const lastCellY = Math.floor((camera.scrollY + canvas.height / scale) / tileSize);
+    return { firstCellX, firstCellY, lastCellX, lastCellY, wanted };
+  }, { wanted: resource, tileSize: TILE_SIZE_PX });
+  const nodes = createInitialState().grid.nodes
+    .filter((node) => node.resource === window_.wanted)
+    .filter(
+      (node) =>
+        node.x >= window_.firstCellX &&
+        node.x + 2 <= window_.lastCellX &&
+        node.y >= window_.firstCellY &&
+        node.y <= window_.lastCellY,
+    )
+    .sort((left, right) => left.x - right.x || left.y - right.y);
+  const picked = nodes[0];
+  if (picked === undefined) {
+    throw new Error(`No visible ${resource} node in the camera window`);
+  }
+  return { x: picked.x, y: picked.y };
 }
 
 async function selectTallestInspector(page: Page, placeFirst: boolean): Promise<void> {
@@ -516,6 +549,8 @@ test("selects placed entities from the canvas and preserves placement mode", asy
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await waitForReady(page);
 
+  const TEST_NODE = await visibleNodeCell(page, "copperOre");
+
   const placementResults = await page.evaluate((node) => {
     const runtime = window.__FACTOR_Y__;
     if (runtime === undefined) {
@@ -528,7 +563,7 @@ test("selects placed entities from the canvas and preserves placement mode", asy
         x: node.x,
         y: node.y,
         rotation: 0,
-        resourceNode: "ironOre",
+        resourceNode: "copperOre",
       }),
       runtime.dispatch({
         type: "placeEntity",
@@ -545,14 +580,14 @@ test("selects placed entities from the canvas and preserves placement mode", asy
         rotation: 0,
       }),
     ];
-  }, TEST_IRON_NODE);
+  }, TEST_NODE);
 
   expect(placementResults).toEqual([{ ok: true }, { ok: true }, { ok: true }]);
 
   await page.getByTestId("build-belt").click();
   expect(await page.evaluate(() => window.__FACTOR_Y__?.getSnapshot().placementMode)).toBe("belt");
 
-  const extractorPoint = await screenPointForCell(page, TEST_IRON_NODE);
+  const extractorPoint = await screenPointForCell(page, TEST_NODE);
   await page.mouse.click(extractorPoint.x, extractorPoint.y);
   await expect(page.getByTestId("inspector-empty")).toBeVisible();
 

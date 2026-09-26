@@ -8,9 +8,7 @@ import {
 import type { ResourceId, ResourceNode, SimulationState } from "./types";
 
 const RAW_RESOURCES: ResourceId[] = ["copperOre", "ironOre", "coal", "stone"];
-const NODES_PER_RESOURCE = 4;
-const CENTRAL_REGION_SIZE = 48;
-const CLUSTER_SIZE = CENTRAL_REGION_SIZE / 2;
+const NODES_PER_RESOURCE = 8;
 const RANDOM_RANGE = 0x100000000;
 
 function createRandom(seed: number): () => number {
@@ -24,40 +22,34 @@ function createRandom(seed: number): () => number {
 
 function createResourceNodes(seed: number): ResourceNode[] {
   const random = createRandom(seed);
-  const startX = (GRID_WIDTH - CENTRAL_REGION_SIZE) / 2;
-  const startY = (GRID_HEIGHT - CENTRAL_REGION_SIZE) / 2;
+  const coordinates: GridPointTuple[] = [];
+
+  for (let y = 0; y < GRID_HEIGHT; y += 1) {
+    for (let x = 0; x < GRID_WIDTH; x += 1) {
+      coordinates.push([x, y]);
+    }
+  }
+
+  for (let index = coordinates.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    const current = coordinates[index];
+    const swap = coordinates[swapIndex];
+    coordinates[index] = swap;
+    coordinates[swapIndex] = current;
+  }
+
   const nodes: ResourceNode[] = [];
-  let nodeIndex = 0;
 
-  for (let resourceIndex = 0; resourceIndex < RAW_RESOURCES.length; resourceIndex += 1) {
-    const clusterX = startX + (resourceIndex % 2) * CLUSTER_SIZE;
-    const clusterY = startY + Math.floor(resourceIndex / 2) * CLUSTER_SIZE;
-    const coordinates: GridPointTuple[] = [];
-
-    for (let y = clusterY; y < clusterY + CLUSTER_SIZE; y += 1) {
-      for (let x = clusterX; x < clusterX + CLUSTER_SIZE; x += 1) {
-        coordinates.push([x, y]);
-      }
-    }
-
-    for (let index = coordinates.length - 1; index > 0; index -= 1) {
-      const swapIndex = Math.floor(random() * (index + 1));
-      const current = coordinates[index];
-      const swap = coordinates[swapIndex];
-      coordinates[index] = swap;
-      coordinates[swapIndex] = current;
-    }
-
-    for (let nodeInCluster = 0; nodeInCluster < NODES_PER_RESOURCE; nodeInCluster += 1) {
-      const coordinate = coordinates[nodeInCluster];
+  for (let slot = 0; slot < NODES_PER_RESOURCE; slot += 1) {
+    for (let resourceIndex = 0; resourceIndex < RAW_RESOURCES.length; resourceIndex += 1) {
+      const coordinate = coordinates[slot * RAW_RESOURCES.length + resourceIndex];
       const [x, y] = coordinate;
       nodes.push({
-        id: `node-${nodeIndex}`,
+        id: `node-${nodes.length}`,
         resource: RAW_RESOURCES[resourceIndex],
         x,
         y,
       });
-      nodeIndex += 1;
     }
   }
 

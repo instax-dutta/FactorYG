@@ -39,8 +39,8 @@ interface RuntimeWindow {
   __FACTOR_Y_TELEMETRY__?: TelemetryBridge;
 }
 
-const COPPER_NODE = { x: 20, y: 21 };
-const IRON_NODE = { x: 40, y: 11 };
+const COPPER_NODE = { x: 40, y: 37 };
+const IRON_NODE = { x: 17, y: 13 };
 const MAX_SCAN_TICKS = 80;
 const BLINK_SAMPLE_FRAMES = 6;
 const BLINK_EXPECTED_WHILE_STUCK = [true, true, true, true, true, true];

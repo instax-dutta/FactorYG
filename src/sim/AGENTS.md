@@ -12,7 +12,7 @@ Own deterministic Factor-I simulation state and production rules.
 - `chains.ts` owns production chain discovery and steady-state throughput.
 - `commands.ts` owns unlock purchases for machines and recipes and the entity level upgrade.
 - `store.ts` owns private state, commands, snapshots, the fixed-step driver, and the read-only `getActiveMachineIds` and `getBlockedMachineIds` views a renderer reads instead of simulating.
-- `initialState.ts` owns deterministic new-game world creation.
+- `initialState.ts` owns deterministic new-game world creation. Resource nodes are scattered across the whole grid, eight per raw type, rather than banded into quadrants, so a straight belt line can carry any resource to any part of the map. Banded nodes made the deep production chain arithmetically unreachable: a two-raw smelter could only be fed from one band, and no two bands overlapped.
 
 ## Local Contracts
 

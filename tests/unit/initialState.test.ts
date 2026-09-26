@@ -25,22 +25,41 @@ describe("createInitialState", () => {
     expect(state.unlocked.recipes).toEqual([]);
   });
 
-  it("creates exactly 16 renewable nodes in the central region", () => {
+  it("scatters every raw type across the whole grid", () => {
     const state = createInitialState();
     const coordinates = state.grid.nodes.map((node) => `${node.x},${node.y}`);
     const resources = [...new Set(state.grid.nodes.map((node) => node.resource))].sort();
 
-    expect(state.grid.nodes).toHaveLength(16);
+    expect(state.grid.nodes).toHaveLength(32);
     expect(resources).toEqual(["coal", "copperOre", "ironOre", "stone"]);
     expect(new Set(coordinates).size).toBe(coordinates.length);
 
     for (const node of state.grid.nodes) {
-      expect(node.x).toBeGreaterThanOrEqual(8);
-      expect(node.x).toBeLessThanOrEqual(55);
-      expect(node.y).toBeGreaterThanOrEqual(8);
-      expect(node.y).toBeLessThanOrEqual(55);
+      expect(node.x).toBeGreaterThanOrEqual(0);
+      expect(node.x).toBeLessThan(GRID_WIDTH);
+      expect(node.y).toBeGreaterThanOrEqual(0);
+      expect(node.y).toBeLessThan(GRID_HEIGHT);
       expect(node).not.toHaveProperty("remaining");
     }
+  });
+
+  it("gives every raw type more than one row and more than one column", () => {
+    const state = createInitialState();
+
+    for (const resource of ["copperOre", "ironOre", "coal", "stone"]) {
+      const nodes = state.grid.nodes.filter((node) => node.resource === resource);
+      expect(new Set(nodes.map((node) => node.x)).size, `${resource} columns`).toBeGreaterThan(1);
+      expect(new Set(nodes.map((node) => node.y)).size, `${resource} rows`).toBeGreaterThan(1);
+    }
+  });
+
+  it("puts a raw node on enough rows and columns that a straight belt line can carry any resource", () => {
+    const state = createInitialState();
+    const rowsWithNode = new Set(state.grid.nodes.map((node) => node.y));
+    const columnsWithNode = new Set(state.grid.nodes.map((node) => node.x));
+
+    expect(rowsWithNode.size).toBeGreaterThanOrEqual(16);
+    expect(columnsWithNode.size).toBeGreaterThanOrEqual(16);
   });
 
   it("creates deterministic nodes and initial simulation bookkeeping", () => {

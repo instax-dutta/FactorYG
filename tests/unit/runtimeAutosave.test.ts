@@ -7,7 +7,7 @@ import type { SaveStorage } from "../../src/persistence/save";
 import { createRuntimeAutosave, projectRuntimeSave } from "../../src/app/runtime";
 import type { ResourceId, SaveGame, SimulationState } from "../../src/sim/types";
 
-const COPPER_NODE = { x: 20, y: 21 };
+const COPPER_NODE = { x: 40, y: 37 };
 
 function createMemoryStorage(): SaveStorage & { setCount: number } {
   const values = new Map<string, string>();
