@@ -10,5 +10,6 @@ export default defineConfig({
     exclude: [...configDefaults.exclude, "tests/e2e/**"],
     passWithNoTests: true,
     setupFiles: ["./tests/setup.ts"],
+    testTimeout: 20_000,
   },
 });

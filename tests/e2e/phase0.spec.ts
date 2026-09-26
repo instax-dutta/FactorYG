@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { SAVE_KEY } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
 import { serializeSave } from "../../src/persistence/save";
@@ -133,6 +133,23 @@ function boxesOverlap(
   );
 }
 
+async function waitForBoundingBox(
+  locator: Locator,
+  label: string,
+): Promise<NonNullable<Awaited<ReturnType<Locator["boundingBox"]>>>> {
+  let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
+  await expect
+    .poll(async () => {
+      box = await locator.boundingBox();
+      return box !== null;
+    })
+    .toBe(true);
+  if (box === null) {
+    throw new Error(`${label} bounding box unavailable`);
+  }
+  return box;
+}
+
 test.use({ viewport: { width: 1000, height: 800 } });
 
 async function getTelemetry(page: Page): Promise<SceneTelemetry> {
@@ -200,11 +217,11 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
   await expect(wrapper.locator("canvas")).toBeVisible();
   await waitForReady(page);
 
-  const headerBox = await page.getByRole("banner").boundingBox();
-  const inspectorBox = await page.getByTestId("entity-inspector").boundingBox();
-  if (headerBox === null || inspectorBox === null) {
-    throw new Error("Header or inspector bounding box unavailable");
-  }
+  const headerBox = await waitForBoundingBox(page.getByRole("banner"), "Header");
+  const inspectorBox = await waitForBoundingBox(
+    page.getByTestId("entity-inspector"),
+    "Inspector",
+  );
   expect(boxesOverlap(headerBox, inspectorBox)).toBe(false);
 
   expect(
@@ -253,10 +270,7 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
   await expect.poll(async () => (await getTelemetry(page)).ghost.rotation).toBe(90);
 
   const beforeDrag = await getTelemetry(page);
-  const canvasBox = await wrapper.locator("canvas").boundingBox();
-  if (canvasBox === null) {
-    throw new Error("Canvas bounding box unavailable");
-  }
+  const canvasBox = await waitForBoundingBox(wrapper.locator("canvas"), "Canvas");
   const dragStart = { x: canvasBox.x + canvasBox.width / 2, y: canvasBox.y + canvasBox.height / 2 };
   await page.mouse.move(dragStart.x, dragStart.y);
   await page.mouse.down();

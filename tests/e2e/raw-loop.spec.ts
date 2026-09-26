@@ -196,9 +196,6 @@ async function observeBeltLine(page: Page, beltCount: number): Promise<BeltLineO
       let glow: ReturnType<typeof telemetry.getSnapshot>["render"] | undefined;
       for (let tick = 0; tick < maxTicks && glow === undefined; tick += 1) {
         bridge.advanceTicks(1);
-        if (telemetry.getSnapshot().render.beltGlowCount === 0) {
-          continue;
-        }
         await nextFrame();
         const framed = telemetry.getSnapshot().render;
         if (framed.beltGlowCount > 0 && framed.activeFrameKeys.some(isBeltFrame)) {
@@ -217,6 +214,7 @@ async function observeBeltLine(page: Page, beltCount: number): Promise<BeltLineO
       while (drainedTicks < drainLimit) {
         bridge.advanceTicks(1);
         drainedTicks += 1;
+        await nextFrame();
         if (telemetry.getSnapshot().render.beltGlowCount === 0) {
           break;
         }
@@ -387,16 +385,16 @@ test("sells copper through a raw chain and restores it after a reload", async ({
 
     for (let tick = 0; tick < maxTicks; tick += 1) {
       bridge.advanceTicks(1);
-      if (!telemetry.getSnapshot().render.activeEntityIds.includes("entity-1")) {
-        continue;
-      }
       await new Promise<void>((resolve) => {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => resolve());
         });
       });
       const render = telemetry.getSnapshot().render;
-      if (render.activeFrameKeys.some(isExtractorFrame)) {
+      if (
+        render.activeEntityIds.includes("entity-1") &&
+        render.activeFrameKeys.some(isExtractorFrame)
+      ) {
         return render;
       }
     }
