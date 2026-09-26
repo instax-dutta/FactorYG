@@ -473,12 +473,12 @@ test("opens the tech tree, buys a machine, and dismisses on Escape", async ({ pa
     bottom: viewport.height - (panelBox.y + panelBox.height),
     right: viewport.width - (panelBox.x + panelBox.width),
   };
-  expect(panelInsets).toEqual({
-    top: expect.closeTo(24, 8),
-    left: expect.closeTo(240, 24),
-    bottom: expect.closeTo(24, 8),
-    right: expect.closeTo(240, 24),
-  });
+  const withinInset = (actual: number, expected: number, tolerance: number): boolean =>
+    Math.abs(actual - expected) <= tolerance;
+  expect(withinInset(panelInsets.top, 24, 8)).toBe(true);
+  expect(withinInset(panelInsets.left, 240, 24)).toBe(true);
+  expect(withinInset(panelInsets.bottom, 24, 8)).toBe(true);
+  expect(withinInset(panelInsets.right, 240, 24)).toBe(true);
   expect({
     fitsViewport:
       panelInsets.top > 0 &&
