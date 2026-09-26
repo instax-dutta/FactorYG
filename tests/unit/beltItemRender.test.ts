@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MACHINES } from "../../src/content/machines";
+import { RESOURCES } from "../../src/content/resources";
 import { createInitialState } from "../../src/sim/initialState";
 import { advanceSimulation } from "../../src/sim/tick";
 import type {
@@ -15,6 +17,36 @@ import {
   resolveResourceTextureKey,
 } from "../../src/phaser/render/textureKeys";
 import type { Entity, RenderEvent, ResourceId, SimulationState } from "../../src/sim/types";
+
+const CONTENT_OVERRIDES = vi.hoisted((): {
+  machines: Record<string, unknown>;
+  resources: Record<string, unknown>;
+} => ({ machines: {}, resources: {} }));
+
+vi.mock("../../src/content/machines", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/content/machines")>();
+  return {
+    ...actual,
+    getMachine: (type: string) => CONTENT_OVERRIDES.machines[type] ?? actual.getMachine(type),
+  };
+});
+
+vi.mock("../../src/content/resources", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/content/resources")>();
+  return {
+    ...actual,
+    getResource: (id: string) => CONTENT_OVERRIDES.resources[id] ?? actual.getResource(id),
+  };
+});
+
+beforeEach(() => {
+  for (const key of Object.keys(CONTENT_OVERRIDES.machines)) {
+    delete CONTENT_OVERRIDES.machines[key];
+  }
+  for (const key of Object.keys(CONTENT_OVERRIDES.resources)) {
+    delete CONTENT_OVERRIDES.resources[key];
+  }
+});
 
 interface ChainOptions {
   readonly beltCount: number;
@@ -188,10 +220,33 @@ describe("render texture keys", () => {
     ]);
   });
 
+  it("resolves every active frame for each unlockable machine", () => {
+    expect(resolveActiveFrameTextureKeys("smelter")).toEqual([
+      frameTextureKey("machine.smelter.active", 0),
+      frameTextureKey("machine.smelter.active", 1),
+    ]);
+    expect(resolveActiveFrameTextureKeys("assembler")).toEqual([
+      frameTextureKey("machine.assembler.active", 0),
+      frameTextureKey("machine.assembler.active", 1),
+    ]);
+    expect(resolveActiveFrameTextureKeys("silo")).toEqual([
+      frameTextureKey("machine.silo.active", 0),
+      frameTextureKey("machine.silo.active", 1),
+    ]);
+  });
+
   it("never substitutes another machine when active art is missing", () => {
     for (const machine of ["smelter", "assembler", "silo"] as const) {
-      expect(resolveActiveFrameTextureKeys(machine)).toEqual([]);
-      expect(resolveIdleTextureKey(machine)).toBeUndefined();
+      CONTENT_OVERRIDES.machines[machine] = {
+        ...MACHINES[machine],
+        spriteKey: `machine.${machine}.unregistered`,
+        activeSpriteKey: `machine.${machine}.unregistered-active`,
+      };
+    }
+
+    for (const machine of ["smelter", "assembler", "silo"] as const) {
+      expect(resolveActiveFrameTextureKeys(machine), `${machine} active art`).toEqual([]);
+      expect(resolveIdleTextureKey(machine), `${machine} idle art`).toBeUndefined();
     }
 
     expect(resolveIdleTextureKey("extractor")).not.toBe(resolveIdleTextureKey("belt"));
@@ -200,9 +255,15 @@ describe("render texture keys", () => {
     );
   });
 
-  it("resolves a registered resource icon frame per raw resource", () => {
+  it("resolves a registered resource icon frame per resource", () => {
     expect(resolveResourceTextureKey("copperOre")).toBe(frameTextureKey("resource.copperOre", 0));
     expect(resolveResourceTextureKey("ironOre")).toBe(frameTextureKey("resource.ironOre", 0));
+    expect(resolveResourceTextureKey("motor")).toBe(frameTextureKey("resource.motor", 0));
+  });
+
+  it("resolves no icon frame when a resource names art the manifest does not register", () => {
+    CONTENT_OVERRIDES.resources.motor = { ...RESOURCES.motor, iconKey: "resource.unregistered" };
+
     expect(resolveResourceTextureKey("motor")).toBeUndefined();
   });
 
@@ -343,6 +404,7 @@ describe("belt item renderer", () => {
       resolvePosition: (entityId) => positions.get(entityId),
     });
 
+    CONTENT_OVERRIDES.resources.motor = { ...RESOURCES.motor, iconKey: "resource.unregistered" };
     renderer.apply({ type: "beltItemChanged", entityId: "belt-1", item: "motor" });
     renderer.apply({ type: "beltItemChanged", entityId: "belt-9", item: "copperOre" });
 

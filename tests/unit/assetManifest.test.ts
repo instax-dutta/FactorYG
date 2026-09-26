@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ASSET_MANIFEST, getAssetPath, getAssetPaths } from "../../src/content/assetManifest";
-import { getMachine } from "../../src/content/machines";
+import { getMachine, MACHINES } from "../../src/content/machines";
+import { RESOURCES } from "../../src/content/resources";
 
 const LOCKED_PALETTE = new Set([
   "#101820",
@@ -31,16 +32,55 @@ const EXPECTED_FRAME_PATHS = {
     "assets/machines/depot-active.svg",
     "assets/machines/depot-active-1.svg",
   ],
+  "machine.smelter.idle": ["assets/machines/smelter-idle.svg"],
+  "machine.smelter.active": [
+    "assets/machines/smelter-active.svg",
+    "assets/machines/smelter-active-1.svg",
+  ],
+  "machine.assembler.idle": ["assets/machines/assembler-idle.svg"],
+  "machine.assembler.active": [
+    "assets/machines/assembler-active.svg",
+    "assets/machines/assembler-active-1.svg",
+  ],
+  "machine.silo.idle": ["assets/machines/silo-idle.svg"],
+  "machine.silo.active": [
+    "assets/machines/silo-active.svg",
+    "assets/machines/silo-active-1.svg",
+  ],
   "resource.copperOre": ["assets/resources/copper-ore.svg"],
   "resource.ironOre": ["assets/resources/iron-ore.svg"],
+  "resource.coal": ["assets/resources/coal.svg"],
+  "resource.stone": ["assets/resources/stone.svg"],
+  "resource.copperIngot": ["assets/resources/copper-ingot.svg"],
+  "resource.ironIngot": ["assets/resources/iron-ingot.svg"],
+  "resource.refinedStone": ["assets/resources/refined-stone.svg"],
+  "resource.wire": ["assets/resources/wire.svg"],
+  "resource.gear": ["assets/resources/gear.svg"],
+  "resource.plate": ["assets/resources/plate.svg"],
+  "resource.circuit": ["assets/resources/circuit.svg"],
+  "resource.frame": ["assets/resources/frame.svg"],
+  "resource.motor": ["assets/resources/motor.svg"],
   "vfx.spark": ["assets/vfx/spark.svg"],
 } as const;
 
-const RAW_MACHINES = ["extractor", "belt", "depot"] as const;
+const MACHINE_TILE_SIZE = 64;
+const RESOURCE_ICON_SIZE = 32;
 
-const EXPECTED_RAW_MACHINE_FRAMES = {
+const ANIMATED_MACHINES = [
+  "extractor",
+  "belt",
+  "smelter",
+  "assembler",
+  "silo",
+  "depot",
+] as const;
+
+const EXPECTED_MACHINE_FRAMES = {
   extractor: { idle: 1, active: 2 },
   belt: { idle: 1, active: 2 },
+  smelter: { idle: 1, active: 2 },
+  assembler: { idle: 1, active: 2 },
+  silo: { idle: 1, active: 2 },
   depot: { idle: 1, active: 2 },
 } as const;
 
@@ -95,8 +135,8 @@ describe("asset manifest", () => {
     expect(getAssetPath("machine.depot.idle")).toBe("assets/machines/depot-idle.svg");
   });
 
-  it("registers an idle frame and an animated active frame set for every raw machine", () => {
-    for (const machine of RAW_MACHINES) {
+  it("registers an idle frame and an animated active frame set for every machine", () => {
+    for (const machine of ANIMATED_MACHINES) {
       const definition = getMachine(machine);
       if (definition === undefined) {
         throw new Error(`Missing machine definition for ${machine}`);
@@ -104,7 +144,7 @@ describe("asset manifest", () => {
 
       const idle = ASSET_MANIFEST[definition.spriteKey as keyof typeof ASSET_MANIFEST];
       const active = ASSET_MANIFEST[(definition.activeSpriteKey ?? "") as keyof typeof ASSET_MANIFEST];
-      const expected = EXPECTED_RAW_MACHINE_FRAMES[machine];
+      const expected = EXPECTED_MACHINE_FRAMES[machine];
 
       expect(idle, `${machine} idle art`).toBeDefined();
       expect(active, `${machine} active art`).toBeDefined();
@@ -116,6 +156,68 @@ describe("asset manifest", () => {
         idle.frameCount + active.frameCount,
       );
     }
+  });
+
+  it("registers a 64 by 64 tile for every machine art key in the machine table", () => {
+    const missing: string[] = [];
+    const offConvention: string[] = [];
+
+    for (const machine of Object.values(MACHINES)) {
+      for (const key of [machine.spriteKey, machine.activeSpriteKey ?? ""]) {
+        const entry = ASSET_MANIFEST[key as keyof typeof ASSET_MANIFEST];
+        if (entry === undefined) {
+          missing.push(`${machine.type} -> ${key}`);
+          continue;
+        }
+        if (entry.width !== MACHINE_TILE_SIZE || entry.height !== MACHINE_TILE_SIZE) {
+          offConvention.push(`${key} is ${entry.width} by ${entry.height}`);
+        }
+      }
+    }
+
+    expect(missing, `machine art keys with no manifest entry: ${missing.join(", ")}`).toEqual([]);
+    expect(
+      offConvention,
+      `machine art keys off the ${MACHINE_TILE_SIZE} by ${MACHINE_TILE_SIZE} tile convention: ${offConvention.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("registers one distinct 32 by 32 icon for every resource in the resource table", () => {
+    const missing: string[] = [];
+    const offConvention: string[] = [];
+    const paths: string[] = [];
+
+    for (const resource of Object.values(RESOURCES)) {
+      const entry = ASSET_MANIFEST[resource.iconKey as keyof typeof ASSET_MANIFEST];
+      if (entry === undefined) {
+        missing.push(`${resource.id} -> ${resource.iconKey}`);
+        continue;
+      }
+      if (entry.width !== RESOURCE_ICON_SIZE || entry.height !== RESOURCE_ICON_SIZE) {
+        offConvention.push(`${resource.iconKey} is ${entry.width} by ${entry.height}`);
+      }
+      if (entry.frameCount !== 1) {
+        offConvention.push(`${resource.iconKey} has ${entry.frameCount} frames`);
+      }
+      paths.push(...entry.framePaths);
+    }
+
+    expect(
+      new Set(paths).size,
+      `resource icons must resolve to distinct files: ${paths.join(", ")}`,
+    ).toBe(paths.length);
+    expect(missing, `resource icon keys with no manifest entry: ${missing.join(", ")}`).toEqual([]);
+    expect(
+      offConvention,
+      `resource icons off the ${RESOURCE_ICON_SIZE} by ${RESOURCE_ICON_SIZE} single-frame convention: ${offConvention.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("resolves every file the manifest names to a real file on disk", () => {
+    const named = Object.values(ASSET_MANIFEST).flatMap((entry) => entry.framePaths);
+    const missing = named.filter((path) => !existsSync(resolve(process.cwd(), "public", path)));
+
+    expect(missing, `manifest names files that do not exist: ${missing.join(", ")}`).toEqual([]);
   });
 
   it("registers one distinct icon per raw resource", () => {

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <defs>
+    <radialGradient id="plate-light" cx="50%" cy="50%" r="68%">
+      <stop offset="0" stop-color="#4d6875" />
+      <stop offset="1" stop-color="#263746" />
+    </radialGradient>
+  </defs>
+  <rect x="2" y="8" width="28" height="16" rx="4" fill="#101820" stroke="#101820" stroke-width="2" />
+  <rect x="4" y="10" width="24" height="12" rx="3" fill="url(#plate-light)" stroke="#4d6875" stroke-width="1.4" />
+  <path d="M6 21L16 11H22L12 21Z" fill="#e0a458" opacity="0.4" />
+  <circle cx="7.5" cy="13.5" r="1.7" fill="#c98245" stroke="#101820" stroke-width="0.9" />
+  <circle cx="24.5" cy="13.5" r="1.7" fill="#c98245" stroke="#101820" stroke-width="0.9" />
+  <circle cx="7.5" cy="18.5" r="1.7" fill="#c98245" stroke="#101820" stroke-width="0.9" />
+  <circle cx="24.5" cy="18.5" r="1.7" fill="#c98245" stroke="#101820" stroke-width="0.9" />
+</svg>
