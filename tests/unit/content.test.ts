@@ -243,9 +243,16 @@ describe("Factor-Y content tables", () => {
       ],
       smelter: [
         {
-          id: "input",
+          id: "input-1",
           kind: "input",
           offset: { x: -1, y: 0 },
+          accepts: RAW_RESOURCES,
+          produces: undefined,
+        },
+        {
+          id: "input-2",
+          kind: "input",
+          offset: { x: 0, y: -1 },
           accepts: RAW_RESOURCES,
           produces: undefined,
         },
@@ -870,16 +877,20 @@ describe("Factor-Y content tables", () => {
     ]);
   });
 
-  it("requires every smelter recipe input on the single mixed input port", () => {
+  it("requires every smelter recipe input to be accepted by some smelter input port", () => {
     const snapshot = createMutableContentSnapshot();
     const smelterPorts = snapshot.machines.smelter.ports as Array<Record<string, unknown>>;
-    smelterPorts[0] = { ...smelterPorts[0], accepts: ["copperOre"] };
+    const smelterInputs = smelterPorts
+      .map((port, index) => (port.kind === "input" ? { ...port, accepts: ["copperOre"] } : port))
+      .filter((port) => port.kind === "input");
+    smelterPorts.length = 0;
+    smelterPorts.push(...smelterInputs, smelterPorts.find((port) => port.kind === "output")!);
     const assemblerSnapshot = createMutableContentSnapshot();
     const assemblerPorts = assemblerSnapshot.machines.assembler.ports as Array<Record<string, unknown>>;
     assemblerPorts[1] = { ...assemblerPorts[1], offset: assemblerPorts[0].offset };
 
     expect(validateContent(snapshot)).toContain(
-      'Recipe "ironIngot" input "coal" is not accepted by smelter input port "input".',
+      'Recipe "ironIngot" input "coal" is not accepted by smelter input port "input-1".',
     );
     expect(validateContent(assemblerSnapshot)).toContain(
       'Machine "assembler" must use unique adjacent port offsets.',

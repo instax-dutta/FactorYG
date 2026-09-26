@@ -49,7 +49,7 @@ const RECIPE_IDS: ReadonlySet<string> = new Set(EXPECTED_RECIPE_IDS);
 const PORT_COUNTS: Readonly<Record<string, { inputs: number; outputs: number }>> = {
   extractor: { inputs: 0, outputs: 1 },
   belt: { inputs: 1, outputs: 1 },
-  smelter: { inputs: 1, outputs: 1 },
+  smelter: { inputs: 2, outputs: 1 },
   assembler: { inputs: 2, outputs: 1 },
   silo: { inputs: 1, outputs: 1 },
   depot: { inputs: 1, outputs: 0 },

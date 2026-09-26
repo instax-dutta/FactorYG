@@ -11,6 +11,7 @@ Own static Factor-I art and build-time asset metadata.
 
 - Art uses the locked industrial palette, 64 by 64 machine tiles, transparent SVG/PNG output, neutral overhead lighting, and no baked directional shadows.
 - Rotatable machine art must remain valid under 90-degree sprite rotation.
+- A machine draws one `#36c5b5` input dot per input port and one `#f2c14e` output dot per output port, on the tile edge nearest that port cell, with the dots in a radius band of 2 to 3.5 so the port-marker test can find them. A port marker must not move or change colour between animation frames, or the player loses track of which way a machine faces. A second input port at `(0, -1)` is drawn as a stub on the top edge, as the assembler does.
 - New asset files require a manifest entry and an actual-file validation test.
 - Port markers are fixed art, not animation state. A ported face carries a `#4d6875` block, an input block holds a `#36c5b5` dot, and an output block holds a `#f2c14e` dot. Those colors are the machine's facing read and must be identical in the idle frame and in every active frame.
 - A machine with ports on both sides may not swap its port colors between frames. A swapped pair claims the machine turned around while the rest of the tile stayed put, so a tile contradicts itself for one frame in two. The silo is the sharpest case, because with no directional arrow the dots are its only facing cue and a swap inverts it outright.

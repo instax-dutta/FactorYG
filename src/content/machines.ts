@@ -78,9 +78,15 @@ export const MACHINES = deepFreeze({
     defaultProcessTicks: 20,
     ports: [
       {
-        id: "input",
+        id: "input-1",
         kind: "input",
         offset: { x: -1, y: 0 },
+        accepts: RAW_RESOURCES,
+      },
+      {
+        id: "input-2",
+        kind: "input",
+        offset: { x: 0, y: -1 },
         accepts: RAW_RESOURCES,
       },
       {
