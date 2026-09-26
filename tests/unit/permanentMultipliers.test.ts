@@ -8,7 +8,7 @@ import {
 } from "../../src/content/balance";
 import { canResetPrestige, getPermanentMultipliers, performPrestige } from "../../src/sim/commands";
 import { sellResource } from "../../src/sim/economy";
-import { createInitialState } from "../../src/sim/initialState";
+import { createInitialState, createResetState } from "../../src/sim/initialState";
 import { getExtractorRate } from "../../src/sim/machines";
 import {
   permanentMultipliersForPoints,
@@ -21,11 +21,16 @@ import {
   type SaveStorage,
 } from "../../src/persistence/save";
 import { SimulationStore } from "../../src/sim/store";
-import type { Entity, SimulationState } from "../../src/sim/types";
+import type { BankedPrestige, Entity, PrestigeState, SimulationState } from "../../src/sim/types";
 
 const commandsSource = readFileSync(resolve(process.cwd(), "src", "sim", "commands.ts"), "utf8");
 const prestigeSource = readFileSync(resolve(process.cwd(), "src", "sim", "prestige.ts"), "utf8");
 const saveSource = readFileSync(resolve(process.cwd(), "src", "persistence", "save.ts"), "utf8");
+const initialStateSource = readFileSync(
+  resolve(process.cwd(), "src", "sim", "initialState.ts"),
+  "utf8",
+);
+const snapshotSource = readFileSync(resolve(process.cwd(), "src", "sim", "snapshot.ts"), "utf8");
 
 const SAVE_KEY = "factor-y:save";
 const BANKED_POINTS = 12;
@@ -151,6 +156,58 @@ describe("the stored multiplier pair is the one source of truth", () => {
       /PRESTIGE_PRODUCTION_BONUS_PER_POINT|PRESTIGE_SELL_BONUS_PER_POINT/,
     );
     expect(getter.slice(0, getter.indexOf("}"))).toMatch(/state\.prestige\.permanentMultipliers/);
+  });
+
+  it("keeps the command layer free of the rule, so the field has a known set of writers", () => {
+    expect(commandsSource).not.toMatch(/permanentMultipliersForPoints/);
+    expect(initialStateSource).toMatch(/permanentMultipliersForPoints/);
+    expect(snapshotSource).toMatch(/permanentMultipliersForPoints/);
+    expect(prestigeSource).toMatch(/repairPermanentMultipliers/);
+  });
+
+  it("confines the rule to the three modules the simulation contract names", () => {
+    const modules = ["commands", "economy", "chains", "grid", "machines", "offline", "placement"]
+      .filter((name) =>
+        readFileSync(resolve(process.cwd(), "src", "sim", `${name}.ts`), "utf8").includes(
+          "permanentMultipliersForPoints",
+        ),
+      );
+
+    expect(modules).toEqual([]);
+  });
+});
+
+describe("createResetState is the only writer the reset path has", () => {
+  it("ignores a stale pair handed to it and writes the one the rule produces", () => {
+    const stale: PrestigeState = {
+      points: BANKED_POINTS,
+      totalPrestiges: 2,
+      permanentMultipliers: { productionSpeed: 7, sellValue: 9 },
+    };
+
+    const built = createResetState(stale, { width: 64, height: 64 });
+
+    expect(built.prestige.permanentMultipliers).toEqual({
+      productionSpeed: EXPECTED_PRODUCTION,
+      sellValue: EXPECTED_SELL,
+    });
+    expect(built.prestige.points).toBe(BANKED_POINTS);
+    expect(built.prestige.totalPrestiges).toBe(2);
+  });
+
+  it("prices a reset world the same whether or not the caller supplied a pair", () => {
+    const dimensions = { width: 64, height: 64 };
+    const stale: PrestigeState = {
+      points: BANKED_POINTS,
+      totalPrestiges: 1,
+      permanentMultipliers: { productionSpeed: 3, sellValue: 3 },
+    };
+    const bare: BankedPrestige = {
+      points: BANKED_POINTS,
+      totalPrestiges: 1,
+    };
+
+    expect(createResetState(stale, dimensions)).toEqual(createResetState(bare, dimensions));
   });
 });
 

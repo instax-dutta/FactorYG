@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { getResource } from "../../content/resources";
+import { shouldShowOfflineSummary } from "../../sim/offline";
 import type { SimulationStore } from "../../sim/store";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useSimulationSnapshot } from "../hooks/useSimulationSnapshot";
@@ -16,7 +17,7 @@ const numberFormatter = new Intl.NumberFormat("en-US", {
 export function OfflineSummaryModal({ store }: OfflineSummaryModalProps) {
   const snapshot = useSimulationSnapshot(store);
   const summary = snapshot.offlineSummary;
-  const isOpen = summary !== undefined;
+  const isOpen = summary !== undefined && shouldShowOfflineSummary(summary);
   const dialogRef = useRef<HTMLDivElement>(null);
   const continueRef = useRef<HTMLButtonElement>(null);
   const dismiss = useCallback(() => {

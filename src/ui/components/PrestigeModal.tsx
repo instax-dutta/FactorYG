@@ -112,9 +112,9 @@ export function PrestigeModal({ store, open, onClose }: PrestigeModalProps) {
             </strong>
           </dd>
           <dt>Permanent plot expansion</dt>
-          <dd style={valueStyle}>
-            <span data-testid="prestige-expansion-cost">{formatNumber(GRID_EXPANSION_COST)}</span>
-            {snapshot.expansionUnlocked ? " unlocked" : " after your first prestige"}
+          <dd data-testid="prestige-expansion-cost" style={valueStyle}>
+            {formatNumber(GRID_EXPANSION_COST)}
+            {snapshot.expansionRights ? " unlocked" : " after your first prestige"}
           </dd>
         </dl>
         <div style={actionsStyle}>

@@ -1,4 +1,9 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import {
+  boxesOverlap,
+  expectNoPanelOverlap,
+  waitForBoundingBox,
+} from "./support/overlayLayout";
 import { CAMERA_MARGIN_PX } from "../../src/phaser/cameraConfig";
 import { STARTING_CURRENCY } from "../../src/content/balance";
 import { SAVE_KEY } from "../../src/sim/constants";
@@ -128,35 +133,6 @@ async function waitForReady(page: Page): Promise<void> {
     .toBe(true);
 }
 
-function boxesOverlap(
-  first: { x: number; y: number; width: number; height: number },
-  second: { x: number; y: number; width: number; height: number },
-): boolean {
-  return (
-    first.x < second.x + second.width &&
-    first.x + first.width > second.x &&
-    first.y < second.y + second.height &&
-    first.y + first.height > second.y
-  );
-}
-
-async function waitForBoundingBox(
-  locator: Locator,
-  label: string,
-): Promise<NonNullable<Awaited<ReturnType<Locator["boundingBox"]>>>> {
-  let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
-  await expect
-    .poll(async () => {
-      box = await locator.boundingBox();
-      return box !== null;
-    })
-    .toBe(true);
-  if (box === null) {
-    throw new Error(`${label} bounding box unavailable`);
-  }
-  return box;
-}
-
 test.use({ viewport: { width: 1000, height: 800 } });
 
 async function getTelemetry(page: Page): Promise<SceneTelemetry> {
@@ -259,35 +235,6 @@ async function selectTallestInspector(page: Page, placeFirst: boolean): Promise<
 
   expect(selected).toEqual({ ok: true });
   await expect(page.getByTestId("inspector-id")).toHaveText("entity-1");
-}
-
-async function expectNoPanelOverlap(page: Page): Promise<void> {
-  const panels = [
-    ["Header", await waitForBoundingBox(page.getByRole("banner"), "Header")],
-    ["Hud", await waitForBoundingBox(page.getByTestId("hud"), "Hud")],
-    [
-      "Entity inspector",
-      await waitForBoundingBox(page.getByTestId("entity-inspector"), "Inspector"),
-    ],
-    ["Build dock", await waitForBoundingBox(page.getByTestId("build-dock"), "Build dock")],
-    [
-      "Notification stack",
-      await waitForBoundingBox(page.getByTestId("notification-stack"), "Notification stack"),
-    ],
-    [
-      "Tech tree toggle",
-      await waitForBoundingBox(page.getByTestId("tech-tree-toggle"), "Tech tree toggle"),
-    ],
-  ] as const;
-
-  expect(
-    panels.flatMap(([leftLabel, left], index) =>
-      panels
-        .slice(index + 1)
-        .filter(([, right]) => boxesOverlap(left, right))
-        .map(([rightLabel]) => `${leftLabel} / ${rightLabel}`),
-    ),
-  ).toEqual([]);
 }
 
 test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", async ({ page }) => {
@@ -644,6 +591,8 @@ test("loads and anchors persisted offline state during browser startup", async (
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await waitForReady(page);
 
+  await expect(page.getByTestId("offline-summary-modal")).toBeVisible();
+
   const evidence = await page.evaluate((key) => {
     const snapshot = window.__FACTOR_Y__?.getSnapshot();
     const raw = window.localStorage.getItem(key);
@@ -684,6 +633,24 @@ async function seedSave(page: Page, save: Parameters<typeof serializeSave>[0]): 
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await waitForReady(page);
 }
+
+test("does not greet a returning player with an empty welcome back", async ({ page }) => {
+  const browserErrors: string[] = [];
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      browserErrors.push(message.text());
+    }
+  });
+
+  await seedSave(page, createInitialState());
+
+  await expect(page.getByTestId("offline-summary-modal")).toHaveCount(0);
+  await expect(page.getByTestId("prestige-button")).toBeVisible();
+  await page.getByTestId("tech-tree-toggle").click();
+  await expect(page.getByTestId("tech-tree")).toBeVisible();
+  expect(browserErrors).toEqual([]);
+});
 
 test("sizes the floor and the camera bounds from an expanded save", async ({ page }) => {
   const browserErrors: string[] = [];

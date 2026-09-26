@@ -1,5 +1,5 @@
 import { getCurrencyPerSecond } from "./economy";
-import { isGridExpansionUnlocked } from "./grid";
+import { hasGridExpansionRights } from "./grid";
 import { calculatePrestigePoints, canPrestige, permanentMultipliersForPoints } from "./prestige";
 import type {
   Entity,
@@ -36,7 +36,7 @@ export function createSnapshot(state: SimulationState): SimulationSnapshot {
     prestigeNextMultipliers: permanentMultipliersForPoints(
       state.prestige.points + calculatePrestigePoints(state.lifetimeCurrency),
     ),
-    expansionUnlocked: isGridExpansionUnlocked(state),
+    expansionRights: hasGridExpansionRights(state),
     gridWidth: state.grid.width,
     gridHeight: state.grid.height,
     unlockedMachines,

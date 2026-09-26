@@ -345,6 +345,12 @@ describe("the expansion cost", () => {
     );
   });
 
+  it("keeps the command's final check reading the one gate, not a half of it", () => {
+    expect(commandsSource).toMatch(/if \(!isGridExpansionUnlocked\(state\)\)/);
+    expect(commandsSource).not.toMatch(/if \(!canAffordGridExpansion\(state\)\)/);
+    expect(commandsSource).toMatch(/if \(!hasGridExpansionRights\(state\)\)/);
+  });
+
   it("agrees with the command verdict for a request that actually grows the plot", () => {
     const rights = stateWithPlotRights();
     const broke = stateWithPlotRights();

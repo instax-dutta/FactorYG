@@ -107,7 +107,11 @@ export function Hud({ store }: HudProps) {
         data-testid="expand-grid-button"
         disabled={!expansionPreflight.ok}
         onClick={expand}
-        title={getCommandReasonMessage(shownExpansion.reason)}
+        title={
+          expansionPreflight.ok
+            ? `Grow the plot to ${targetWidth} x ${targetHeight} for ${formatNumber(GRID_EXPANSION_COST)}`
+            : getCommandReasonMessage(shownExpansion.reason)
+        }
         style={expansionPreflight.ok ? enabledButtonStyle : disabledButtonStyle}
       >
         Expand plot

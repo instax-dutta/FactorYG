@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { getCommandReasonMessage } from "../../src/ui/presentation";
 
@@ -20,6 +22,7 @@ const EXPANSION_REASONS = [
   "gridAlreadyExpanded",
   "entityOutOfBounds",
   "nodeOutOfBounds",
+  "insufficientExpansionCost",
 ] as const;
 
 const UI_REACHABLE_REASONS = [
@@ -27,6 +30,16 @@ const UI_REACHABLE_REASONS = [
 ];
 
 const GENERIC_PREFIX = "The store refused that action";
+
+const commandsSource = readFileSync(resolve(process.cwd(), "src", "sim", "commands.ts"), "utf8");
+
+function commandReasons(): string[] {
+  return [
+    ...new Set(
+      [...commandsSource.matchAll(/reason: "([A-Za-z]+)"/g)].map((match) => match[1] ?? ""),
+    ),
+  ].sort();
+}
 
 describe("getCommandReasonMessage", () => {
   it("words every refusal the shipped UI can surface instead of echoing the reason", () => {
@@ -42,6 +55,24 @@ describe("getCommandReasonMessage", () => {
   it("words every grid expansion refusal the command can return", () => {
     for (const reason of EXPANSION_REASONS) {
       expect(getCommandReasonMessage(reason), reason).not.toContain("The store refused");
+    }
+  });
+
+  it("lists every refusal a shipped command can return as reachable", () => {
+    const reasons = commandReasons();
+
+    expect(reasons.length).toBeGreaterThan(0);
+    for (const reason of reasons) {
+      expect(UI_REACHABLE_REASONS, reason).toContain(reason);
+    }
+  });
+
+  it("gives every refusal a shipped command can return its own sentence", () => {
+    for (const reason of commandReasons()) {
+      const message = getCommandReasonMessage(reason);
+
+      expect(message, reason).not.toBe(`${GENERIC_PREFIX}: ${reason}.`);
+      expect(message, reason).not.toContain(reason);
     }
   });
 

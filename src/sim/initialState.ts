@@ -7,9 +7,9 @@ import {
 } from "./constants";
 import { permanentMultipliersForPoints } from "./prestige";
 import type {
+  BankedPrestige,
   GridDimensions,
   GridState,
-  PrestigeState,
   ResourceId,
   ResourceNode,
   SimulationState,
@@ -194,15 +194,15 @@ export function createInitialState(
 }
 
 export function createResetState(
-  permanent: PrestigeState,
+  banked: BankedPrestige,
   dimensions: GridDimensions,
 ): SimulationState {
   return {
     ...createInitialState(NEW_GAME_SEED, dimensions.width, dimensions.height),
     prestige: {
-      points: permanent.points,
-      totalPrestiges: permanent.totalPrestiges,
-      permanentMultipliers: permanentMultipliersForPoints(permanent.points),
+      points: banked.points,
+      totalPrestiges: banked.totalPrestiges,
+      permanentMultipliers: permanentMultipliersForPoints(banked.points),
     },
   };
 }

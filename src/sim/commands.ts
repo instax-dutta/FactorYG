@@ -3,27 +3,23 @@ import { GRID_EXPANSION_COST } from "../content/balance";
 import { UNLOCKS } from "../content/unlocks";
 import type { UnlockRequirement } from "../content/types";
 import {
-  canAffordGridExpansion,
   hasGridExpansionRights,
   isAlignedGridDimension,
+  isGridExpansionUnlocked,
   isGridGrowth,
   isInsideGrid,
   isValidGridDimension,
 } from "./grid";
 import { NEW_GAME_SEED, createExpansionNodes, createResetState } from "./initialState";
 import { getUpgradeCost } from "./machines";
-import {
-  calculatePrestigePoints,
-  canPrestige,
-  permanentMultipliersForPoints,
-} from "./prestige";
+import { calculatePrestigePoints, canPrestige } from "./prestige";
 import type {
+  BankedPrestige,
   CommandResult,
   Entity,
   MachineType,
   Notification,
   PermanentMultipliers,
-  PrestigeState,
   RenderEvent,
   SimulationCommand,
   SimulationState,
@@ -264,13 +260,12 @@ export function performPrestige(state: SimulationState): PrestigeApplication {
   }
 
   const awardedPoints = calculatePrestigePoints(state.lifetimeCurrency);
-  const permanent: PrestigeState = {
+  const banked: BankedPrestige = {
     points: state.prestige.points + awardedPoints,
     totalPrestiges: state.prestige.totalPrestiges + 1,
-    permanentMultipliers: permanentMultipliersForPoints(state.prestige.points + awardedPoints),
   };
   const notification: Notification = {
-    id: `prestige-${permanent.totalPrestiges}`,
+    id: `prestige-${banked.totalPrestiges}`,
     kind: "success",
     message: `Prestige complete: +${awardedPoints} prestige points`,
     createdAt: state.tickCount,
@@ -278,7 +273,7 @@ export function performPrestige(state: SimulationState): PrestigeApplication {
 
   return {
     state: {
-      ...createResetState(permanent, state.grid),
+      ...createResetState(banked, state.grid),
       notifications: [notification],
     },
     changed: true,
@@ -337,7 +332,7 @@ export function canExpandGrid(
     return { ok: false, reason: "nodeOutOfBounds" };
   }
 
-  if (!canAffordGridExpansion(state)) {
+  if (!isGridExpansionUnlocked(state)) {
     return { ok: false, reason: "insufficientExpansionCost" };
   }
 

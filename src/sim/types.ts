@@ -70,9 +70,12 @@ export interface PermanentMultipliers {
   sellValue: number;
 }
 
-export interface PrestigeState {
+export interface BankedPrestige {
   points: number;
   totalPrestiges: number;
+}
+
+export interface PrestigeState extends BankedPrestige {
   permanentMultipliers: PermanentMultipliers;
 }
 
@@ -123,7 +126,7 @@ export interface SimulationSnapshot {
   permanentMultipliers: PermanentMultipliers;
   prestigeAwardPoints: number;
   prestigeNextMultipliers: PermanentMultipliers;
-  expansionUnlocked: boolean;
+  expansionRights: boolean;
   gridWidth: number;
   gridHeight: number;
   unlockedMachines: MachineType[];

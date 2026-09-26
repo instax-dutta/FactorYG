@@ -4,6 +4,7 @@ import { GRID_EXPANSION_COST, PRESTIGE_THRESHOLD, STARTING_CURRENCY } from "../.
 import { GRID_EXPANSION_STEP, GRID_MAX_SIZE, SAVE_KEY } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
 import { serializeSave } from "../../src/persistence/save";
+import { expectNoPanelOverlap } from "./support/overlayLayout";
 
 interface RuntimeBridge {
   dispatch(command: Record<string, unknown>): { ok: boolean; reason?: string };
@@ -81,15 +82,6 @@ function watchBrowserErrors(page: Page): string[] {
   return browserErrors;
 }
 
-async function dismissOfflineSummaryIfShown(page: Page): Promise<void> {
-  if ((await page.getByTestId("offline-summary-modal").count()) === 0) {
-    return;
-  }
-
-  await page.getByTestId("dismiss-offline-summary").click();
-  await expect(page.getByTestId("offline-summary-modal")).toHaveCount(0);
-}
-
 async function seedSave(page: Page, save: Parameters<typeof serializeSave>[0]): Promise<void> {
   const serialized = serializeSave(save);
   await page.addInitScript(
@@ -100,7 +92,6 @@ async function seedSave(page: Page, save: Parameters<typeof serializeSave>[0]): 
   );
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await waitForReady(page);
-  await dismissOfflineSummaryIfShown(page);
 }
 
 async function placeCopperLoop(page: Page): Promise<void> {
@@ -321,7 +312,6 @@ test("recovers from a corrupt oversized save instead of hanging on it", async ({
   );
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await waitForReady(page);
-  await dismissOfflineSummaryIfShown(page);
 
   const telemetry = await getTelemetry(page);
   expect(telemetry.camera.boundsWidth).toBe(STARTING_PLOT_PX);
@@ -347,35 +337,6 @@ test("keeps the overlay panels from overlapping once the prestige controls are l
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("prestige-modal")).toHaveCount(0);
 
-  const panels = [
-    ["Header", await page.getByRole("banner").boundingBox()],
-    ["Hud", await page.getByTestId("hud").boundingBox()],
-    ["Entity inspector", await page.getByTestId("entity-inspector").boundingBox()],
-    ["Build dock", await page.getByTestId("build-dock").boundingBox()],
-    ["Notification stack", await page.getByTestId("notification-stack").boundingBox()],
-    ["Tech tree toggle", await page.getByTestId("tech-tree-toggle").boundingBox()],
-  ] as const;
-
-  const boxes = panels.map(([label, box]) => {
-    if (box === null) {
-      throw new Error(`${label} bounding box unavailable`);
-    }
-    return [label, box] as const;
-  });
-
-  const overlaps = boxes.flatMap(([leftLabel, left], index) =>
-    boxes
-      .slice(index + 1)
-      .filter(
-        ([, right]) =>
-          left.x < right.x + right.width &&
-          left.x + left.width > right.x &&
-          left.y < right.y + right.height &&
-          left.y + left.height > right.y,
-      )
-      .map(([rightLabel]) => `${leftLabel} / ${rightLabel}`),
-  );
-
-  expect(overlaps).toEqual([]);
+  await expectNoPanelOverlap(page);
   expect(browserErrors).toEqual([]);
 });

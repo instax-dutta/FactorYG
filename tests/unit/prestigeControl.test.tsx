@@ -202,6 +202,39 @@ describe("the prestige confirmation modal", () => {
       .toHaveTextContent(formatNumber(GRID_EXPANSION_COST));
   });
 
+  it("tells a run that has never prestiged that the plot comes with the first prestige", () => {
+    const store = new SimulationStore(readyState());
+
+    render(<Hud store={store} />);
+    openPrestigeModal();
+
+    expect(screen.getByTestId("prestige-expansion-cost")).toHaveTextContent(
+      "after your first prestige",
+    );
+  });
+
+  it("calls the plot unlocked for a run that has prestiged even when it cannot pay yet", () => {
+    const state = withPlotRights(readyState());
+    state.currency = 12_000;
+    const store = new SimulationStore(state);
+
+    render(<Hud store={store} />);
+    openPrestigeModal();
+
+    const line = screen.getByTestId("prestige-expansion-cost");
+    expect(line).toHaveTextContent("unlocked");
+    expect(line).not.toHaveTextContent("after your first prestige");
+  });
+
+  it("calls the plot unlocked for a run that has prestiged and can pay for it", () => {
+    const store = new SimulationStore(withPlotRights(fundedState()));
+
+    render(<Hud store={store} />);
+    openPrestigeModal();
+
+    expect(screen.getByTestId("prestige-expansion-cost")).toHaveTextContent("unlocked");
+  });
+
   it("performs exactly one reset and closes on confirm", () => {
     const store = new SimulationStore(readyState());
     const dispatch = vi.spyOn(store, "dispatch");
@@ -344,6 +377,29 @@ describe("the plot expansion control in the HUD", () => {
 
     expect(expandButton()).toBeEnabled();
     expect(expandButton()).toHaveAttribute("data-reason", "");
+  });
+
+  it("never puts a refusal string on a control that is currently legal", () => {
+    const store = new SimulationStore(withPlotRights(fundedState()));
+
+    render(<Hud store={store} />);
+
+    for (const button of [prestigeButton(), expandButton()]) {
+      const title = button.getAttribute("title") ?? "";
+
+      expect(title, button.getAttribute("aria-label") ?? "").not.toContain("refused");
+      expect(title, button.getAttribute("aria-label") ?? "").not.toBe("");
+    }
+  });
+
+  it("names the next plot size and the price on the legal expansion control", () => {
+    const store = new SimulationStore(withPlotRights(fundedState()));
+
+    render(<Hud store={store} />);
+    const title = expandButton().getAttribute("title") ?? "";
+
+    expect(title).toContain("96 x 96");
+    expect(title).toContain(formatNumber(GRID_EXPANSION_COST));
   });
 
   it("debits exactly the cost and grows the plot by one step", () => {

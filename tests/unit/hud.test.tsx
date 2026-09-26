@@ -5,7 +5,8 @@ import { getMachineUpgradeCost } from "../../src/content/machines";
 import { createInitialState } from "../../src/sim/initialState";
 import { createSnapshot } from "../../src/sim/snapshot";
 import { SimulationStore } from "../../src/sim/store";
-import type { Notification, SimulationState } from "../../src/sim/types";
+import { shouldShowOfflineSummary } from "../../src/sim/offline";
+import type { Notification, OfflineSummary, SimulationState } from "../../src/sim/types";
 import { EntityInspector } from "../../src/ui/components/EntityInspector";
 import { Hud } from "../../src/ui/components/Hud";
 import { NotificationStack } from "../../src/ui/components/NotificationStack";
@@ -351,6 +352,60 @@ describe("NotificationStack", () => {
 });
 
 describe("OfflineSummaryModal", () => {
+  it("stays closed for a session with nothing worth reporting", () => {
+    const state = createInitialState();
+    state.offlineSummary = {
+      elapsedSeconds: 0,
+      cappedSeconds: 0,
+      earnedCurrency: 0,
+      chainUnits: {},
+    };
+    const store = new SimulationStore(state);
+
+    render(<OfflineSummaryModal store={store} />);
+
+    expect(screen.queryByTestId("offline-summary-modal")).toBeNull();
+  });
+
+  it("stays closed for a session too short to be an absence", () => {
+    const state = createInitialState();
+    state.offlineSummary = {
+      elapsedSeconds: 30,
+      cappedSeconds: 30,
+      earnedCurrency: 300,
+      chainUnits: { copperIngot: 30 },
+    };
+    const store = new SimulationStore(state);
+
+    render(<OfflineSummaryModal store={store} />);
+
+    expect(screen.queryByTestId("offline-summary-modal")).toBeNull();
+  });
+
+  it("stays closed for a long absence that paid nothing", () => {
+    const state = createInitialState();
+    state.offlineSummary = {
+      elapsedSeconds: 600,
+      cappedSeconds: 600,
+      earnedCurrency: 0,
+      chainUnits: {},
+    };
+    const store = new SimulationStore(state);
+
+    render(<OfflineSummaryModal store={store} />);
+
+    expect(screen.queryByTestId("offline-summary-modal")).toBeNull();
+  });
+
+  it("opens from the same validator the simulation already owns", () => {
+    const store = new SimulationStore(createOfflineState());
+
+    render(<OfflineSummaryModal store={store} />);
+
+    expect(screen.getByTestId("offline-summary-modal")).toBeInTheDocument();
+    expect(shouldShowOfflineSummary(store.getSnapshot().offlineSummary as OfflineSummary)).toBe(true);
+  });
+
   it("renders a blocking dialog with canonical resource labels and inert background", () => {
     const state = createOfflineState();
     const store = new SimulationStore(state);
