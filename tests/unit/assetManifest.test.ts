@@ -90,6 +90,39 @@ function readAsset(path: string): string {
   return readFileSync(file, "utf8");
 }
 
+const PORT_MARKER_MIN_RADIUS = 2;
+const PORT_MARKER_MAX_RADIUS = 3.5;
+
+function readPortMarkerFills(path: string): Map<string, string> {
+  const svg = readAsset(path);
+  const markers = new Map<string, string>();
+
+  for (const tag of svg.match(/<circle\b[^>]*>/g) ?? []) {
+    const cx = /\bcx="([\d.]+)"/.exec(tag)?.[1];
+    const cy = /\bcy="([\d.]+)"/.exec(tag)?.[1];
+    const r = /\br="([\d.]+)"/.exec(tag)?.[1];
+    const fill = /\bfill="(#[0-9a-fA-F]{6})"/.exec(tag)?.[1];
+    if (cx === undefined || cy === undefined || r === undefined || fill === undefined) {
+      continue;
+    }
+
+    const radius = Number(r);
+    if (radius < PORT_MARKER_MIN_RADIUS || radius > PORT_MARKER_MAX_RADIUS) {
+      continue;
+    }
+
+    markers.set(`${cx},${cy},${r}`, fill.toLowerCase());
+  }
+
+  return markers;
+}
+
+function machineFrames(spriteKey: string, activeSpriteKey: string | undefined): string[] {
+  const idle = ASSET_MANIFEST[spriteKey as keyof typeof ASSET_MANIFEST];
+  const active = ASSET_MANIFEST[(activeSpriteKey ?? "") as keyof typeof ASSET_MANIFEST];
+  return [...idle.framePaths, ...active.framePaths];
+}
+
 function expectValidSvg(path: string, width: number, height: number): void {
   const svg = readAsset(path);
 
@@ -218,6 +251,58 @@ describe("asset manifest", () => {
     const missing = named.filter((path) => !existsSync(resolve(process.cwd(), "public", path)));
 
     expect(missing, `manifest names files that do not exist: ${missing.join(", ")}`).toEqual([]);
+  });
+
+  it("holds every port marker colour steady across all frames of a machine with ports on both sides", () => {
+    const recoloured: string[] = [];
+    const moved: string[] = [];
+    const unmarked: string[] = [];
+
+    for (const machine of Object.values(MACHINES)) {
+      const bidirectional =
+        machine.ports.some((port) => port.kind === "input") &&
+        machine.ports.some((port) => port.kind === "output");
+      if (!bidirectional) {
+        continue;
+      }
+
+      const frames = machineFrames(machine.spriteKey, machine.activeSpriteKey);
+      const reference = readPortMarkerFills(frames[0]);
+      const referencePath = frames[0];
+
+      if (reference.size === 0) {
+        unmarked.push(`${machine.type} has no port markers in ${referencePath}`);
+        continue;
+      }
+
+      for (const frame of frames.slice(1)) {
+        const markers = readPortMarkerFills(frame);
+
+        for (const [position, fill] of reference) {
+          const seen = markers.get(position);
+          if (seen === undefined) {
+            moved.push(`${machine.type} marker at ${position} is absent from ${frame}`);
+          } else if (seen !== fill) {
+            recoloured.push(
+              `${machine.type} marker at ${position} is ${fill} in ${referencePath} and ${seen} in ${frame}`,
+            );
+          }
+        }
+
+        for (const position of markers.keys()) {
+          if (!reference.has(position)) {
+            moved.push(`${machine.type} marker at ${position} appears only in ${frame}`);
+          }
+        }
+      }
+    }
+
+    expect(unmarked, `machines with no port markers to hold steady: ${unmarked.join(", ")}`).toEqual([]);
+    expect(moved, `port markers that move between frames: ${moved.join(", ")}`).toEqual([]);
+    expect(
+      recoloured,
+      `port markers that change colour between frames, which would swap a machine's facing: ${recoloured.join(", ")}`,
+    ).toEqual([]);
   });
 
   it("registers one distinct icon per raw resource", () => {

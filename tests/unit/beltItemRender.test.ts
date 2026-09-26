@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ASSET_MANIFEST } from "../../src/content/assetManifest";
 import { MACHINES } from "../../src/content/machines";
 import { RESOURCES } from "../../src/content/resources";
 import { createInitialState } from "../../src/sim/initialState";
@@ -220,6 +221,51 @@ describe("render texture keys", () => {
     ]);
   });
 
+  it("never substitutes another machine when active art is missing", () => {
+    const overriddenMachines = ["smelter", "assembler", "silo"] as const;
+
+    for (const machine of overriddenMachines) {
+      expect(resolveIdleTextureKey(machine), `${machine} resolves before the override`).toBe(
+        frameTextureKey(MACHINES[machine].spriteKey, 0),
+      );
+    }
+
+    for (const machine of overriddenMachines) {
+      CONTENT_OVERRIDES.machines[machine] = {
+        ...MACHINES[machine],
+        spriteKey: `machine.${machine}.unregistered`,
+        activeSpriteKey: `machine.${machine}.unregistered-active`,
+      };
+    }
+
+    for (const machine of overriddenMachines) {
+      const override = CONTENT_OVERRIDES.machines[machine] as {
+        spriteKey: string;
+        activeSpriteKey: string;
+      };
+
+      expect(override.spriteKey, `${machine} override must still carry a key`).not.toBe("");
+      expect(override.spriteKey, `${machine} override must differ from the shipped key`).not.toBe(
+        MACHINES[machine].spriteKey,
+      );
+      expect(
+        Object.hasOwn(ASSET_MANIFEST, override.spriteKey),
+        `${machine} override key must be absent from the manifest so the guard reads isRegistered, not a missing key`,
+      ).toBe(false);
+
+      expect(resolveActiveFrameTextureKeys(machine), `${machine} active art`).toEqual([]);
+      expect(resolveIdleTextureKey(machine), `${machine} idle art`).toBeUndefined();
+    }
+
+    expect(resolveIdleTextureKey("belt"), "an untouched machine still resolves through the mock").toBe(
+      frameTextureKey("machine.belt.idle", 0),
+    );
+    expect(resolveIdleTextureKey("extractor")).not.toBe(resolveIdleTextureKey("belt"));
+    expect(resolveActiveFrameTextureKeys("belt")).not.toEqual(
+      resolveActiveFrameTextureKeys("extractor"),
+    );
+  });
+
   it("resolves every active frame for each unlockable machine", () => {
     expect(resolveActiveFrameTextureKeys("smelter")).toEqual([
       frameTextureKey("machine.smelter.active", 0),
@@ -235,36 +281,23 @@ describe("render texture keys", () => {
     ]);
   });
 
-  it("never substitutes another machine when active art is missing", () => {
-    for (const machine of ["smelter", "assembler", "silo"] as const) {
-      CONTENT_OVERRIDES.machines[machine] = {
-        ...MACHINES[machine],
-        spriteKey: `machine.${machine}.unregistered`,
-        activeSpriteKey: `machine.${machine}.unregistered-active`,
-      };
-    }
+  it("resolves no icon frame when a resource names art the manifest does not register", () => {
+    CONTENT_OVERRIDES.resources.motor = { ...RESOURCES.motor, iconKey: "resource.unregistered" };
 
-    for (const machine of ["smelter", "assembler", "silo"] as const) {
-      expect(resolveActiveFrameTextureKeys(machine), `${machine} active art`).toEqual([]);
-      expect(resolveIdleTextureKey(machine), `${machine} idle art`).toBeUndefined();
-    }
-
-    expect(resolveIdleTextureKey("extractor")).not.toBe(resolveIdleTextureKey("belt"));
-    expect(resolveActiveFrameTextureKeys("belt")).not.toEqual(
-      resolveActiveFrameTextureKeys("extractor"),
+    const override = CONTENT_OVERRIDES.resources.motor as { iconKey: string };
+    expect(override.iconKey, "resource override must still carry a key").not.toBe("");
+    expect(override.iconKey, "resource override must differ from the shipped key").not.toBe(
+      RESOURCES.motor.iconKey,
     );
+    expect(Object.hasOwn(ASSET_MANIFEST, override.iconKey)).toBe(false);
+
+    expect(resolveResourceTextureKey("motor")).toBeUndefined();
   });
 
   it("resolves a registered resource icon frame per resource", () => {
     expect(resolveResourceTextureKey("copperOre")).toBe(frameTextureKey("resource.copperOre", 0));
     expect(resolveResourceTextureKey("ironOre")).toBe(frameTextureKey("resource.ironOre", 0));
     expect(resolveResourceTextureKey("motor")).toBe(frameTextureKey("resource.motor", 0));
-  });
-
-  it("resolves no icon frame when a resource names art the manifest does not register", () => {
-    CONTENT_OVERRIDES.resources.motor = { ...RESOURCES.motor, iconKey: "resource.unregistered" };
-
-    expect(resolveResourceTextureKey("motor")).toBeUndefined();
   });
 
   it("parses locked palette colors into tint values", () => {

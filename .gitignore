@@ -3,6 +3,7 @@ dist/
 coverage/
 playwright-report/
 test-results/
+.art-preview/
 .vite/
 .DS_Store
 *.local
