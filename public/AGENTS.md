@@ -4,7 +4,7 @@ Own static Factor-I art and build-time asset metadata.
 
 ## Ownership
 
-- `assets/` contains floor, machine, resource, and VFX files.
+- `assets/` contains floor, machine, resource, VFX, and audio files.
 - The asset manifest is the source of truth for texture keys, dimensions, and frame order.
 
 ## Local Contracts

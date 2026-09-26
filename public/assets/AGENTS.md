@@ -8,6 +8,7 @@ Own static asset files and their manifest relationship.
 - `machines/` contains machine idle and active frames.
 - `resources/` contains resource icons.
 - `vfx/` contains particle and glow textures.
+- `audio/` holds committed audio files plus `README.md`, the sourcing and licensing reference for them.
 
 ## Local Contracts
 
@@ -16,6 +17,7 @@ Own static asset files and their manifest relationship.
 - New files must be registered with ordered frame paths and validated as real files.
 - No baked directional shadows, filters, animation elements, or source comments in SVG art.
 - A port marker is a circle of radius 2 to 3.5 sitting inside a port block; a status lamp is a smaller circle set apart from the port blocks. The asset manifest test reads that radius band to prove port markers never change colour between frames, so art outside the band is art the test cannot check.
+- Audio licensing is tiered, and the rule is per file rather than per site. Zero-attribution sources are preferred; a site that hosts CC0, CC-BY, and CC-BY-NC side by side means the file's own icon decides. Never commit a NonCommercial or NoDerivatives audio file, and never commit an audio file without a row in the `audio/README.md` provenance table naming its source URL and exact license.
 
 ## Work Guidance
 
