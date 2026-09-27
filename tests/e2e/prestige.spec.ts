@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { CAMERA_MARGIN_PX } from "../../src/phaser/cameraConfig";
 import { GRID_EXPANSION_COST, PRESTIGE_THRESHOLD, STARTING_CURRENCY } from "../../src/content/balance";
-import { GRID_EXPANSION_STEP, GRID_MAX_SIZE, SAVE_KEY } from "../../src/sim/constants";
+import { GRID_EXPANSION_STEP, GRID_MAX_SIZE, SAVE_KEY, TILE_SIZE_PX } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
 import { serializeSave } from "../../src/persistence/save";
 import { expectNoPanelOverlap } from "./support/overlayLayout";
@@ -41,7 +41,6 @@ interface BridgeGlobals {
   __FACTOR_Y_TELEMETRY__?: TelemetryBridge;
 }
 
-const TILE_SIZE_PX = 64;
 const STARTING_PLOT_PX = 64 * TILE_SIZE_PX + CAMERA_MARGIN_PX;
 const EXPANDED_PLOT_PX = 96 * TILE_SIZE_PX + CAMERA_MARGIN_PX;
 const COPPER_NODE = { x: 40, y: 37 };

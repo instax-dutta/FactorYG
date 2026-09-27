@@ -31,7 +31,7 @@ export function SaveRecoveryNotice({ recovery, onAcknowledge }: SaveRecoveryNoti
       role="dialog"
       aria-modal={true}
       aria-labelledby="save-recovery-title"
-      aria-describedby="save-recovery-summary"
+      aria-describedby="save-recovery-summary save-recovery-explanation"
       data-testid="save-recovery-notice"
       data-reason={recovery.reason}
       data-recovery-message={recovery.message}
@@ -42,11 +42,15 @@ export function SaveRecoveryNotice({ recovery, onAcknowledge }: SaveRecoveryNoti
         <h2 id="save-recovery-title" style={titleStyle}>
           Save could not be read
         </h2>
-        <p data-testid="save-recovery-summary" style={paragraphStyle}>
+        <p id="save-recovery-summary" data-testid="save-recovery-summary" style={paragraphStyle}>
           Factor-I could not read your last run, so it started a new one. Nothing from the previous
           run is here.
         </p>
-        <p data-testid="save-recovery-explanation" style={explanationStyle}>
+        <p
+          id="save-recovery-explanation"
+          data-testid="save-recovery-explanation"
+          style={explanationStyle}
+        >
           {getSaveRecoveryMessage(recovery.reason)}
         </p>
         <div style={actionsStyle}>

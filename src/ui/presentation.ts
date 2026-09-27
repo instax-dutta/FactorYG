@@ -52,8 +52,6 @@ const saveRecoveryMessages: Readonly<Record<SaveFailureReason, string>> = {
   storageError: "This browser refused to read the saved run back.",
 };
 
-export function getSaveRecoveryMessage(reason: SaveFailureReason): string;
-export function getSaveRecoveryMessage(reason: string | undefined): string;
 export function getSaveRecoveryMessage(reason: string | undefined): string {
   if (reason === undefined) {
     return saveRecoveryFallback;

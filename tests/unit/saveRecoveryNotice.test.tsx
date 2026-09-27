@@ -32,6 +32,23 @@ describe("SaveRecoveryNotice", () => {
     expect(document.activeElement).toBe(screen.getByTestId("dismiss-save-recovery"));
   });
 
+  it("describes itself with the summary and the cause, so a screen reader reaches the reason", () => {
+    render(<SaveRecoveryNotice recovery={REJECTED} onAcknowledge={vi.fn()} />);
+
+    const dialog = screen.getByRole("dialog");
+    const describedBy = dialog.getAttribute("aria-describedby") ?? "";
+    const described = describedBy
+      .split(" ")
+      .filter((id) => id.length > 0)
+      .map((id) => document.getElementById(id));
+
+    expect(describedBy.split(" ").filter((id) => id.length > 0).length).toBe(2);
+    expect(described).toHaveLength(2);
+    expect(described.every((element) => element !== null)).toBe(true);
+    expect(described[0]).toHaveTextContent("started a new one");
+    expect(described[1]).toHaveTextContent(getSaveRecoveryMessage("invalidSave"));
+  });
+
   it("reports the acknowledgement once and closes on the control", () => {
     const onAcknowledge = vi.fn();
     render(<SaveRecoveryNotice recovery={REJECTED} onAcknowledge={onAcknowledge} />);

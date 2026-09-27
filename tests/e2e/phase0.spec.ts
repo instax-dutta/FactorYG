@@ -7,7 +7,7 @@ import {
 import { waitForReady, type SceneTelemetry } from "./support/runtimeBridge";
 import { CAMERA_MARGIN_PX } from "../../src/phaser/cameraConfig";
 import { STARTING_CURRENCY } from "../../src/content/balance";
-import { SAVE_KEY } from "../../src/sim/constants";
+import { SAVE_KEY, TILE_SIZE_PX } from "../../src/sim/constants";
 import { createInitialState } from "../../src/sim/initialState";
 import { serializeSave } from "../../src/persistence/save";
 import { permanentMultipliersForPoints } from "../../src/sim/prestige";
@@ -29,7 +29,6 @@ const COPPER_NODE = { x: 40, y: 37 };
 const OFFLINE_SELL_MULTIPLIER_POINTS = 4;
 const TEST_CELL = { x: 32, y: 32 };
 const TALL_INSPECTOR_CELL = { x: 34, y: 32 };
-const TILE_SIZE_PX = 64;
 
 async function installStatusHistory(page: Page): Promise<void> {
   await page.addInitScript(() => {
