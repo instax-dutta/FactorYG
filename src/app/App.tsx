@@ -10,6 +10,7 @@ import { BuildDock } from "../ui/components/BuildDock";
 import { EntityInspector } from "../ui/components/EntityInspector";
 import { NotificationStack } from "../ui/components/NotificationStack";
 import { OfflineSummaryModal } from "../ui/components/OfflineSummaryModal";
+import { SaveRecoveryNotice } from "../ui/components/SaveRecoveryNotice";
 import { TechTree } from "../ui/components/TechTree";
 
 export const LIFECYCLE_TOGGLE_EVENT = "factor-y:lifecycle-toggle";
@@ -73,6 +74,10 @@ export function App() {
           <EntityInspector store={runtime.store} />
           <TechTree store={runtime.store} />
           <NotificationStack store={runtime.store} />
+          <SaveRecoveryNotice
+            recovery={runtime.saveRecovery}
+            onAcknowledge={runtime.acknowledgeSaveRecovery}
+          />
           <OfflineSummaryModal store={runtime.store} />
         </>
       ) : null}

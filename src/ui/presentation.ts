@@ -1,4 +1,5 @@
 import type { MachineType } from "../content/types";
+import type { SaveFailureReason } from "../persistence/migrate";
 
 export const machineLabels: Readonly<Record<MachineType, string>> = {
   extractor: "Extractor",
@@ -38,4 +39,25 @@ export function getCommandReasonMessage(reason: string | undefined): string {
   }
 
   return commandReasonMessages[reason] ?? `The store refused that action: ${reason}.`;
+}
+
+export const saveRecoveryFallback =
+  "The saved run could not be read, for a reason this build does not name.";
+
+const saveRecoveryMessages: Readonly<Record<SaveFailureReason, string>> = {
+  malformedJson: "The saved run was damaged partway through and could not be read back.",
+  unsupportedVersion: "The saved run was written by a version of the game this build cannot read.",
+  invalidSave: "The saved run was not in a shape this game can read.",
+  storageUnavailable: "This browser will not let the game read saved runs at all.",
+  storageError: "This browser refused to read the saved run back.",
+};
+
+export function getSaveRecoveryMessage(reason: SaveFailureReason): string;
+export function getSaveRecoveryMessage(reason: string | undefined): string;
+export function getSaveRecoveryMessage(reason: string | undefined): string {
+  if (reason === undefined) {
+    return saveRecoveryFallback;
+  }
+
+  return saveRecoveryMessages[reason as SaveFailureReason] ?? saveRecoveryFallback;
 }

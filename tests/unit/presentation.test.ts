@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getCommandReasonMessage } from "../../src/ui/presentation";
+import {
+  getCommandReasonMessage,
+  getSaveRecoveryMessage,
+  saveRecoveryFallback,
+} from "../../src/ui/presentation";
 
 const UNLOCK_REASONS = [
   "unknownUnlock",
@@ -33,12 +37,26 @@ const GENERIC_PREFIX = "The store refused that action";
 
 const commandsSource = readFileSync(resolve(process.cwd(), "src", "sim", "commands.ts"), "utf8");
 
+const migrateSource = readFileSync(resolve(process.cwd(), "src", "persistence", "migrate.ts"), "utf8");
+
 function commandReasons(): string[] {
   return [
     ...new Set(
       [...commandsSource.matchAll(/reason: "([A-Za-z]+)"/g)].map((match) => match[1] ?? ""),
     ),
   ].sort();
+}
+
+function saveFailureReasons(): string[] {
+  const declaration = migrateSource.match(/export type SaveFailureReason =([^;]+);/);
+
+  if (declaration === null || declaration[1] === undefined) {
+    throw new Error("SaveFailureReason declaration not found in migrate.ts");
+  }
+
+  return [...declaration[1].matchAll(/"([A-Za-z]+)"/g)]
+    .map((match) => match[1] ?? "")
+    .sort();
 }
 
 describe("getCommandReasonMessage", () => {
@@ -95,5 +113,45 @@ describe("getCommandReasonMessage", () => {
 
   it("keeps copy for a command the store has not wired yet", () => {
     expect(getCommandReasonMessage("notImplemented")).not.toContain("notImplemented");
+  });
+});
+
+describe("getSaveRecoveryMessage", () => {
+  it("words every save rejection the persistence layer can report", () => {
+    const reasons = saveFailureReasons();
+
+    expect(reasons.length).toBeGreaterThan(0);
+    for (const reason of reasons) {
+      const message = getSaveRecoveryMessage(reason);
+
+      expect(message, reason).not.toBe(saveRecoveryFallback);
+      expect(message, reason).not.toContain(reason);
+      expect(message.endsWith("."), reason).toBe(true);
+    }
+  });
+
+  it("gives each save rejection its own sentence rather than one shared shrug", () => {
+    const messages = saveFailureReasons().map((reason) => getSaveRecoveryMessage(reason));
+
+    expect(new Set(messages).size).toBe(messages.length);
+  });
+
+  it("names the run as unread rather than a technical state", () => {
+    for (const reason of saveFailureReasons()) {
+      const message = getSaveRecoveryMessage(reason);
+
+      expect(message, reason).toMatch(/saved run|this browser/i);
+    }
+  });
+
+  it("keeps plain copy for a rejection a future build adds", () => {
+    const message = getSaveRecoveryMessage("someFutureReason");
+
+    expect(message).toBe(saveRecoveryFallback);
+    expect(message).not.toContain("someFutureReason");
+  });
+
+  it("keeps plain copy when no reason is reported at all", () => {
+    expect(getSaveRecoveryMessage(undefined)).toBe(saveRecoveryFallback);
   });
 });

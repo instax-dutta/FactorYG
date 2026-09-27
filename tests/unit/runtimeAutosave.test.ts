@@ -342,6 +342,34 @@ describe("runtime autosave", () => {
 
     autosave.dispose();
   });
+
+  it("writes nothing while the app is still telling the player about a rejected save", () => {
+    const storage = createMemoryStorage();
+    const store = createStore();
+    let suspended = true;
+    const autosave = createRuntimeAutosave(store, storage, () => 1_000, {
+      listenForLifecycleEvents: false,
+      isWriteSuspended: () => suspended,
+    });
+
+    buildChain(store, "copperOre");
+    store.advanceTicks(20);
+    autosave.flush();
+
+    expect(autosave.getWriteCount()).toBe(0);
+    expect(storage.getItem(SAVE_KEY)).toBeNull();
+
+    suspended = false;
+    store.dispatch({ type: "demolishEntity", entityId: "entity-2" });
+
+    expect(autosave.getWriteCount()).toBe(1);
+    expect(readSave(storage).grid.entities.map((entity) => entity.type)).toEqual([
+      "extractor",
+      "depot",
+    ]);
+
+    autosave.dispose();
+  });
 });
 
 function setVisibilityState(value: string): () => void {

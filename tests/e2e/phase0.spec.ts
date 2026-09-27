@@ -4,6 +4,7 @@ import {
   expectNoPanelOverlap,
   waitForBoundingBox,
 } from "./support/overlayLayout";
+import { waitForReady, type SceneTelemetry } from "./support/runtimeBridge";
 import { CAMERA_MARGIN_PX } from "../../src/phaser/cameraConfig";
 import { STARTING_CURRENCY } from "../../src/content/balance";
 import { SAVE_KEY } from "../../src/sim/constants";
@@ -11,42 +12,6 @@ import { createInitialState } from "../../src/sim/initialState";
 import { serializeSave } from "../../src/persistence/save";
 import { permanentMultipliersForPoints } from "../../src/sim/prestige";
 import type { ResourceId } from "../../src/sim/types";
-
-interface RuntimeBridge {
-  dispatch(command: Record<string, unknown>): { ok: boolean; reason?: string };
-  advanceTicks(count: number): void;
-  getSnapshot(): {
-    currency: number;
-    placementMode?: string;
-    selectedEntityId?: string;
-    offlineSummary?: {
-      elapsedSeconds: number;
-      cappedSeconds: number;
-      earnedCurrency: number;
-      chainUnits: Record<string, number>;
-    };
-  };
-}
-
-interface SceneTelemetry {
-  ready: boolean;
-  camera: {
-    scrollX: number;
-    scrollY: number;
-    zoom: number;
-    boundsWidth: number;
-    boundsHeight: number;
-  };
-  ghost: {
-    visible: boolean;
-    valid: boolean;
-    rotation: number;
-  };
-}
-
-interface TelemetryBridge {
-  getSnapshot(): SceneTelemetry;
-}
 
 interface StatusObservation {
   status: string;
@@ -56,8 +21,6 @@ interface StatusObservation {
 
 declare global {
   interface Window {
-    __FACTOR_Y__?: RuntimeBridge;
-    __FACTOR_Y_TELEMETRY__?: TelemetryBridge;
     __FACTOR_Y_STATUS_HISTORY__?: StatusObservation[];
   }
 }
@@ -119,18 +82,6 @@ async function waitForBootingStatus(page: Page, minimumCount: number): Promise<v
     ),
   );
   expect(observations.every((observation) => observation.bridgeAbsent && observation.telemetryAbsent)).toBe(true);
-}
-
-async function waitForReady(page: Page): Promise<void> {
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const bridge = window.__FACTOR_Y__;
-        const telemetry = window.__FACTOR_Y_TELEMETRY__;
-        return bridge !== undefined && telemetry?.getSnapshot().ready === true;
-      }),
-    )
-    .toBe(true);
 }
 
 test.use({ viewport: { width: 1000, height: 800 } });

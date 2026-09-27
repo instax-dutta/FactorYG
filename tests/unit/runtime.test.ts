@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { STARTING_CURRENCY } from "../../src/content/balance";
 import { SAVE_KEY } from "../../src/sim/constants";
 import { permanentMultipliersForPoints } from "../../src/sim/prestige";
 import { createInitialState } from "../../src/sim/initialState";
@@ -57,7 +58,58 @@ describe("browser simulation runtime", () => {
     expect(runtime.store.getSnapshot().currency).toBe(500);
     expect(runtime.store.getSnapshot().offlineSummary).toBeUndefined();
   });
+
+  it("carries a rejected save out as a recovery the app has to explain", () => {
+    const rejected = forgedExpandedPlotSave();
+    window.localStorage.setItem(SAVE_KEY, rejected);
+
+    const runtime = createBrowserSimulationRuntime(71_000);
+
+    expect(runtime.saveRecovery).toEqual({
+      reason: "invalidSave",
+      message: 'Save field "grid" is invalid.',
+    });
+    expect(runtime.store.getSnapshot().currency).toBe(STARTING_CURRENCY);
+    expect(window.localStorage.getItem(SAVE_KEY)).toBe(rejected);
+  });
+
+  it("reports unavailable browser storage as a recovery rather than a silent new game", () => {
+    vi.stubGlobal("window", undefined);
+
+    const runtime = createBrowserSimulationRuntime(71_000);
+
+    expect(runtime.saveRecovery).toEqual({
+      reason: "storageUnavailable",
+      message: "A save storage adapter is unavailable.",
+    });
+    expect(runtime.autosave).toBeUndefined();
+  });
+
+  it("reports no recovery when a stored save is read into the run", () => {
+    window.localStorage.setItem(SAVE_KEY, serializeSave(createPersistedState()));
+
+    const runtime = createBrowserSimulationRuntime(71_000);
+
+    expect(runtime.saveRecovery).toBeUndefined();
+    expect(runtime.store.getSnapshot().currency).toBe(710);
+  });
+
+  it("reports no recovery for a first-time player with nothing stored", () => {
+    const runtime = createBrowserSimulationRuntime(71_000);
+
+    expect(runtime.saveRecovery).toBeUndefined();
+    expect(runtime.store.getSnapshot().currency).toBe(STARTING_CURRENCY);
+  });
 });
+
+function forgedExpandedPlotSave(): string {
+  const state = createInitialState();
+  state.currency = 432_100;
+  state.lifetimeCurrency = 432_100;
+  state.grid.width = 96;
+  state.grid.height = 96;
+  return JSON.stringify(state);
+}
 
 const SELL_MULTIPLIER_POINTS = 4;
 

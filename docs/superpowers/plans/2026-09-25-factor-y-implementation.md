@@ -2017,38 +2017,42 @@ git commit -m "chore: complete Factor-Y release verification"
 
 **Files:**
 - Modify: `src/app/runtime.ts`
-- Modify: `src/ui/` overlay that owns the startup notice
+- Modify: `src/app/App.tsx`
+- Create: `src/ui/components/SaveRecoveryNotice.tsx`
+- Modify: `src/ui/presentation.ts`
 - Create: `tests/e2e/saveRecovery.spec.ts`
 
 **Interfaces:**
 - Consumes: the `reason` and `message` that `loadSaveWithResult` already returns.
 - Produces: a carried recovery reason and a player-visible explanation of a rejected save.
 
-- [ ] **Step 1: Write the failing browser assertion**
+- [x] **Step 1: Write the failing browser assertion**
 
 Seed a save the load path rejects, reload, and assert the player is told the run started fresh and why, instead of receiving an unexplained empty world. The current failure is silence: `loadBrowserSimulationState` discards the reason and the autosave replaces the payload within seconds, so a player whose save is rejected cannot tell that progress was lost.
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 ```bash
 npm run test:e2e -- tests/e2e/saveRecovery.spec.ts
 ```
 
-- [ ] **Step 3: Carry the reason out of the load path**
+- [x] **Step 3: Carry the reason out of the load path**
 
 Return the recovery reason from the app-layer load instead of discarding it, publish it to the overlay, and decide whether the first autosave after a recovery is suppressed so the unreadable payload outlives the notice. Copy is a product decision and is not specified here.
 
-- [ ] **Step 4: Verify green**
+**Decided here: autosave is suspended for the whole window in which the notice is up, not for the first write.** A single skipped write would leave the payload overwritten a second later, because a fresh run keeps changing once the player touches anything, and the deciding fact is that the player must be told before the only copy of their unreadable save can be replaced. Suspension ends when the player acknowledges the notice, because holding writes longer would mean a session that autosaves nothing, trading a stale unreadable payload for silent loss of everything the player then builds. The result is a guarantee rather than an accident of what a fresh run happens to serialize, and it is not a save-backup feature.
+
+- [x] **Step 4: Verify green**
 
 ```bash
 npm run test:e2e -- tests/e2e/saveRecovery.spec.ts
 npm run test
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add src/app/runtime.ts tests/e2e/saveRecovery.spec.ts
+git add src/app/runtime.ts src/app/App.tsx src/ui/components/SaveRecoveryNotice.tsx src/ui/presentation.ts src/app/AGENTS.md src/ui/AGENTS.md src/persistence/AGENTS.md tests/e2e/AGENTS.md tests/e2e/saveRecovery.spec.ts tests/e2e/support/runtimeBridge.ts tests/e2e/phase0.spec.ts tests/unit/runtime.test.ts tests/unit/runtimeAutosave.test.ts tests/unit/presentation.test.ts tests/unit/saveRecoveryNotice.test.tsx
 git commit -m "feat: tell the player when a save was rejected"
 ```
 
@@ -2058,7 +2062,7 @@ git commit -m "feat: tell the player when a save was rejected"
 - [ ] Belt glow, smelter heat, and depot sale burst are the only v1 VFX families.
 - [ ] Sound is event-driven and does not enter the simulation dependency graph.
 - [ ] Dirty flags and spatial partitioning pass the large-grid benchmark.
-- [ ] A rejected save tells the player, rather than silently starting a fresh run.
+- [x] A rejected save tells the player, rather than silently starting a fresh run. Settled out of Phase 4 order by Task 4.7, which closed the most severe open item in the plan: a rejected save used to be replaced within seconds and never mentioned. The load layer still recovers to a new game in memory and still writes nothing, the app now carries the refusal out as a recovery instead of dropping it, and the startup notice names in plain terms that the previous run could not be read and that a new one started. Autosave, flush included, is suspended until the player acknowledges the notice, so the unreadable payload outlives the explanation; the acknowledgement releases it, so the payload is not a durable artifact and no backup feature was invented. Proved in a browser by `tests/e2e/saveRecovery.spec.ts` for two rejection reasons, for byte-for-byte survival of the seeded payload across a real state change made while the notice was up, and for the absence of any notice on a normal load, with the carried reason and message pinned at the app entry point in `tests/unit/runtime.test.ts`.
 - [ ] Full unit, component, browser, lint, typecheck, and production-build checks pass.
 - [ ] The working tree is clean and every task has a corresponding atomic commit.
 

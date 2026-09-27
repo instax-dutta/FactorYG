@@ -4,8 +4,10 @@ import {
   loadSaveWithOfflineResult,
   projectSaveGame,
   saveToStorage,
+  type LoadSaveResult,
   type SaveStorage,
 } from "../persistence/save";
+import type { SaveFailureReason } from "../persistence/migrate";
 import { SimulationStore } from "../sim/store";
 import {
   createSceneTelemetry,
@@ -40,11 +42,24 @@ export interface SimulationRuntimeAutosave {
 export interface RuntimeAutosaveOptions {
   readonly minimumIntervalMs?: number;
   readonly listenForLifecycleEvents?: boolean;
+  readonly isWriteSuspended?: () => boolean;
+}
+
+export interface SaveRecovery {
+  readonly reason: SaveFailureReason;
+  readonly message?: string;
+}
+
+export interface BrowserSimulationLoad {
+  readonly state: SimulationState;
+  readonly recovery: SaveRecovery | undefined;
 }
 
 export interface SimulationRuntime {
   readonly store: SimulationStore;
   readonly autosave: SimulationRuntimeAutosave | undefined;
+  readonly saveRecovery: SaveRecovery | undefined;
+  readonly acknowledgeSaveRecovery: () => void;
   start(): void;
   stop(): void;
   setSceneTelemetry(telemetry: SceneTelemetry): void;
@@ -98,6 +113,7 @@ export function createRuntimeAutosave(
 
   const minimumIntervalMs = options.minimumIntervalMs ?? DEFAULT_MINIMUM_WRITE_INTERVAL_MS;
   const listenForLifecycleEvents = options.listenForLifecycleEvents ?? true;
+  const isWriteSuspended = options.isWriteSuspended ?? ((): boolean => false);
   let lastWriteAt = now();
   let writeCount = 0;
   let disposed = false;
@@ -113,7 +129,7 @@ export function createRuntimeAutosave(
   };
 
   const flush = (): void => {
-    if (disposed || storage === undefined) {
+    if (disposed || storage === undefined || isWriteSuspended()) {
       return;
     }
 
@@ -130,7 +146,7 @@ export function createRuntimeAutosave(
   };
 
   const sync = (): void => {
-    if (disposed || storage === undefined) {
+    if (disposed || storage === undefined || isWriteSuspended()) {
       return;
     }
 
@@ -196,13 +212,13 @@ export function createRuntimeAutosave(
   return autosave;
 }
 
-export function loadBrowserSimulationState(
+export function loadBrowserSimulationResult(
   now = Date.now(),
   storage: SaveStorage | undefined = getBrowserStorage(),
-): SimulationState {
-  return storage === undefined
-    ? createInitialState()
-    : loadSaveWithOfflineResult(storage, now).state;
+): BrowserSimulationLoad {
+  const result = loadSaveWithOfflineResult(storage, now);
+
+  return { state: result.state, recovery: toSaveRecovery(result) };
 }
 
 export function createBrowserSimulationRuntime(
@@ -210,11 +226,24 @@ export function createBrowserSimulationRuntime(
   storage: SaveStorage | undefined = getBrowserStorage(),
   clock: () => number = Date.now,
 ): SimulationRuntime {
-  const runtime = createSimulationRuntime(loadBrowserSimulationState(now, storage));
+  const loaded = loadBrowserSimulationResult(now, storage);
+  const runtime = createSimulationRuntime(loaded.state);
+  let recoveryTold = false;
   const autosave =
-    storage === undefined ? undefined : createRuntimeAutosave(runtime.store, storage, clock);
+    storage === undefined
+      ? undefined
+      : createRuntimeAutosave(runtime.store, storage, clock, {
+          isWriteSuspended: () => loaded.recovery !== undefined && !recoveryTold,
+        });
 
-  return { ...runtime, autosave };
+  return {
+    ...runtime,
+    autosave,
+    saveRecovery: loaded.recovery,
+    acknowledgeSaveRecovery: (): void => {
+      recoveryTold = true;
+    },
+  };
 }
 
 export function createSimulationRuntime(
@@ -226,6 +255,8 @@ export function createSimulationRuntime(
   return {
     store,
     autosave: undefined,
+    saveRecovery: undefined,
+    acknowledgeSaveRecovery: (): void => undefined,
     start: (): void => store.start(),
     stop: (): void => store.stop(),
     setSceneTelemetry: (telemetry: SceneTelemetry): void => {
@@ -233,6 +264,14 @@ export function createSimulationRuntime(
     },
     getSceneTelemetry: (): SceneTelemetry => sceneTelemetry,
   };
+}
+
+function toSaveRecovery(result: LoadSaveResult): SaveRecovery | undefined {
+  if (result.reason === undefined) {
+    return undefined;
+  }
+
+  return { reason: result.reason, message: result.message };
 }
 
 function valueSignature(save: SaveGame): string {
