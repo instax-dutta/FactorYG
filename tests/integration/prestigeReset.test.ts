@@ -6,26 +6,37 @@ import {
   applyUnlock,
   canUnlock,
   canResetPrestige,
+  expandGrid,
   getPermanentMultipliers,
   performPrestige,
 } from "../../src/sim/commands";
 import {
+  GRID_EXPANSION_COST,
   PRESTIGE_PRODUCTION_BONUS_PER_POINT,
   PRESTIGE_SELL_BONUS_PER_POINT,
   PRESTIGE_THRESHOLD,
   STARTING_CURRENCY,
 } from "../../src/content/balance";
-import { NEW_GAME_TIMESTAMP } from "../../src/sim/constants";
+import { GRID_HEIGHT, GRID_WIDTH, NEW_GAME_TIMESTAMP } from "../../src/sim/constants";
 import { sellResource } from "../../src/sim/economy";
+import { isInsideGrid } from "../../src/sim/grid";
 import { NEW_GAME_SEED, createInitialState, createResetState } from "../../src/sim/initialState";
 import { getExtractorRate } from "../../src/sim/machines";
 import { calculatePrestigePoints, canPrestige } from "../../src/sim/prestige";
 import { SimulationStore } from "../../src/sim/store";
 import { loadSave, saveToStorage, serializeSave, type SaveStorage } from "../../src/persistence/save";
-import type { Entity, PrestigeState, RenderEvent, SimulationState } from "../../src/sim/types";
+import type {
+  Entity,
+  MachineRuntime,
+  PrestigeState,
+  RenderEvent,
+  ResourceId,
+  SimulationState,
+} from "../../src/sim/types";
 
 const AWARDED_POINTS = 2;
 const ELIGIBLE_LIFETIME = 4 * PRESTIGE_THRESHOLD;
+const EXPANDED_PLOT = 96;
 const REBUILT_MULTIPLIERS = {
   productionSpeed: 1 + AWARDED_POINTS * PRESTIGE_PRODUCTION_BONUS_PER_POINT,
   sellValue: 1 + AWARDED_POINTS * PRESTIGE_SELL_BONUS_PER_POINT,
@@ -667,6 +678,90 @@ describe("serializing the reset state", () => {
   });
 });
 
+describe("a real expanded post-prestige world", () => {
+  it("is producible only by the real commands, in the order the rights rule forces", () => {
+    const before = createInitialState();
+    before.lifetimeCurrency = ELIGIBLE_LIFETIME;
+    before.currency = GRID_EXPANSION_COST * 2;
+
+    const refusedExpansion = expandGrid(before, {
+      type: "expandGrid",
+      width: EXPANDED_PLOT,
+      height: EXPANDED_PLOT,
+    });
+    expect(refusedExpansion.result).toEqual({ ok: false, reason: "expansionLocked" });
+
+    const world = realExpandedPostPrestigeState();
+
+    expect(world.grid.width).toBe(EXPANDED_PLOT);
+    expect(world.grid.height).toBe(EXPANDED_PLOT);
+    expect(world.prestige.totalPrestiges).toBe(1);
+    expect(world.prestige.points).toBe(AWARDED_POINTS);
+    expect(world.prestige.permanentMultipliers).toEqual(REBUILT_MULTIPLIERS);
+    expect(world.grid.entities).toHaveLength(1);
+    expect(world.grid.machines[newAreaProducer(world).entity.id]).toBeDefined();
+  });
+
+  it("round-trips through storage and reloads with the far edge, its node, and the producer intact", () => {
+    const world = realExpandedPostPrestigeState();
+    const producer = newAreaProducer(world);
+    const seededNode = world.grid.nodes.find(
+      (node) => node.id === producer.resourceNodeId,
+    );
+    expect(seededNode).toBeDefined();
+
+    const values = new Map<string, string>();
+    const storage: SaveStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => {
+        values.set(key, value);
+      },
+    };
+
+    saveToStorage(storage, world);
+    const reloaded = loadSave(storage);
+
+    expect(reloaded.grid.width).toBe(EXPANDED_PLOT);
+    expect(reloaded.grid.height).toBe(EXPANDED_PLOT);
+    expect(
+      isInsideGrid(
+        { x: EXPANDED_PLOT - 1, y: EXPANDED_PLOT - 1 },
+        reloaded.grid.width,
+        reloaded.grid.height,
+      ),
+    ).toBe(true);
+    expect(reloaded.grid.nodes).toContainEqual(seededNode);
+    expect(reloaded.grid.entities).toContainEqual(producer.entity);
+    expect(reloaded.grid.machines[producer.entity.id]).toEqual(producer.runtime);
+    expect(reloaded.prestige.totalPrestiges).toBe(1);
+    expect(reloaded.prestige.points).toBe(AWARDED_POINTS);
+    expect(reloaded.prestige.permanentMultipliers).toEqual(REBUILT_MULTIPLIERS);
+  });
+
+  it("keeps the plot across the reset, so the expansion the run already paid for is not charged twice", () => {
+    const before = createInitialState();
+    before.lifetimeCurrency = ELIGIBLE_LIFETIME;
+    before.currency = GRID_EXPANSION_COST * 2;
+    const firstReset = performPrestige(before);
+    const funded = { ...firstReset.state, currency: GRID_EXPANSION_COST * 2 };
+    const expansion = expandGrid(funded, {
+      type: "expandGrid",
+      width: EXPANDED_PLOT,
+      height: EXPANDED_PLOT,
+    });
+    expect(expansion.result).toEqual({ ok: true });
+    expect(expansion.state.currency).toBe(GRID_EXPANSION_COST);
+
+    const secondLifetime = ELIGIBLE_LIFETIME;
+    const secondReset = performPrestige({ ...expansion.state, lifetimeCurrency: secondLifetime });
+
+    expect(secondReset.result).toEqual({ ok: true });
+    expect(secondReset.state.grid.width).toBe(EXPANDED_PLOT);
+    expect(secondReset.state.grid.height).toBe(EXPANDED_PLOT);
+    expect(secondReset.state.currency).toBe(STARTING_CURRENCY);
+  });
+});
+
 describe("prestige reset wiring", () => {
   it("routes the preflight accessor and the dispatch through the same validator", () => {
     const store = new SimulationStore(eligibleState());
@@ -693,6 +788,87 @@ describe("prestige reset wiring", () => {
     expect(commandsSource).toMatch(/createResetState\(/);
   });
 });
+
+interface NewAreaProducer {
+  entity: Entity;
+  runtime: MachineRuntime;
+  resourceNodeId: string;
+}
+
+function newAreaProducer(state: SimulationState): NewAreaProducer {
+  const entity = state.grid.entities.find(
+    (candidate) =>
+      (candidate.x >= GRID_WIDTH || candidate.y >= GRID_HEIGHT) && candidate.type !== "belt",
+  );
+  expect(entity).toBeDefined();
+  if (entity === undefined) {
+    throw new Error("the real expansion produced no producer in the new area");
+  }
+  const runtime = state.grid.machines[entity.id];
+  expect(runtime).toBeDefined();
+  if (runtime === undefined) {
+    throw new Error("the real expansion produced no runtime for its producer");
+  }
+  const node = state.grid.nodes.find(
+    (candidate) => candidate.x === entity.x && candidate.y === entity.y,
+  );
+  expect(node).toBeDefined();
+  if (node === undefined) {
+    throw new Error("the real expansion produced no node under its producer");
+  }
+
+  return { entity, runtime, resourceNodeId: node.id };
+}
+
+function realExpandedPostPrestigeState(): SimulationState {
+  const before = createInitialState();
+  before.lifetimeCurrency = ELIGIBLE_LIFETIME;
+  before.currency = GRID_EXPANSION_COST * 2;
+
+  const reset = performPrestige(before);
+  expect(reset.result).toEqual({ ok: true });
+
+  const funded = { ...reset.state, currency: GRID_EXPANSION_COST * 2 };
+  const expansion = expandGrid(funded, {
+    type: "expandGrid",
+    width: EXPANDED_PLOT,
+    height: EXPANDED_PLOT,
+  });
+  expect(expansion.result).toEqual({ ok: true });
+  expect(expansion.changed).toBe(true);
+
+  return placeRealProducerInNewArea(expansion.state);
+}
+
+function placeRealProducerInNewArea(state: SimulationState): SimulationState {
+  const node = [...state.grid.nodes]
+    .filter((candidate) => candidate.x >= GRID_WIDTH || candidate.y >= GRID_HEIGHT)
+    .sort((left, right) => left.id.localeCompare(right.id))[0];
+  expect(node).toBeDefined();
+  if (node === undefined) {
+    throw new Error("the real expansion scattered no node into the new area");
+  }
+
+  const resource: ResourceId = node.resource;
+  const producer = entity("entity-1", "extractor", node.x, node.y, { resourceNode: resource });
+  const runtime: MachineRuntime = {
+    entityId: producer.id,
+    progressTicks: 0.5,
+    input: {},
+    output: { [resource]: 2 },
+    active: true,
+    alreadyNotifiedBlocked: false,
+  };
+
+  return {
+    ...state,
+    grid: {
+      ...state.grid,
+      entities: [...state.grid.entities, producer],
+      machines: { ...state.grid.machines, [producer.id]: runtime },
+    },
+  };
+}
 
 function expectedPermanentPrestige(): PrestigeState {
   return {

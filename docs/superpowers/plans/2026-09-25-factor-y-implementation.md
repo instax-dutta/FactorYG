@@ -1694,7 +1694,12 @@ git commit -m "feat: add prestige UI and balance scenarios"
 - Modify: `src/persistence/migrate.ts`
 - Modify: `src/sim/grid.ts`
 - Create: `tests/unit/migration.test.ts`
+- Modify: `tests/integration/prestigeReset.test.ts`
 - Modify: `tests/e2e/phase0.spec.ts`
+- Modify: `src/persistence/AGENTS.md`
+- Modify: `src/sim/AGENTS.md`
+- Modify: `tests/e2e/AGENTS.md`
+- Modify: `docs/superpowers/plans/2026-09-25-factor-y-implementation.md`
 - `src/persistence/save.ts` was listed and needed no change: the version-1 path it drives was already total over the new shapes, and the two decisions below are decisions *not* to change it.
 
 **Interfaces:**
@@ -1725,26 +1730,26 @@ npm run test
 - [x] **Step 5: Commit**
 
 ```bash
-git add src/persistence/migrate.ts src/sim/grid.ts tests/unit/migration.test.ts tests/e2e/phase0.spec.ts
+git add src/persistence/migrate.ts src/sim/grid.ts tests/unit/migration.test.ts tests/integration/prestigeReset.test.ts tests/e2e/phase0.spec.ts src/persistence/AGENTS.md src/sim/AGENTS.md tests/e2e/AGENTS.md docs/superpowers/plans/2026-09-25-factor-y-implementation.md
 git commit -m "feat: preserve saves across progression migrations"
 ```
 
 **Decided here: a rejected save is never rewritten.** Carried forward from review and settled. `loadSaveWithResult` and `loadSaveWithOfflineResult` recover to a new game in memory and write nothing, leaving the stored value byte for byte intact, and this is now pinned by three tests rather than left as an accident. Overwriting it with the recovered new game would destroy the only copy of a payload the game cannot currently read, and the load layer cannot distinguish a corrupt save from one written by a newer build, so the destruction would be irreversible and premature. The honest limit is recorded with it: this is not preservation. The app autosave writes the recovered run as soon as its state differs, so a rejected save is gone within seconds, and `loadBrowserSimulationState` discards the recovery reason, so a rejected save is a silent loss for the player today. Surfacing it is app-layer and UI work and is deferred below rather than invented here.
 
-**Decided here: a save claiming a larger plot than it earned is a rejected save.** `validateGrid` now requires the run's expansion rights for any saved plot larger than the starting one, read through `hasPrestigedForExpansion` from `sim/grid` and measured with `isGridGrowth`, so the load layer and the command layer answer the same question from the same predicate. A plot is a privilege a completed prestige grants permanently and a reset banks alongside the prestige count, so the rule can never reject a save the game produced, and it removes a silent hole: an unearned plot used to be forged into storage and then honored on load, which made the permanent privilege worth nothing. This is save integrity rather than a crash guard, since the renderer sizes a valid plot happily; the out-of-contract size is the hang, and the unearned one was silent.
+**Decided here: a save claiming a larger plot than it earned is a rejected save.** `validateGrid` now requires the run's expansion rights for any saved plot larger than the starting one, read through `hasPrestigedForExpansion` from `sim/grid` and measured with `isGridGrowth`, so the load layer and the command layer answer the same question from the same predicate. A plot is a privilege a completed prestige grants permanently and a reset banks alongside the prestige count, so the rule can never reject a save the game produced, and it closes a consistency hole: a save claiming an unearned plot used to be accepted and then honored on load, so the load layer and the command layer disagreed about who may own a larger plot. This is save integrity rather than a crash guard, since the renderer sizes a valid plot happily; the out-of-contract size is the hang, and the unearned one was silent. It is not an anti-cheat measure and should not be described as one: the only surface that can present such a save is the player's own localStorage, and the same player can set `totalPrestiges` alongside the dimensions, so the rule is about one code path agreeing with another rather than about withholding a privilege from anyone.
 
 **Decided here: the persisted multiplier pair is a cache of the rule.** The migration layer carries the stored pair through unchanged and `repairPermanentMultipliers` on load is the only repricer, so no migration rewrites it on the way past. The fixtures pin both halves, and pin the repriced numbers as literals as well as against `permanentMultipliersForPoints`, so retuning a per-point constant turns one covered assertion red instead of silently repricing every existing save.
 
-**Deferred to Phase 4, recorded rather than hidden:** a rejected save recovers with no player-visible explanation. `loadSaveWithResult` already returns the reason and message, and `loadBrowserSimulationState` throws them away, so the loss is silent. This needs an app-layer change to carry the reason and a UI decision about what the player is told, which is not this task's to invent.
+**Deferred to Phase 4, recorded rather than hidden:** a rejected save is a silent loss for the player. The load layer leaves the stored value alone, but the app autosave writes the recovered run as soon as its state differs, so the payload is gone within seconds, and `loadBrowserSimulationState` discards the reason and message that `loadSaveWithResult` already returns, so nothing is ever shown. The three tests behind the decision cover the persistence load path only and would still pass if the app were unchanged. Closing this needs an app-layer change to carry the recovery reason and a UI decision about what the player is told, and it is deliberately not part of the Phase 3 exit claim above.
 
 ## Phase 3 Exit Check
 
 - [x] Prestige threshold, points, reset, and permanent multipliers work end to end.
 - [x] Grid expansion preserves existing entities and updates camera bounds.
-- [x] Save migration preserves permanent progression.
+- [x] Save migration preserves permanent progression. Proved narrowly and on evidence: the permanent progression fields survive a load, an expanded plot stays valid at its own size rather than being clamped to the starting one, an unsupported version is rejected rather than half-read, and a migration never mutates the object it was given. The totality claim is carried by `tests/unit/migration.test.ts` over explicit version-1 fixtures and by `tests/integration/prestigeReset.test.ts` over a world the real `performPrestige` and the real `expandGrid` produce, so a producer standing in the newly added area survives serialize and reload. This box says nothing about what happens to a save that fails validation; that is the separate item below.
 - [x] Balance scenarios cover all resource tiers.
 - [x] Prestige browser flow passes.
-- [x] Phase 3 unit, integration, browser, lint, typecheck, and build checks pass. Task 3.5 closed the phase: 845 unit tests across 46 files and 19 browser tests pass, with lint, typecheck, and build clean, each run twice. The migration box is ticked on a settled decision rather than an accident: a rejected save is never rewritten, and that is now pinned by tests and recorded in `src/persistence/AGENTS.md`.
+- [x] Phase 3 unit, integration, browser, lint, typecheck, and build checks pass. Task 3.5 closed the phase. Recorded runs, each read from full output and exit status: 848 unit tests across 46 files, run twice, both clean; lint, typecheck, and build each run twice, all clean; the focused specs run per task. Browser: 19 tests, two clean full-suite runs and one failed full-suite run, so the box rests on a suite that is not yet deterministic. The failure is `expectNoPanelOverlap` in `phase0.spec.ts:240` timing out on a panel bounding box; that test passed five times out of five in isolation, and the Task 3.5 follow-up changed no file under `src/` and no spec under `tests/e2e/`, so it is not introduced by Phase 3. It is recorded as an open e2e issue rather than a flake, because a repeat failure is treated as a regression under the rule in `tests/e2e/AGENTS.md`, and a full-suite serial run is where it concentrates.
 
 ---
 
@@ -2008,12 +2013,52 @@ git add src/content/assetManifest.ts tests/unit/assetManifest.test.ts tests/e2e/
 git commit -m "chore: complete Factor-Y release verification"
 ```
 
+## Task 4.7: Tell the Player When a Save Was Rejected
+
+**Files:**
+- Modify: `src/app/runtime.ts`
+- Modify: `src/ui/` overlay that owns the startup notice
+- Create: `tests/e2e/saveRecovery.spec.ts`
+
+**Interfaces:**
+- Consumes: the `reason` and `message` that `loadSaveWithResult` already returns.
+- Produces: a carried recovery reason and a player-visible explanation of a rejected save.
+
+- [ ] **Step 1: Write the failing browser assertion**
+
+Seed a save the load path rejects, reload, and assert the player is told the run started fresh and why, instead of receiving an unexplained empty world. The current failure is silence: `loadBrowserSimulationState` discards the reason and the autosave replaces the payload within seconds, so a player whose save is rejected cannot tell that progress was lost.
+
+- [ ] **Step 2: Verify red**
+
+```bash
+npm run test:e2e -- tests/e2e/saveRecovery.spec.ts
+```
+
+- [ ] **Step 3: Carry the reason out of the load path**
+
+Return the recovery reason from the app-layer load instead of discarding it, publish it to the overlay, and decide whether the first autosave after a recovery is suppressed so the unreadable payload outlives the notice. Copy is a product decision and is not specified here.
+
+- [ ] **Step 4: Verify green**
+
+```bash
+npm run test:e2e -- tests/e2e/saveRecovery.spec.ts
+npm run test
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/app/runtime.ts tests/e2e/saveRecovery.spec.ts
+git commit -m "feat: tell the player when a save was rejected"
+```
+
 ## Phase 4 Exit Check
 
 - [ ] All required machine/resource art is present, animated, and manually reviewed.
 - [ ] Belt glow, smelter heat, and depot sale burst are the only v1 VFX families.
 - [ ] Sound is event-driven and does not enter the simulation dependency graph.
 - [ ] Dirty flags and spatial partitioning pass the large-grid benchmark.
+- [ ] A rejected save tells the player, rather than silently starting a fresh run.
 - [ ] Full unit, component, browser, lint, typecheck, and production-build checks pass.
 - [ ] The working tree is clean and every task has a corresponding atomic commit.
 

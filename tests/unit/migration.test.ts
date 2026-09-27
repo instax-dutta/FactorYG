@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  GRID_EXPANSION_COST,
   PRESTIGE_PRODUCTION_BONUS_PER_POINT,
   PRESTIGE_SELL_BONUS_PER_POINT,
 } from "../../src/content/balance";
+import { canExpandGrid } from "../../src/sim/commands";
 import {
   migrateSave,
   registerSaveMigration,
   SAVE_MIGRATIONS,
   validateSaveGame,
+  type MigrationResult,
   type SaveMigration,
 } from "../../src/persistence/migrate";
 import {
@@ -18,7 +21,7 @@ import {
   serializeSave,
   type SaveStorage,
 } from "../../src/persistence/save";
-import { GRID_WIDTH, SAVE_KEY } from "../../src/sim/constants";
+import { GRID_HEIGHT, GRID_WIDTH, SAVE_KEY } from "../../src/sim/constants";
 import { sellResource } from "../../src/sim/economy";
 import { hasGridExpansionRights, isInsideGrid } from "../../src/sim/grid";
 import { createInitialState } from "../../src/sim/initialState";
@@ -43,8 +46,8 @@ const SAVE_FIELDS = [
 ] as const;
 
 describe("the version-1 path is total over the shapes Phase 3 added", () => {
-  it("carries a base save through unchanged", () => {
-    expect(migrateFixture(baseSave())).toEqual(baseSave());
+  it("carries a base save through unchanged, from a fixture wider than any real run", () => {
+    expect(migrateFixture(generousBaseSave())).toEqual(generousBaseSave());
   });
 
   it("carries an expanded plot through unchanged at the size the save itself claims", () => {
@@ -56,8 +59,8 @@ describe("the version-1 path is total over the shapes Phase 3 added", () => {
     expect(migrated["grid"]).toMatchObject({ width: EXPANDED, height: EXPANDED });
   });
 
-  it("carries a post-prestige save through unchanged with its banked points", () => {
-    const fixture = postPrestigeSave();
+  it("carries a post-prestige save through unchanged with its banked points, from a fixture wider than any real run", () => {
+    const fixture = generousPostPrestigeSave();
 
     const migrated = migrateFixture(fixture);
 
@@ -72,7 +75,7 @@ describe("the version-1 path is total over the shapes Phase 3 added", () => {
     });
   });
 
-  it("carries an expanded post-prestige save through unchanged", () => {
+  it("carries an expanded post-prestige save through unchanged, leaving unknown keys for the projection to drop", () => {
     const fixture = expandedPostPrestigeSave();
 
     const migrated = migrateFixture(fixture);
@@ -96,9 +99,9 @@ describe("the version-1 path is total over the shapes Phase 3 added", () => {
 
   it("reports a current save as unmigrated, because the version-1 path only fills legacy gaps", () => {
     for (const fixture of [
-      baseSave(),
+      generousBaseSave(),
       expandedGridSave(),
-      postPrestigeSave(),
+      generousPostPrestigeSave(),
       expandedPostPrestigeSave(),
     ]) {
       const result = migrateSave(structuredClone(fixture));
@@ -143,7 +146,7 @@ describe("the version-1 path is total over the shapes Phase 3 added", () => {
   });
 
   it("survives a load with the prestige multipliers the banked points bought", () => {
-    const state = loadSave(storageWith(postPrestigeSave()));
+    const state = loadSave(storageWith(generousPostPrestigeSave()));
 
     expect(state.prestige).toEqual({
       points: BANKED_POINTS,
@@ -156,7 +159,7 @@ describe("the version-1 path is total over the shapes Phase 3 added", () => {
   });
 
   it("prices the loaded run by the surviving multipliers rather than by a fresh-game pair", () => {
-    const state = loadSave(storageWith(postPrestigeSave()));
+    const state = loadSave(storageWith(generousPostPrestigeSave()));
 
     expect(sellResource("copperIngot", 4, state).currency).toBe(4 * 6 * DERIVED_SELL_VALUE);
     expect(state.prestige.permanentMultipliers.sellValue).toBeGreaterThan(1);
@@ -231,7 +234,7 @@ describe("a save claiming a plot the player never earned", () => {
   });
 
   it("still accepts the starting plot on a run that has never prestiged", () => {
-    const base = baseSave();
+    const base = generousBaseSave();
 
     expect(parseSave(JSON.stringify(base))).toMatchObject({ ok: true });
   });
@@ -244,7 +247,7 @@ describe("a save claiming a plot the player never earned", () => {
     const state = loadSave(storage);
 
     expect(state.grid.width).toBe(GRID_WIDTH);
-    expect(state.grid.height).toBe(GRID_WIDTH);
+    expect(state.grid.height).toBe(GRID_HEIGHT);
     expect(state.prestige.totalPrestiges).toBe(0);
   });
 
@@ -254,8 +257,9 @@ describe("a save claiming a plot the player never earned", () => {
       (candidate.prestige as Record<string, unknown>).totalPrestiges = totalPrestiges;
       const state = createInitialState();
       state.prestige.totalPrestiges = totalPrestiges;
+      state.currency = GRID_EXPANSION_COST * 2;
 
-      expect(hasGridExpansionRights(state)).toBe(totalPrestiges > 0);
+      expect(canExpandGrid(state, EXPANDED, EXPANDED).ok).toBe(hasGridExpansionRights(state));
       expect(parseSave(JSON.stringify(candidate)).ok).toBe(hasGridExpansionRights(state));
     }
   });
@@ -263,7 +267,7 @@ describe("a save claiming a plot the player never earned", () => {
 
 describe("the persisted multiplier pair is a cache of the rule, not durable data", () => {
   it("migrates a disagreeing pair through untouched, because the migration is not the repricer", () => {
-    const stale = postPrestigeSave();
+    const stale = generousPostPrestigeSave();
     (stale.prestige as Record<string, unknown>).permanentMultipliers = {
       productionSpeed: STALE_PRODUCTION_SPEED,
       sellValue: STALE_SELL_VALUE,
@@ -280,7 +284,7 @@ describe("the persisted multiplier pair is a cache of the rule, not durable data
   });
 
   it("reprices a disagreeing pair on load from the points the player banked", () => {
-    const stale = postPrestigeSave();
+    const stale = generousPostPrestigeSave();
     (stale.prestige as Record<string, unknown>).permanentMultipliers = {
       productionSpeed: STALE_PRODUCTION_SPEED,
       sellValue: STALE_SELL_VALUE,
@@ -296,7 +300,7 @@ describe("the persisted multiplier pair is a cache of the rule, not durable data
   });
 
   it("pins the repriced numbers literally, so retuning a per-point constant is a conscious edit", () => {
-    const stale = postPrestigeSave();
+    const stale = generousPostPrestigeSave();
     (stale.prestige as Record<string, unknown>).permanentMultipliers = {
       productionSpeed: STALE_PRODUCTION_SPEED,
       sellValue: STALE_SELL_VALUE,
@@ -311,7 +315,7 @@ describe("the persisted multiplier pair is a cache of the rule, not durable data
   });
 
   it("names the derivation that makes those literals the only correct pair", () => {
-    const stale = postPrestigeSave();
+    const stale = generousPostPrestigeSave();
     (stale.prestige as Record<string, unknown>).permanentMultipliers = {
       productionSpeed: STALE_PRODUCTION_SPEED,
       sellValue: STALE_SELL_VALUE,
@@ -345,18 +349,23 @@ describe("migrations are keyed by source version and never mutate their input", 
     expect(Object.keys(SAVE_MIGRATIONS)).toEqual(["1"]);
   });
 
-  it("hands a registered migration the unvalidated candidate and returns its verdict verbatim", () => {
+  it("hands a registered migration the unvalidated candidate and returns its own verdict object", () => {
     const candidate = { version: 3, currency: "not-a-number" };
-    const expected: SaveGame = structuredClone(baseSave()) as unknown as SaveGame;
+    const expected: SaveGame = structuredClone(generousBaseSave()) as unknown as SaveGame;
     let received: unknown;
+    let returned: MigrationResult | undefined;
     const cleanup = registerSaveMigration(3, (raw) => {
       received = raw;
-      return { ok: true, save: expected, migrated: true };
+      returned = { ok: true, save: expected, migrated: true };
+      return returned;
     });
 
     try {
-      expect(migrateSave(candidate)).toEqual({ ok: true, save: expected, migrated: true });
+      const result = migrateSave(candidate);
+
       expect(received).toBe(candidate);
+      expect(result).toBe(returned);
+      expect(result).toEqual({ ok: true, save: expected, migrated: true });
     } finally {
       cleanup();
     }
@@ -367,7 +376,7 @@ describe("migrations are keyed by source version and never mutate their input", 
   it("refuses a duplicate or nonsensical registration rather than shadowing a version", () => {
     const noop: SaveMigration = () => ({
       ok: true,
-      save: structuredClone(baseSave()) as unknown as SaveGame,
+      save: structuredClone(generousBaseSave()) as unknown as SaveGame,
       migrated: true,
     });
 
@@ -419,7 +428,12 @@ describe("migrations are keyed by source version and never mutate their input", 
   });
 
   it("defaults the legacy flag on every fixture shape, so no progression path is left behind", () => {
-    for (const build of [baseSave, expandedGridSave, postPrestigeSave, expandedPostPrestigeSave]) {
+    for (const build of [
+      generousBaseSave,
+      expandedGridSave,
+      generousPostPrestigeSave,
+      expandedPostPrestigeSave,
+    ]) {
       const result = migrateSave(legacySaveWithoutBlockedFlag(build()));
 
       expect(result).toMatchObject({ ok: true, migrated: true });
@@ -530,7 +544,7 @@ function pickSaveFields(fixture: Record<string, unknown>): Record<string, unknow
 }
 
 function legacySaveWithoutBlockedFlag(
-  fixture: Record<string, unknown> = baseSave(),
+  fixture: Record<string, unknown> = generousBaseSave(),
 ): Record<string, unknown> {
   const legacy = structuredClone(fixture);
   const machines = (legacy.grid as Record<string, unknown>).machines as Record<string, unknown>;
@@ -540,7 +554,7 @@ function legacySaveWithoutBlockedFlag(
   return legacy;
 }
 
-function baseSave(): Record<string, unknown> {
+function generousBaseSave(): Record<string, unknown> {
   return {
     version: 1,
     lastSavedAt: 1_000,
@@ -719,7 +733,7 @@ function expandedGridSave(): Record<string, unknown> {
   };
 }
 
-function postPrestigeSave(): Record<string, unknown> {
+function generousPostPrestigeSave(): Record<string, unknown> {
   return {
     version: 1,
     lastSavedAt: 3_000,
