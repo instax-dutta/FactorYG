@@ -2,8 +2,8 @@ import { expect, type Locator, type Page } from "@playwright/test";
 
 export type PanelBox = NonNullable<Awaited<ReturnType<Locator["boundingBox"]>>>;
 
-export const OVERLAY_SETTLE_TIMEOUT_MS = 10_000;
-export const SETTLE_POLL_INTERVAL_MS = 50;
+const OVERLAY_SETTLE_TIMEOUT_MS = 10_000;
+const SETTLE_POLL_INTERVAL_MS = 50;
 
 export function boxesOverlap(first: PanelBox, second: PanelBox): boolean {
   return (
@@ -19,7 +19,7 @@ interface PanelDefinition {
   readonly selector: string;
 }
 
-const OVERLAY_PANELS: readonly PanelDefinition[] = [
+const overlayPanels: readonly PanelDefinition[] = [
   { label: "Header", selector: 'header[role="banner"]' },
   { label: "Hud", selector: '[data-testid="hud"]' },
   { label: "Entity inspector", selector: '[data-testid="entity-inspector"]' },
@@ -37,63 +37,79 @@ interface RectSnapshot {
 
 interface PanelProbe {
   readonly label: string;
-  readonly present: boolean;
-  readonly rendered: boolean;
-  readonly detail: string;
+  readonly matches: number;
+  readonly display: string | null;
+  readonly visibility: string | null;
+  readonly clientRects: number | null;
   readonly box: RectSnapshot | null;
 }
 
-interface OverlaySnapshot {
-  readonly unsettled: readonly string[];
-  readonly probes: readonly PanelProbe[];
-}
-
-function readOverlaySnapshot(definitions: readonly PanelDefinition[]): OverlaySnapshot {
-  const probes: PanelProbe[] = definitions.map((definition) => {
-    const element = document.querySelector(definition.selector);
+function readOverlaySnapshot(definitions: readonly PanelDefinition[]): readonly PanelProbe[] {
+  return definitions.map((definition) => {
+    const elements = document.querySelectorAll(definition.selector);
+    const element = elements.length === 1 ? elements.item(0) : null;
     if (element === null) {
       return {
         label: definition.label,
-        present: false,
-        rendered: false,
-        detail: "no element matches the selector",
+        matches: elements.length,
+        display: null,
+        visibility: null,
+        clientRects: null,
         box: null,
       };
     }
     const style = window.getComputedStyle(element);
     const rect = element.getBoundingClientRect();
-    const clientRects = element.getClientRects().length;
     return {
       label: definition.label,
-      present: true,
-      rendered: style.display !== "none" && style.visibility !== "hidden" && clientRects > 0,
-      detail: `display=${style.display} visibility=${style.visibility} clientRects=${clientRects} rect=${rect.width}x${rect.height} at ${rect.x},${rect.y}`,
+      matches: elements.length,
+      display: style.display,
+      visibility: style.visibility,
+      clientRects: element.getClientRects().length,
       box: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
     };
   });
-  return {
-    unsettled: probes.filter((probe) => !probe.rendered).map((probe) => probe.label),
-    probes,
-  };
 }
 
-async function awaitSettledOverlay(page: Page, timeoutMs: number): Promise<OverlaySnapshot> {
+function unsettledReason(probe: PanelProbe): string | null {
+  if (probe.matches === 0) {
+    return "no element matches the selector";
+  }
+  if (probe.matches > 1) {
+    return "the selector is ambiguous";
+  }
+  if (probe.display === "none") {
+    return "display=none";
+  }
+  if (probe.visibility === "hidden") {
+    return "visibility=hidden";
+  }
+  if (probe.clientRects === 0) {
+    return "the element has no client rect";
+  }
+  return null;
+}
+
+async function awaitSettledOverlay(page: Page, timeoutMs: number): Promise<readonly PanelProbe[]> {
   const startedAt = Date.now();
   for (;;) {
-    const snapshot = await page.evaluate(readOverlaySnapshot, OVERLAY_PANELS);
-    if (snapshot.unsettled.length === 0) {
-      return snapshot;
+    const probes = await page.evaluate(readOverlaySnapshot, overlayPanels);
+    const unsettled = probes.filter((probe) => unsettledReason(probe) !== null);
+    if (unsettled.length === 0) {
+      return probes;
     }
     const waitedMs = Date.now() - startedAt;
     if (waitedMs >= timeoutMs) {
-      const detail = snapshot.probes
-        .filter((probe) => !probe.rendered)
-        .map((probe) => `  - ${probe.label}: ${probe.detail}`)
+      const detail = unsettled
+        .map(
+          (probe) =>
+            `  - ${probe.label}: ${unsettledReason(probe)} (matches=${probe.matches} display=${probe.display} visibility=${probe.visibility} clientRects=${probe.clientRects})`,
+        )
         .join("\n");
       throw new Error(
         [
           `Overlay layout did not settle within ${timeoutMs}ms (waited ${waitedMs}ms).`,
-          `Unsettled panels: ${snapshot.unsettled.join(", ")}`,
+          `Unsettled panels: ${unsettled.map((probe) => probe.label).join(", ")}`,
           "Observed state:",
           detail,
         ].join("\n"),
@@ -141,8 +157,8 @@ export async function waitForBoundingBox(
 }
 
 export async function expectNoPanelOverlap(page: Page): Promise<void> {
-  const snapshot = await awaitSettledOverlay(page, OVERLAY_SETTLE_TIMEOUT_MS);
-  const panels: ReadonlyArray<readonly [string, PanelBox]> = snapshot.probes.flatMap((probe) =>
+  const probes = await awaitSettledOverlay(page, OVERLAY_SETTLE_TIMEOUT_MS);
+  const panels: ReadonlyArray<readonly [string, PanelBox]> = probes.flatMap((probe) =>
     probe.box === null ? [] : [[probe.label, probe.box] as const],
   );
 

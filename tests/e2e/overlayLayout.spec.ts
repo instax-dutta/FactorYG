@@ -47,16 +47,38 @@ test("names every unsettled panel, the wait, and the observed state", async ({ p
   expect(message).toMatch(/within \d+ms/);
 });
 
-test("reports every overlapping pair by name", async ({ page }) => {
+test("names an ambiguous panel instead of silently reading the first match", async ({ page }) => {
+  test.setTimeout(60_000);
   await openGame(page);
-  await page.addStyleTag({
-    content: '[data-testid="hud"] { top: 674px !important; right: auto !important; left: 32px !important; }',
+  await page.evaluate(() => {
+    const dock = document.querySelector('[data-testid="build-dock"]');
+    if (dock === null) {
+      throw new Error("build dock missing");
+    }
+    document.body.appendChild(dock.cloneNode(true));
   });
 
   const message = await rejectionMessage(expectNoPanelOverlap(page));
 
+  expect(message).toContain("Build dock");
+  expect(message).toContain("the selector is ambiguous");
+  expect(message).toContain("matches=2");
+});
+
+test("reports every overlapping pair by name", async ({ page }) => {
+  await openGame(page);
+  const dockTop = await page
+    .getByTestId("build-dock")
+    .evaluate((dock) => Math.round(dock.getBoundingClientRect().top));
+  await page.addStyleTag({
+    content: `[data-testid="hud"] { top: ${dockTop}px !important; right: auto !important; left: 32px !important; }`,
+  });
+
+  const message = await rejectionMessage(expectNoPanelOverlap(page));
+  const reportedPairs = message.split(" / ").length - 1;
+
   expect(message).toContain("Hud / Build dock");
-  expect(message).not.toContain("Tech tree toggle /");
+  expect(reportedPairs).toBe(1);
 });
 
 test("is not defeated by a saturated renderer main thread", async ({ page }) => {
