@@ -1692,49 +1692,59 @@ git commit -m "feat: add prestige UI and balance scenarios"
 
 **Files:**
 - Modify: `src/persistence/migrate.ts`
-- Modify: `src/persistence/save.ts`
+- Modify: `src/sim/grid.ts`
 - Create: `tests/unit/migration.test.ts`
+- Modify: `tests/e2e/phase0.spec.ts`
+- `src/persistence/save.ts` was listed and needed no change: the version-1 path it drives was already total over the new shapes, and the two decisions below are decisions *not* to change it.
 
 **Interfaces:**
 - Consumes: versioned save fixtures for base, post-prestige, and expanded-grid states.
 - Produces: explicit migration functions that preserve permanent fields and keep an expanded plot valid.
 
-- [ ] **Step 1: Write failing migration fixtures**
+- [x] **Step 1: Write failing migration fixtures**
 
 Create valid fixture objects representing version 1 and test that an expanded-grid save, a post-prestige save, and both together all migrate through unchanged, that prestige multipliers survive, and that an unsupported version 3 is rejected. There is **no expanded grid field to add**: `grid.width` and `grid.height` have been `SaveGame` fields since version 1, so an expanded plot is already a valid version-1 save and needs no version-2 step. Do not write a fixture that adds a field the schema does not have. What this task must actually prove is that the existing version-1 path is total over the shapes the game can now produce, which is the same claim a new field would have implied.
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 ```bash
 npm run test -- tests/unit/migration.test.ts
 ```
 
-- [ ] **Step 3: Implement migration steps**
+- [x] **Step 3: Implement migration steps**
 
 Use a registry keyed by source version. Each migration receives a validated unknown-shape input and returns a `SaveGame`; no migration mutates the original object.
 
-- [ ] **Step 4: Verify green**
+- [x] **Step 4: Verify green**
 
 ```bash
 npm run test -- tests/unit/migration.test.ts
 npm run test
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add src/persistence/migrate.ts src/persistence/save.ts tests/unit/migration.test.ts
+git add src/persistence/migrate.ts src/sim/grid.ts tests/unit/migration.test.ts tests/e2e/phase0.spec.ts
 git commit -m "feat: preserve saves across progression migrations"
 ```
+
+**Decided here: a rejected save is never rewritten.** Carried forward from review and settled. `loadSaveWithResult` and `loadSaveWithOfflineResult` recover to a new game in memory and write nothing, leaving the stored value byte for byte intact, and this is now pinned by three tests rather than left as an accident. Overwriting it with the recovered new game would destroy the only copy of a payload the game cannot currently read, and the load layer cannot distinguish a corrupt save from one written by a newer build, so the destruction would be irreversible and premature. The honest limit is recorded with it: this is not preservation. The app autosave writes the recovered run as soon as its state differs, so a rejected save is gone within seconds, and `loadBrowserSimulationState` discards the recovery reason, so a rejected save is a silent loss for the player today. Surfacing it is app-layer and UI work and is deferred below rather than invented here.
+
+**Decided here: a save claiming a larger plot than it earned is a rejected save.** `validateGrid` now requires the run's expansion rights for any saved plot larger than the starting one, read through `hasPrestigedForExpansion` from `sim/grid` and measured with `isGridGrowth`, so the load layer and the command layer answer the same question from the same predicate. A plot is a privilege a completed prestige grants permanently and a reset banks alongside the prestige count, so the rule can never reject a save the game produced, and it removes a silent hole: an unearned plot used to be forged into storage and then honored on load, which made the permanent privilege worth nothing. This is save integrity rather than a crash guard, since the renderer sizes a valid plot happily; the out-of-contract size is the hang, and the unearned one was silent.
+
+**Decided here: the persisted multiplier pair is a cache of the rule.** The migration layer carries the stored pair through unchanged and `repairPermanentMultipliers` on load is the only repricer, so no migration rewrites it on the way past. The fixtures pin both halves, and pin the repriced numbers as literals as well as against `permanentMultipliersForPoints`, so retuning a per-point constant turns one covered assertion red instead of silently repricing every existing save.
+
+**Deferred to Phase 4, recorded rather than hidden:** a rejected save recovers with no player-visible explanation. `loadSaveWithResult` already returns the reason and message, and `loadBrowserSimulationState` throws them away, so the loss is silent. This needs an app-layer change to carry the reason and a UI decision about what the player is told, which is not this task's to invent.
 
 ## Phase 3 Exit Check
 
 - [x] Prestige threshold, points, reset, and permanent multipliers work end to end.
 - [x] Grid expansion preserves existing entities and updates camera bounds.
-- [ ] Save migration preserves permanent progression.
+- [x] Save migration preserves permanent progression.
 - [x] Balance scenarios cover all resource tiers.
 - [x] Prestige browser flow passes.
-- [ ] Phase 3 unit, integration, browser, lint, typecheck, and build checks pass. Task 3.5 is still open.
+- [x] Phase 3 unit, integration, browser, lint, typecheck, and build checks pass. Task 3.5 closed the phase: 845 unit tests across 46 files and 19 browser tests pass, with lint, typecheck, and build clean, each run twice. The migration box is ticked on a settled decision rather than an accident: a rejected save is never rewritten, and that is now pinned by tests and recorded in `src/persistence/AGENTS.md`.
 
 ---
 

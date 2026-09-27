@@ -662,6 +662,7 @@ test("sizes the floor and the camera bounds from an expanded save", async ({ pag
   });
 
   const save = createInitialState();
+  save.prestige.totalPrestiges = 1;
   save.grid.width = 96;
   save.grid.height = 96;
   save.grid.nodes = [

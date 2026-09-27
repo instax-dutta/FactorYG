@@ -1,10 +1,17 @@
 import { MACHINES } from "../content/machines";
 import { RECIPES } from "../content/recipes";
 import { RESOURCES } from "../content/resources";
-import { isAlignedGridDimension, isValidGridDimension } from "../sim/grid";
+import { GRID_HEIGHT, GRID_WIDTH } from "../sim/constants";
+import {
+  hasPrestigedForExpansion,
+  isAlignedGridDimension,
+  isGridGrowth,
+  isValidGridDimension,
+} from "../sim/grid";
 import type {
   BeltCell,
   Entity,
+  GridDimensions,
   MachineRuntime,
   MachineType,
   ResourceId,
@@ -44,6 +51,7 @@ const MACHINE_IDS = new Set(Object.keys(MACHINES));
 const RESOURCE_IDS = new Set(Object.keys(RESOURCES));
 const RECIPE_IDS = new Set(Object.keys(RECIPES));
 const ROTATIONS = new Set<number>([0, 90, 180, 270]);
+const STARTING_PLOT: GridDimensions = { width: GRID_WIDTH, height: GRID_HEIGHT };
 
 export function migrateVersion1(raw: unknown): MigrationResult {
   const validation = validateSaveGame(raw);
@@ -189,7 +197,7 @@ export function validateSaveGame(input: unknown): ValidationResult {
   }
 
   const grid = input.grid;
-  if (!isRecord(grid) || !validateGrid(grid)) {
+  if (!isRecord(grid) || !validateGrid(grid, prestige.totalPrestiges)) {
     return invalidField("grid");
   }
 
@@ -201,7 +209,7 @@ export function validateSaveGame(input: unknown): ValidationResult {
   return { ok: true, value: input as unknown as SaveGame };
 }
 
-function validateGrid(grid: UnknownRecord): boolean {
+function validateGrid(grid: UnknownRecord, totalPrestiges: number): boolean {
   if (
     !isValidGridDimension(grid.width) ||
     !isValidGridDimension(grid.height) ||
@@ -213,6 +221,10 @@ function validateGrid(grid: UnknownRecord): boolean {
     !isRecord(grid.machines) ||
     !isRecord(grid.belts)
   ) {
+    return false;
+  }
+
+  if (!claimsEarnedPlot(grid.width, grid.height, totalPrestiges)) {
     return false;
   }
 
@@ -276,6 +288,14 @@ function validateGrid(grid: UnknownRecord): boolean {
   }
 
   return true;
+}
+
+function claimsEarnedPlot(width: number, height: number, totalPrestiges: number): boolean {
+  if (!isGridGrowth(STARTING_PLOT, { width, height })) {
+    return true;
+  }
+
+  return hasPrestigedForExpansion(totalPrestiges);
 }
 
 function isValidEntity(

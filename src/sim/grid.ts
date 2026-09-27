@@ -28,8 +28,12 @@ export function isAlignedGridDimension(dimension: number): boolean {
   return dimension % GRID_EXPANSION_STEP === 0;
 }
 
+export function hasPrestigedForExpansion(totalPrestiges: number): boolean {
+  return totalPrestiges > 0;
+}
+
 export function hasGridExpansionRights(state: SimulationState): boolean {
-  return state.prestige.totalPrestiges > 0;
+  return hasPrestigedForExpansion(state.prestige.totalPrestiges);
 }
 
 export function canAffordGridExpansion(state: SimulationState): boolean {
