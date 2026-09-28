@@ -6,14 +6,22 @@ import { UNLOCKS } from "../../src/content/unlocks";
 import { NEW_GAME_SEED, createInitialState } from "../../src/sim/initialState";
 import { applyPlacement, validatePlacement } from "../../src/sim/placement";
 import { advanceSimulation } from "../../src/sim/tick";
+import { getTotalAmount } from "../../src/sim/machines";
 import { arePortsConnected, getWorldPortCells } from "../../src/sim/connections";
 import { validateLayout } from "../../scripts/solve-motor-chain";
 import type { LayoutEntity } from "../../scripts/solve-motor-chain";
-import type { Entity, MachineType, SimulationState } from "../../src/sim/types";
+import type {
+  Entity,
+  MachineType,
+  RenderEvent,
+  SimulationState,
+} from "../../src/sim/types";
 
 const LAYOUT_PATH = "scripts/motor-chain-layout.json";
 const ALL_MACHINES = Object.keys(MACHINES) as MachineType[];
 const ALL_RECIPES = Object.keys(RECIPES);
+const SATURATED_EXTRACTOR_LEVEL = 20;
+const SATURATED_TICKS = 300;
 
 function committedLayout(): LayoutEntity[] {
   return JSON.parse(readFileSync(LAYOUT_PATH, "utf8")) as LayoutEntity[];
@@ -171,5 +179,35 @@ describe("the committed motor chain layout", () => {
       expect(peak.get(recipe) ?? 0).toBeGreaterThan(0);
     }
     expect(current.currency - base).toBeGreaterThanOrEqual(RECIPES.motor.sellValue);
+  });
+
+  it("never flags a producer on the committed layout once its extractors saturate", () => {
+    const { state } = placeAll(committedLayout());
+    const saturated = {
+      ...state,
+      grid: {
+        ...state.grid,
+        entities: state.grid.entities.map((entity) =>
+          entity.type === "extractor" ? { ...entity, level: SATURATED_EXTRACTOR_LEVEL } : entity,
+        ),
+      },
+    };
+    const events: RenderEvent[] = [];
+
+    const settled = advanceSimulation(saturated, SATURATED_TICKS, events);
+
+    const extractors = settled.grid.entities.filter((entity) => entity.type === "extractor");
+    expect(extractors.length).toBeGreaterThan(0);
+    for (const extractor of extractors) {
+      expect(getTotalAmount(settled.grid.machines[extractor.id]?.output ?? {})).toBe(
+        MACHINES.extractor.outputBuffer * SATURATED_EXTRACTOR_LEVEL,
+      );
+    }
+    expect(events.filter((event) => event.type === "blockedFull")).toEqual([]);
+    expect(
+      settled.grid.entities
+        .filter((entity) => settled.grid.machines[entity.id]?.alreadyNotifiedBlocked === true)
+        .map((entity) => entity.id),
+    ).toEqual([]);
   });
 });

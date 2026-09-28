@@ -292,6 +292,205 @@ describe("a saturated but healthy line", () => {
       expect(countBeltItems(next)).toBe(4);
     }
   });
+
+  it("never flags a packed producer whose smelter and depot keep the line selling", () => {
+    const world = createPackedLine(true);
+
+    const events: RenderEvent[] = [];
+    const next = advanceSimulation(world.state, 400, events);
+
+    expect(next.grid.machines[world.extractor.id]?.output).toEqual({
+      copperOre: MACHINES.extractor.outputBuffer * PACKED_EXTRACTOR_LEVEL,
+    });
+    expect(countBeltItems(next)).toBe(PACKED_IN_BELTS);
+    expect(events.filter((event) => event.type === "saleCompleted").length).toBeGreaterThan(10);
+    expect(events.filter((event) => event.type === "blockedFull")).toEqual([]);
+    expect(flaggedEntityIds(next)).toEqual([]);
+  });
+
+  it("never flags a packed ore feeder whose smelter, assembler, and depot still sell wire", () => {
+    const world = createMotorPrefixLine(true);
+
+    const events: RenderEvent[] = [];
+    const next = advanceSimulation(world.state, 600, events);
+
+    expect(next.grid.machines[world.extractor.id]?.output).toEqual({
+      copperOre: MACHINES.extractor.outputBuffer * PACKED_EXTRACTOR_LEVEL,
+    });
+    expect(events.filter((event) => event.type === "saleCompleted").length).toBeGreaterThan(5);
+    expect(events.filter((event) => event.type === "blockedFull")).toEqual([]);
+    expect(flaggedEntityIds(next)).toEqual([]);
+  });
+
+  it("never flags a producer that a live but slower consumer keeps draining", () => {
+    const world = createSlowConsumerLine();
+
+    const events: RenderEvent[] = [];
+    const next = advanceSimulation(world.state, 600, events);
+
+    expect(events.filter((event) => event.type === "saleCompleted").length).toBeGreaterThan(0);
+    expect(events.filter((event) => event.type === "blockedFull")).toEqual([]);
+    expect(next.grid.machines[world.smelter.id]?.alreadyNotifiedBlocked).toBe(false);
+  });
+
+  it("still reports a packed producer once that same line can never drain again", () => {
+    const world = createPackedLine(false);
+
+    const events: RenderEvent[] = [];
+    const next = advanceSimulation(world.state, 400, events);
+
+    expect(next.grid.machines[world.extractor.id]?.output).toEqual({
+      copperOre: MACHINES.extractor.outputBuffer * PACKED_EXTRACTOR_LEVEL,
+    });
+    expect(events.filter((event) => event.type === "blockedFull")).toContainEqual({
+      type: "blockedFull",
+      entityId: world.extractor.id,
+    });
+    expect(next.grid.machines[world.extractor.id]?.alreadyNotifiedBlocked).toBe(true);
+  });
+
+  it("still reports a packed motor-prefix producer once the depot is gone", () => {
+    const world = createMotorPrefixLine(false);
+
+    const events: RenderEvent[] = [];
+    const next = advanceSimulation(world.state, 600, events);
+
+    expect(next.grid.machines[world.extractor.id]?.output).toEqual({
+      copperOre: MACHINES.extractor.outputBuffer * PACKED_EXTRACTOR_LEVEL,
+    });
+    expect(events.filter((event) => event.type === "blockedFull")).toContainEqual({
+      type: "blockedFull",
+      entityId: world.extractor.id,
+    });
+    expect(next.grid.machines[world.extractor.id]?.alreadyNotifiedBlocked).toBe(true);
+  });
+
+  it("reports a producer whose consumer holds no recipe and can never run one", () => {
+    const source = createSmelter({ id: "smelter-into-recipeless", x: SOURCE_AT.x, y: SOURCE_AT.y });
+    const idle = createAssembler({
+      id: "assembler-without-recipe",
+      x: TARGET_AT.x,
+      y: TARGET_AT.y,
+      recipeId: undefined,
+    });
+    const state = createState({
+      entities: [source, idle],
+      machines: {
+        [source.id]: createSmelterRuntime({ output: { copperIngot: OFFERED } }),
+        [idle.id]: {
+          ...createMachineRuntime(idle),
+          input: { copperIngot: MACHINES.assembler.inputBuffer },
+        },
+      },
+    });
+
+    const events: RenderEvent[] = [];
+    const next = advanceSimulation(state, 3, events);
+
+    expect(next.grid.machines[source.id]?.output).toEqual({ copperIngot: OFFERED });
+    expect(events.filter((event) => event.type === "blockedFull")).toEqual([
+      { type: "blockedFull", entityId: source.id },
+    ]);
+    expect(next.grid.machines[source.id]?.alreadyNotifiedBlocked).toBe(true);
+  });
+
+  it("reports a producer whose consumer names a recipe its machine type cannot run", () => {
+    const source = createSmelter({ id: "smelter-into-mistyped", x: SOURCE_AT.x, y: SOURCE_AT.y });
+    const mistyped = createAssembler({
+      id: "assembler-with-smelter-recipe",
+      x: TARGET_AT.x,
+      y: TARGET_AT.y,
+      recipeId: "copperIngot",
+    });
+    const state = createState({
+      entities: [source, mistyped],
+      recipeIds: ["copperIngot"],
+      machines: {
+        [source.id]: createSmelterRuntime({ output: { copperIngot: OFFERED } }),
+        [mistyped.id]: {
+          ...createMachineRuntime(mistyped),
+          input: { copperIngot: MACHINES.assembler.inputBuffer },
+        },
+      },
+    });
+
+    const events: RenderEvent[] = [];
+    const next = advanceSimulation(state, 3, events);
+
+    expect(next.grid.machines[source.id]?.output).toEqual({ copperIngot: OFFERED });
+    expect(events.filter((event) => event.type === "blockedFull")).toEqual([
+      { type: "blockedFull", entityId: source.id },
+    ]);
+    expect(next.grid.machines[source.id]?.alreadyNotifiedBlocked).toBe(true);
+  });
+
+  it("reports a producer whose consumer is missing an input nothing in the world makes", () => {
+    const source = createExtractor("extractor-missing-coal", SOURCE_AT.x, SOURCE_AT.y);
+    source.resourceNode = "ironOre";
+    const smelter: Entity = {
+      id: "smelter-starved-of-coal",
+      type: "smelter",
+      x: TARGET_AT.x,
+      y: TARGET_AT.y,
+      rotation: 0,
+      level: 1,
+      recipeId: "ironIngot",
+    };
+    const depot = createDepot("depot-missing-coal", TARGET_AT.x + 1, TARGET_AT.y);
+    const state = createState({
+      entities: [source, smelter, depot],
+      recipeIds: ["copperIngot", "gear", "ironIngot"],
+      machines: {
+        [source.id]: {
+          ...createMachineRuntime(source),
+          output: { ironOre: MACHINES.extractor.outputBuffer },
+        },
+        [smelter.id]: {
+          ...createMachineRuntime(smelter),
+          input: { ironOre: MACHINES.smelter.inputBuffer },
+        },
+      },
+    });
+
+    const events: RenderEvent[] = [];
+    const next = advanceSimulation(state, 60, events);
+
+    expect(next.grid.machines[smelter.id]?.output).toEqual({});
+    expect(next.grid.machines[smelter.id]?.input).toEqual({
+      ironOre: MACHINES.smelter.inputBuffer,
+    });
+    expect(events.filter((event) => event.type === "blockedFull")).toEqual([
+      { type: "blockedFull", entityId: source.id },
+    ]);
+    expect(next.grid.machines[source.id]?.alreadyNotifiedBlocked).toBe(true);
+  });
+
+  it("still reports a packed line once its sale terminal is gone", () => {
+    const world = createPackedLine(true);
+
+    const healthyEvents: RenderEvent[] = [];
+    const healthy = advanceSimulation(world.state, 400, healthyEvents);
+    expect(flaggedEntityIds(healthy)).toEqual([]);
+
+    const withoutDepot: SimulationState = {
+      ...healthy,
+      grid: {
+        ...healthy.grid,
+        entities: healthy.grid.entities.filter((entity) => entity.type !== "depot"),
+        machines: Object.fromEntries(
+          Object.entries(healthy.grid.machines).filter(([entityId]) => entityId !== "depot-packed"),
+        ),
+      },
+    };
+
+    const faultEvents: RenderEvent[] = [];
+    const faulted = advanceSimulation(withoutDepot, 2, faultEvents);
+
+    expect(flaggedEntityIds(faulted)).toEqual([world.extractor.id]);
+    expect(faultEvents.filter((event) => event.type === "blockedFull")).toEqual([
+      { type: "blockedFull", entityId: world.extractor.id },
+    ]);
+  });
 });
 
 describe("clogged belt lines", () => {
@@ -438,6 +637,128 @@ function createDeadEndLine(beltCount: number, level: number): LineWorld {
   );
 
   return { state: createState({ entities: [extractor, ...belts] }), extractor };
+}
+
+function flaggedEntityIds(state: SimulationState): string[] {
+  return state.grid.entities
+    .filter((entity) => state.grid.machines[entity.id]?.alreadyNotifiedBlocked === true)
+    .map((entity) => entity.id);
+}
+
+const PACKED_EXTRACTOR_LEVEL = 40;
+const PACKED_IN_BELTS = 3;
+const PACKED_OUT_BELTS = 2;
+const PACKED_SMELTER = { x: 8, y: 4 };
+const PACKED_DEPOT_ID = "depot-packed";
+const SLOW_SMELTER_LEVEL = 20;
+
+function createPackedLine(drains: boolean): LineWorld {
+  const extractor = createExtractor("extractor-packed", 4, 4);
+  extractor.level = PACKED_EXTRACTOR_LEVEL;
+  const inbound = Array.from({ length: PACKED_IN_BELTS }, (_unused, index) =>
+    createBelt(`belt-packed-in-${index + 1}`, extractor.x + index + 1, extractor.y),
+  );
+  const smelter: Entity = {
+    id: "smelter-packed",
+    type: "smelter",
+    x: PACKED_SMELTER.x,
+    y: PACKED_SMELTER.y,
+    rotation: 0,
+    level: 1,
+    recipeId: "copperIngot",
+  };
+  const outbound = Array.from({ length: PACKED_OUT_BELTS }, (_unused, index) =>
+    createBelt(`belt-packed-out-${index + 1}`, PACKED_SMELTER.x + index + 1, PACKED_SMELTER.y),
+  );
+  const depot = createDepot(PACKED_DEPOT_ID, PACKED_SMELTER.x + PACKED_OUT_BELTS + 1, PACKED_SMELTER.y);
+  const entities = drains
+    ? [extractor, ...inbound, smelter, ...outbound, depot]
+    : [extractor, ...inbound, smelter, ...outbound];
+
+  return { state: createState({ entities }), extractor };
+}
+
+interface MotorPrefixWorld {
+  readonly state: SimulationState;
+  readonly extractor: Entity;
+  readonly smelter: Entity;
+  readonly assembler: Entity;
+}
+
+const MOTOR_PREFIX_Y = 9;
+
+function createMotorPrefixLine(drains: boolean): MotorPrefixWorld {
+  const extractor = createExtractor("extractor-motor-prefix", 4, MOTOR_PREFIX_Y);
+  extractor.level = PACKED_EXTRACTOR_LEVEL;
+  const oreBelt = createBelt("belt-motor-prefix-ore", 5, MOTOR_PREFIX_Y);
+  const smelter: Entity = {
+    id: "smelter-motor-prefix",
+    type: "smelter",
+    x: 6,
+    y: MOTOR_PREFIX_Y,
+    rotation: 0,
+    level: 1,
+    recipeId: "copperIngot",
+  };
+  const ingotBelt = createBelt("belt-motor-prefix-ingot", 7, MOTOR_PREFIX_Y);
+  const assembler: Entity = {
+    id: "assembler-motor-prefix",
+    type: "assembler",
+    x: 8,
+    y: MOTOR_PREFIX_Y,
+    rotation: 0,
+    level: 1,
+    recipeId: "wire",
+  };
+  const wireBelt = createBelt("belt-motor-prefix-wire", 9, MOTOR_PREFIX_Y);
+  const line = [extractor, oreBelt, smelter, ingotBelt, assembler, wireBelt];
+  const entities = drains
+    ? [...line, createDepot("depot-motor-prefix", 10, MOTOR_PREFIX_Y)]
+    : line;
+
+  return {
+    state: createState({ entities, recipeIds: ["copperIngot", "wire"] }),
+    extractor,
+    smelter,
+    assembler,
+  };
+}
+
+interface SlowConsumerWorld {
+  readonly state: SimulationState;
+  readonly smelter: Entity;
+}
+
+function createSlowConsumerLine(): SlowConsumerWorld {
+  const extractor = createExtractor("extractor-slow-consumer", 4, 12);
+  extractor.level = PACKED_EXTRACTOR_LEVEL;
+  const oreBelt = createBelt("belt-slow-consumer-ore", 5, 12);
+  const smelter: Entity = {
+    id: "smelter-slow-consumer-line",
+    type: "smelter",
+    x: 6,
+    y: 12,
+    rotation: 0,
+    level: SLOW_SMELTER_LEVEL,
+    recipeId: "copperIngot",
+  };
+  const assembler: Entity = {
+    id: "assembler-slow-consumer-line",
+    type: "assembler",
+    x: 7,
+    y: 12,
+    rotation: 0,
+    level: 1,
+    recipeId: "wire",
+  };
+  const wireBelt = createBelt("belt-slow-consumer-wire", 8, 12);
+  const depot = createDepot("depot-slow-consumer", 9, 12);
+  const entities = [extractor, oreBelt, smelter, assembler, wireBelt, depot];
+
+  return {
+    state: createState({ entities, recipeIds: ["copperIngot", "wire"] }),
+    smelter,
+  };
 }
 
 function createDepot(id: string, x: number, y: number): Entity {

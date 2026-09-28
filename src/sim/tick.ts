@@ -7,6 +7,7 @@ import {
   getWorldPortCells,
 } from "./connections";
 import { CURRENCY_RATE_WINDOW_TICKS, sellResource } from "./economy";
+import { getDrainableEntityIds } from "./chains";
 import {
   acceptSiloInput,
   addResource,
@@ -148,6 +149,7 @@ function advanceOneTick(state: SimulationState, events: RenderEvent[], tick: num
 
 function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): boolean {
   let changed = false;
+  const drainable = getDrainableEntityIds(state);
   for (const entity of state.grid.entities) {
     if (entity.type === "belt" || entity.type === "depot") {
       continue;
@@ -211,7 +213,7 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
       }
     }
 
-    if (applyBlockedFlag(state, entity, outcome, events)) {
+    if (applyBlockedFlag(state, entity, outcome, drainable, events)) {
       changed = true;
     }
   }
@@ -223,6 +225,7 @@ function applyBlockedFlag(
   state: SimulationState,
   entity: Entity,
   outcome: TransferOutcome,
+  drainable: ReadonlySet<string>,
   events: RenderEvent[],
 ): boolean {
   const runtime = state.grid.machines[entity.id];
@@ -230,7 +233,7 @@ function applyBlockedFlag(
     return false;
   }
 
-  const stuck = outcome.refused && !outcome.moved;
+  const stuck = outcome.refused && !outcome.moved && !drainable.has(entity.id);
   const refusalTicks = stuck
     ? Math.min(
         (runtime.blockedRefusalTicks ?? 0) + 1,

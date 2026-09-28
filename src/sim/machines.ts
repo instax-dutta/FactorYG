@@ -171,7 +171,7 @@ function getExtractorDefinition(entity: Entity): MachineDefinition | undefined {
   return getMachine(entity.type);
 }
 
-function getProcessorRecipe(
+export function getProcessorRecipe(
   entity: Entity,
   state: SimulationState,
 ): RecipeDefinition | undefined {

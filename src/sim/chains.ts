@@ -6,7 +6,14 @@ import {
   getWindowedSaleCurrency,
   hasFullRateWindow,
 } from "./economy";
-import type { Entity, ProductionChainSummary, ResourceId, SimulationState } from "./types";
+import { getProcessorRecipe } from "./machines";
+import type {
+  Entity,
+  ProductionChainSummary,
+  RecipeDefinition,
+  ResourceId,
+  SimulationState,
+} from "./types";
 
 const CHAIN_ID_PREFIX = "chain-";
 
@@ -68,6 +75,106 @@ export function traceChainNodes(
   return nodes;
 }
 
+export function getDrainableEntityIds(state: SimulationState): ReadonlySet<string> {
+  const entities = state.grid.entities;
+  const producersByTarget = new Map<string, string[]>();
+  for (const [sourceId, targetIds] of buildSuccessors(state)) {
+    for (const targetId of targetIds) {
+      const producers = producersByTarget.get(targetId);
+      if (producers === undefined) {
+        producersByTarget.set(targetId, [sourceId]);
+      } else {
+        producers.push(sourceId);
+      }
+    }
+  }
+
+  const producible = collectProducibleResources(state);
+  const consumesWhatItHolds = new Map<string, boolean>();
+  for (const entity of entities) {
+    consumesWhatItHolds.set(entity.id, canConsumeWhatItHolds(entity, state, producible));
+  }
+
+  const drainable = new Set<string>();
+  const frontier: string[] = [];
+  for (const entity of entities) {
+    if (isSaleTerminal(entity)) {
+      drainable.add(entity.id);
+      frontier.push(entity.id);
+    }
+  }
+  frontier.sort(compareIds);
+
+  for (let head = 0; head < frontier.length; head += 1) {
+    for (const producerId of producersByTarget.get(frontier[head]) ?? []) {
+      if (consumesWhatItHolds.get(producerId) !== true || drainable.has(producerId)) {
+        continue;
+      }
+
+      drainable.add(producerId);
+      frontier.push(producerId);
+    }
+  }
+
+  return drainable;
+}
+
+function canConsumeWhatItHolds(
+  entity: Entity,
+  state: SimulationState,
+  producible: ReadonlySet<ResourceId>,
+): boolean {
+  if (entity.type !== "smelter" && entity.type !== "assembler") {
+    return true;
+  }
+
+  const recipe = getProcessorRecipe(entity, state);
+  if (recipe === undefined) {
+    return false;
+  }
+
+  return Object.keys(recipe.inputs).every((input) => producible.has(input as ResourceId));
+}
+
+function collectProducibleResources(state: SimulationState): ReadonlySet<ResourceId> {
+  const producible = new Set<ResourceId>();
+  const seen = new Set<string>();
+  const recipes: RecipeDefinition[] = [];
+  for (const entity of state.grid.entities) {
+    if (entity.type === "extractor" && entity.resourceNode !== undefined) {
+      producible.add(entity.resourceNode);
+      continue;
+    }
+    if (entity.type !== "smelter" && entity.type !== "assembler") {
+      continue;
+    }
+
+    const recipe = getProcessorRecipe(entity, state);
+    if (recipe !== undefined && !seen.has(recipe.id)) {
+      seen.add(recipe.id);
+      recipes.push(recipe);
+    }
+  }
+
+  let settled = false;
+  while (!settled) {
+    settled = true;
+    for (const recipe of recipes) {
+      if (producible.has(recipe.output.resource)) {
+        continue;
+      }
+      if (!Object.keys(recipe.inputs).every((input) => producible.has(input as ResourceId))) {
+        continue;
+      }
+
+      producible.add(recipe.output.resource);
+      settled = false;
+    }
+  }
+
+  return producible;
+}
+
 function traceProductionChains(state: SimulationState): TracedChain[] {
   const entities = state.grid.entities;
   const entityById = new Map(entities.map((entity) => [entity.id, entity]));
@@ -98,8 +205,9 @@ function traceProductionChains(state: SimulationState): TracedChain[] {
 }
 
 function buildSuccessors(state: SimulationState): Map<string, string[]> {
+  const sorted = sortEntitiesById(state.grid.entities);
   const entityAtCell = new Map<string, Entity>();
-  for (const entity of sortEntitiesById(state.grid.entities)) {
+  for (const entity of sorted) {
     const key = getCellKey(entity.x, entity.y);
     if (!entityAtCell.has(key)) {
       entityAtCell.set(key, entity);
@@ -107,7 +215,7 @@ function buildSuccessors(state: SimulationState): Map<string, string[]> {
   }
 
   const successors = new Map<string, string[]>();
-  for (const entity of sortEntitiesById(state.grid.entities)) {
+  for (const entity of sorted) {
     const targets: string[] = [];
     for (const cell of getWorldPortCells(entity)) {
       if (cell.port.kind !== "output") {
