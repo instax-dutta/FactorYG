@@ -1481,13 +1481,21 @@ git commit -m "feat: deliver full production chain content"
 
 ## Phase 2 Exit Check
 
-- [ ] All nine recipes run through data-defined machine definitions.
-- [ ] Every required machine and resource has registered, readable, animated art.
-- [ ] Storage and belt backpressure are deterministic and tested.
-- [ ] Unlock costs, prerequisites, and upgrades are enforced through commands.
-- [ ] The Motor chain is playable in a browser flow.
-- [ ] Chain throughput is computed and serialized for offline progress.
-- [ ] Phase 2 unit, component, browser, lint, typecheck, and build checks pass.
+- [x] All nine recipes run through data-defined machine definitions.
+- [x] Every required machine and resource has registered, readable, animated art.
+- [x] Storage and belt backpressure are deterministic and tested.
+- [x] Unlock costs, prerequisites, and upgrades are enforced through commands.
+- [x] The Motor chain is playable in a browser flow.
+- [x] Chain throughput is computed and serialized for offline progress.
+- [x] Phase 2 unit, component, browser, lint, typecheck, and build checks pass.
+
+Evidence for the Motor chain item, which was open longest: `scripts/solve-motor-chain.ts`
+pairs two subtree generators at the motor's feed-ray intersection, `validateLayout`
+resolves every recipe input to a real producer through its belt run, the committed
+133-entity layout places with 0 rejections and sells 13 motors by tick 1,000, and
+`tests/e2e/production-chain.spec.ts` earns the investment from real ore sales, buys
+all twelve unlocks through the real tech tree, places the layout, and sells motors
+in a live page. 880 unit tests across 49 files and 30 browser tests are green.
 
 ---
 

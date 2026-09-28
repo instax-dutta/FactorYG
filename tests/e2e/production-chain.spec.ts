@@ -1,7 +1,11 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
+import { RECIPES } from "../../src/content/recipes";
 import { RESOURCES } from "../../src/content/resources";
 import { UNLOCKS } from "../../src/content/unlocks";
 import { STARTING_CURRENCY } from "../../src/content/balance";
+import { NEW_GAME_SEED, createInitialState } from "../../src/sim/initialState";
 import { SAVE_KEY } from "../../src/sim/constants";
 
 interface CommandResult {
@@ -634,5 +638,308 @@ test("earns the tech tree from ore sales and runs copper to wire on a rotated as
     recipes: ["copperIngot", "wire"],
   });
   expect(finalSave.lifetimeCurrency).toBeGreaterThan(0);
+  expect(browserErrors).toEqual([]);
+});
+
+interface FarmLine {
+  readonly extractor: { readonly x: number; readonly y: number; readonly rotation: number };
+  readonly depot: { readonly x: number; readonly y: number; readonly rotation: number };
+  readonly cost: number;
+}
+
+interface UnlockStep {
+  readonly key: string;
+  readonly cost: number;
+  readonly machines: readonly string[];
+  readonly recipes: readonly string[];
+}
+
+const MOTOR_LAYOUT_FILE = fileURLToPath(
+  new URL("../../scripts/motor-chain-layout.json", import.meta.url),
+);
+
+const FARM_CHUNK = 200;
+const FARM_MAX_CHUNKS = 600;
+const FARM_TARGET = 35_000;
+const PRODUCTION_CHUNK = 200;
+const PRODUCTION_MAX_CHUNKS = 150;
+const MOTOR_SELL_VALUE = RECIPES.motor.sellValue;
+const MOTOR_PROCESSORS = ["motor", "frame", "plate", "circuit", "gear", "wire"] as const;
+
+function motorLayout(): ReadonlyArray<Record<string, number | string>> {
+  return JSON.parse(readFileSync(MOTOR_LAYOUT_FILE, "utf8")) as ReadonlyArray<
+    Record<string, number | string>
+  >;
+}
+
+function farmPlan(): FarmLine[] {
+  const nodes = createInitialState(NEW_GAME_SEED).grid.nodes;
+  const nodeCells = new Set(nodes.map((node) => `${node.x},${node.y}`));
+  const taken = new Set<string>();
+  const directions: ReadonlyArray<readonly [number, number]> = [
+    [1, 0],
+    [0, 1],
+    [-1, 0],
+    [0, -1],
+  ];
+  const plan: FarmLine[] = [];
+
+  for (const node of [...nodes].sort(
+    (a, b) => RESOURCES[b.resource].sellValue - RESOURCES[a.resource].sellValue,
+  )) {
+    for (let rotation = 0; rotation < directions.length; rotation += 1) {
+      const [dx, dy] = directions[rotation];
+      const depotX = node.x + dx;
+      const depotY = node.y + dy;
+      const depotCell = `${depotX},${depotY}`;
+      if (depotX < 0 || depotY < 0 || depotX > 63 || depotY > 63) {
+        continue;
+      }
+      if (nodeCells.has(depotCell) || taken.has(depotCell)) {
+        continue;
+      }
+      plan.push({
+        extractor: { x: node.x, y: node.y, rotation },
+        depot: { x: depotX, y: depotY, rotation },
+        cost: EXTRACTOR_COST + DEPOT_COST,
+      });
+      taken.add(`${node.x},${node.y}`);
+      taken.add(depotCell);
+      break;
+    }
+  }
+  return plan;
+}
+
+function unlockSteps(): UnlockStep[] {
+  const entries = [
+    ...Object.entries(UNLOCKS.machineUnlocks).map(([id, entry]) => ({
+      key: `machine-${id}`,
+      cost: entry.cost,
+      machines: entry.requiresMachines,
+      recipes: entry.requiresRecipes,
+    })),
+    ...Object.entries(UNLOCKS.recipeUnlocks).map(([id, entry]) => ({
+      key: `recipe-${id}`,
+      cost: entry.cost,
+      machines: entry.requiresMachines,
+      recipes: entry.requiresRecipes,
+    })),
+  ];
+  const ordered: UnlockStep[] = [];
+  const done = new Set<string>();
+  const locked = new Set(entries.map((entry) => entry.key));
+  const unmet = (entry: UnlockStep): boolean =>
+    entry.machines.some((id) => locked.has(`machine-${id}`) && !done.has(`machine-${id}`)) ||
+    entry.recipes.some((id) => locked.has(`recipe-${id}`) && !done.has(`recipe-${id}`));
+
+  while (ordered.length < entries.length) {
+    const next = entries.find((entry) => !done.has(entry.key) && !unmet(entry));
+    if (next === undefined) {
+      throw new Error("Unlock prerequisites are not satisfiable");
+    }
+    done.add(next.key);
+    ordered.push(next);
+  }
+  return ordered;
+}
+
+async function farmUntilCurrency(
+  page: Page,
+  target: number,
+  plan: ReadonlyArray<FarmLine>,
+): Promise<number> {
+  const outcome = await page.evaluate(
+    async ({ goal, lines, chunk, maxChunks }) => {
+      const bridge = (window as unknown as RuntimeWindow).__FACTOR_Y__;
+      if (bridge === undefined) {
+        throw new Error("Factor-Y runtime bridge unavailable");
+      }
+      const nextFrame = (): Promise<void> =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => resolve());
+          });
+        });
+      let next = 0;
+      let built = 0;
+
+      for (let step = 0; step < maxChunks; step += 1) {
+        if (bridge.getSnapshot().currency >= goal) {
+          return { reached: true, currency: bridge.getSnapshot().currency, built };
+        }
+        while (next < lines.length) {
+          const line = lines[next];
+          if (bridge.getSnapshot().currency < line.cost) {
+            break;
+          }
+          bridge.dispatch({ type: "placeEntity", machine: "depot", x: line.depot.x, y: line.depot.y, rotation: line.depot.rotation });
+          const placed = bridge.dispatch({
+            type: "placeEntity",
+            machine: "extractor",
+            x: line.extractor.x,
+            y: line.extractor.y,
+            rotation: line.extractor.rotation,
+          });
+          if (placed.ok) {
+            built += 1;
+          }
+          next += 1;
+        }
+        bridge.advanceTicks(chunk);
+        await nextFrame();
+      }
+      return { reached: false, currency: bridge.getSnapshot().currency, built };
+    },
+    { goal: target, lines: [...plan], chunk: FARM_CHUNK, maxChunks: FARM_MAX_CHUNKS },
+  );
+
+  expect(outcome.reached).toBe(true);
+  expect(outcome.currency).toBeGreaterThanOrEqual(target);
+  expect(outcome.built).toBeGreaterThan(0);
+  return outcome.currency;
+}
+
+async function purchaseUnlockByKey(page: Page, step: UnlockStep): Promise<void> {
+  await openTechTree(page);
+  const entry = page.getByTestId(`tech-tree-entry-${step.key}`);
+  await expect(entry).toHaveAttribute("data-cost", String(step.cost));
+  await expect(entry).toHaveAttribute("data-state", "available");
+  await expect(page.getByTestId(`tech-tree-unlock-${step.key}`)).toBeEnabled();
+
+  const debit = await page.evaluate((key) => {
+    const control = document.querySelector<HTMLButtonElement>(`[data-testid="tech-tree-unlock-${key}"]`);
+    if (control === null) {
+      throw new Error(`Unlock control tech-tree-unlock-${key} is absent`);
+    }
+    const bridge = (window as unknown as RuntimeWindow).__FACTOR_Y__;
+    if (bridge === undefined) {
+      throw new Error("Factor-Y runtime bridge unavailable");
+    }
+    const before = bridge.getSnapshot().currency;
+    control.click();
+    return { before, after: bridge.getSnapshot().currency };
+  }, step.key);
+
+  expect(debit.before - debit.after).toBe(step.cost);
+  expect(debit.after).toBeGreaterThanOrEqual(0);
+  await closeTechTree(page);
+}
+
+async function demolishFarm(page: Page): Promise<number> {
+  const farm = await persistedSave(page).then((save) =>
+    save.grid.entities
+      .filter((entity) => entity.type === "extractor" || entity.type === "depot")
+      .map((entity) => entity.id),
+  );
+  const removed = await dispatchAll(
+    page,
+    farm.map((entityId) => ({ type: "demolishEntity", entityId })),
+  );
+  expect(removed.results).toEqual(farm.map(() => ({ ok: true })));
+  return farm.length;
+}
+
+test("earns the whole tech tree from ore sales and runs the committed Motor chain to sold motors", async ({
+  page,
+}) => {
+  test.setTimeout(900_000);
+  const browserErrors: string[] = [];
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      browserErrors.push(message.text());
+    }
+  });
+
+  const startingCurrency = await openWithClearedSave(page);
+  expect(startingCurrency).toBe(STARTING_CURRENCY);
+
+  const layout = motorLayout();
+  const unlockTotal = Object.values(UNLOCKS.machineUnlocks).reduce((t, e) => t + e.cost, 0) +
+    Object.values(UNLOCKS.recipeUnlocks).reduce((t, e) => t + e.cost, 0);
+  const steps = unlockSteps();
+  expect(steps).toHaveLength(
+    Object.keys(UNLOCKS.machineUnlocks).length + Object.keys(UNLOCKS.recipeUnlocks).length,
+  );
+  expect(steps.reduce((total, step) => total + step.cost, 0)).toBe(unlockTotal);
+
+  const farmed = await farmUntilCurrency(page, FARM_TARGET, farmPlan());
+  expect(farmed).toBeGreaterThanOrEqual(FARM_TARGET);
+
+  for (const step of steps) {
+    await purchaseUnlockByKey(page, step);
+  }
+  const unlocked = await bridgeSnapshot(page);
+  expect([...unlocked.unlockedMachines].sort()).toEqual(
+    [
+      ...createInitialState(NEW_GAME_SEED).unlocked.machines,
+      ...Object.keys(UNLOCKS.machineUnlocks),
+    ].sort(),
+  );
+  expect([...unlocked.unlockedRecipes].sort()).toEqual(Object.keys(UNLOCKS.recipeUnlocks).sort());
+
+  const farmCount = await demolishFarm(page);
+  expect(farmCount).toBeGreaterThan(0);
+  expect((await persistedEntityTypes(page)).length).toBe(0);
+
+  const commands = layout.map((entity) => ({
+    type: "placeEntity",
+    machine: entity.type,
+    x: entity.x,
+    y: entity.y,
+    rotation: entity.rotation,
+    ...(entity.recipeId === undefined ? {} : { recipeId: entity.recipeId }),
+    ...(entity.resourceNode === undefined ? {} : { resourceNode: entity.resourceNode }),
+  }));
+  const built = await dispatchAll(page, commands);
+  expect(built.results).toEqual(commands.map(() => ({ ok: true })));
+  expect(built.debit.before - built.debit.after).toBeGreaterThan(0);
+  expect(built.debit.after).toBeGreaterThanOrEqual(0);
+
+  const save = await persistedSave(page);
+  expect(save.grid.entities).toHaveLength(layout.length);
+  const placedRecipes = new Set(save.grid.entities.map((entity) => entity.recipeId));
+  for (const recipe of MOTOR_PROCESSORS) {
+    expect(placedRecipes.has(recipe)).toBe(true);
+  }
+
+  const beforeProduction = await bridgeCurrency(page);
+  const run = await page.evaluate(
+    async ({ chunk, maxChunks, floor }) => {
+      const bridge = (window as unknown as RuntimeWindow).__FACTOR_Y__;
+      if (bridge === undefined) {
+        throw new Error("Factor-Y runtime bridge unavailable");
+      }
+      const nextFrame = (): Promise<void> =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => resolve());
+          });
+        });
+
+      for (let step = 0; step < maxChunks; step += 1) {
+        bridge.advanceTicks(chunk);
+        await nextFrame();
+        if (bridge.getSnapshot().currency >= floor) {
+          return { currency: bridge.getSnapshot().currency, chunks: step + 1 };
+        }
+      }
+      return { currency: bridge.getSnapshot().currency, chunks: -1 };
+    },
+    { chunk: PRODUCTION_CHUNK, maxChunks: PRODUCTION_MAX_CHUNKS, floor: beforeProduction + MOTOR_SELL_VALUE },
+  );
+
+  expect(run.chunks).toBeGreaterThan(0);
+  expect(run.currency - beforeProduction).toBeGreaterThanOrEqual(MOTOR_SELL_VALUE);
+
+  const finalSave = await persistedSave(page);
+  const motorChain = Object.values(finalSave.productionChains).find(
+    (chain) => chain.outputResource === "motor",
+  );
+  expect(motorChain).toBeDefined();
+  expect(motorChain?.sellValue).toBe(MOTOR_SELL_VALUE);
+
+  expect(await hudCurrency(page)).toBeGreaterThanOrEqual(run.currency);
   expect(browserErrors).toEqual([]);
 });
