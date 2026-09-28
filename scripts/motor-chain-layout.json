@@ -1,0 +1,953 @@
+[
+  {
+    "id": "e0",
+    "type": "assembler",
+    "x": 57,
+    "y": 37,
+    "rotation": 180,
+    "recipeId": "circuit"
+  },
+  {
+    "id": "e1",
+    "type": "assembler",
+    "x": 58,
+    "y": 37,
+    "rotation": 180,
+    "recipeId": "wire"
+  },
+  {
+    "id": "e2",
+    "type": "belt",
+    "x": 59,
+    "y": 37,
+    "rotation": 180
+  },
+  {
+    "id": "e3",
+    "type": "belt",
+    "x": 60,
+    "y": 37,
+    "rotation": 180
+  },
+  {
+    "id": "e4",
+    "type": "smelter",
+    "x": 61,
+    "y": 37,
+    "rotation": 180,
+    "recipeId": "copperIngot"
+  },
+  {
+    "id": "e5",
+    "type": "belt",
+    "x": 61,
+    "y": 38,
+    "rotation": 270
+  },
+  {
+    "id": "e6",
+    "type": "belt",
+    "x": 61,
+    "y": 39,
+    "rotation": 270
+  },
+  {
+    "id": "e7",
+    "type": "belt",
+    "x": 61,
+    "y": 40,
+    "rotation": 270
+  },
+  {
+    "id": "e8",
+    "type": "extractor",
+    "x": 61,
+    "y": 41,
+    "rotation": 270,
+    "resourceNode": "copperOre"
+  },
+  {
+    "id": "e9",
+    "type": "assembler",
+    "x": 57,
+    "y": 38,
+    "rotation": 270,
+    "recipeId": "gear"
+  },
+  {
+    "id": "e10",
+    "type": "belt",
+    "x": 57,
+    "y": 39,
+    "rotation": 270
+  },
+  {
+    "id": "e11",
+    "type": "belt",
+    "x": 57,
+    "y": 40,
+    "rotation": 270
+  },
+  {
+    "id": "e12",
+    "type": "belt",
+    "x": 57,
+    "y": 41,
+    "rotation": 270
+  },
+  {
+    "id": "e13",
+    "type": "belt",
+    "x": 57,
+    "y": 42,
+    "rotation": 270
+  },
+  {
+    "id": "e14",
+    "type": "belt",
+    "x": 57,
+    "y": 43,
+    "rotation": 270
+  },
+  {
+    "id": "e15",
+    "type": "belt",
+    "x": 57,
+    "y": 44,
+    "rotation": 270
+  },
+  {
+    "id": "e16",
+    "type": "belt",
+    "x": 57,
+    "y": 45,
+    "rotation": 270
+  },
+  {
+    "id": "e17",
+    "type": "belt",
+    "x": 57,
+    "y": 46,
+    "rotation": 270
+  },
+  {
+    "id": "e18",
+    "type": "belt",
+    "x": 57,
+    "y": 47,
+    "rotation": 270
+  },
+  {
+    "id": "e19",
+    "type": "belt",
+    "x": 57,
+    "y": 48,
+    "rotation": 270
+  },
+  {
+    "id": "e20",
+    "type": "belt",
+    "x": 57,
+    "y": 49,
+    "rotation": 270
+  },
+  {
+    "id": "e21",
+    "type": "belt",
+    "x": 57,
+    "y": 50,
+    "rotation": 270
+  },
+  {
+    "id": "e22",
+    "type": "belt",
+    "x": 57,
+    "y": 51,
+    "rotation": 270
+  },
+  {
+    "id": "e23",
+    "type": "belt",
+    "x": 57,
+    "y": 52,
+    "rotation": 270
+  },
+  {
+    "id": "e24",
+    "type": "belt",
+    "x": 57,
+    "y": 53,
+    "rotation": 270
+  },
+  {
+    "id": "e25",
+    "type": "belt",
+    "x": 57,
+    "y": 54,
+    "rotation": 270
+  },
+  {
+    "id": "e26",
+    "type": "belt",
+    "x": 57,
+    "y": 55,
+    "rotation": 270
+  },
+  {
+    "id": "e27",
+    "type": "belt",
+    "x": 57,
+    "y": 56,
+    "rotation": 270
+  },
+  {
+    "id": "e28",
+    "type": "belt",
+    "x": 57,
+    "y": 57,
+    "rotation": 270
+  },
+  {
+    "id": "e29",
+    "type": "smelter",
+    "x": 57,
+    "y": 58,
+    "rotation": 270,
+    "recipeId": "ironIngot"
+  },
+  {
+    "id": "e30",
+    "type": "extractor",
+    "x": 56,
+    "y": 58,
+    "rotation": 0,
+    "resourceNode": "ironOre"
+  },
+  {
+    "id": "e31",
+    "type": "extractor",
+    "x": 57,
+    "y": 59,
+    "rotation": 270,
+    "resourceNode": "coal"
+  },
+  {
+    "id": "e32",
+    "type": "assembler",
+    "x": 45,
+    "y": 41,
+    "rotation": 270,
+    "recipeId": "frame"
+  },
+  {
+    "id": "e33",
+    "type": "belt",
+    "x": 45,
+    "y": 42,
+    "rotation": 270
+  },
+  {
+    "id": "e34",
+    "type": "belt",
+    "x": 45,
+    "y": 43,
+    "rotation": 270
+  },
+  {
+    "id": "e35",
+    "type": "belt",
+    "x": 45,
+    "y": 44,
+    "rotation": 270
+  },
+  {
+    "id": "e36",
+    "type": "assembler",
+    "x": 45,
+    "y": 45,
+    "rotation": 270,
+    "recipeId": "plate"
+  },
+  {
+    "id": "e37",
+    "type": "belt",
+    "x": 44,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e38",
+    "type": "belt",
+    "x": 43,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e39",
+    "type": "belt",
+    "x": 42,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e40",
+    "type": "belt",
+    "x": 41,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e41",
+    "type": "belt",
+    "x": 40,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e42",
+    "type": "belt",
+    "x": 39,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e43",
+    "type": "belt",
+    "x": 38,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e44",
+    "type": "belt",
+    "x": 37,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e45",
+    "type": "belt",
+    "x": 36,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e46",
+    "type": "belt",
+    "x": 35,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e47",
+    "type": "belt",
+    "x": 34,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e48",
+    "type": "belt",
+    "x": 33,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e49",
+    "type": "belt",
+    "x": 32,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e50",
+    "type": "belt",
+    "x": 31,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e51",
+    "type": "belt",
+    "x": 30,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e52",
+    "type": "belt",
+    "x": 29,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e53",
+    "type": "smelter",
+    "x": 28,
+    "y": 45,
+    "rotation": 0,
+    "recipeId": "ironIngot"
+  },
+  {
+    "id": "e54",
+    "type": "belt",
+    "x": 27,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e55",
+    "type": "belt",
+    "x": 26,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e56",
+    "type": "belt",
+    "x": 25,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e57",
+    "type": "belt",
+    "x": 24,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e58",
+    "type": "belt",
+    "x": 23,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e59",
+    "type": "belt",
+    "x": 22,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e60",
+    "type": "belt",
+    "x": 21,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e61",
+    "type": "belt",
+    "x": 20,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e62",
+    "type": "belt",
+    "x": 19,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e63",
+    "type": "belt",
+    "x": 18,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e64",
+    "type": "belt",
+    "x": 17,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e65",
+    "type": "belt",
+    "x": 16,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e66",
+    "type": "belt",
+    "x": 15,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e67",
+    "type": "belt",
+    "x": 14,
+    "y": 45,
+    "rotation": 0
+  },
+  {
+    "id": "e68",
+    "type": "extractor",
+    "x": 13,
+    "y": 45,
+    "rotation": 0,
+    "resourceNode": "ironOre"
+  },
+  {
+    "id": "e69",
+    "type": "belt",
+    "x": 28,
+    "y": 44,
+    "rotation": 90
+  },
+  {
+    "id": "e70",
+    "type": "belt",
+    "x": 28,
+    "y": 43,
+    "rotation": 90
+  },
+  {
+    "id": "e71",
+    "type": "belt",
+    "x": 28,
+    "y": 42,
+    "rotation": 90
+  },
+  {
+    "id": "e72",
+    "type": "belt",
+    "x": 28,
+    "y": 41,
+    "rotation": 90
+  },
+  {
+    "id": "e73",
+    "type": "belt",
+    "x": 28,
+    "y": 40,
+    "rotation": 90
+  },
+  {
+    "id": "e74",
+    "type": "belt",
+    "x": 28,
+    "y": 39,
+    "rotation": 90
+  },
+  {
+    "id": "e75",
+    "type": "belt",
+    "x": 28,
+    "y": 38,
+    "rotation": 90
+  },
+  {
+    "id": "e76",
+    "type": "extractor",
+    "x": 28,
+    "y": 37,
+    "rotation": 90,
+    "resourceNode": "coal"
+  },
+  {
+    "id": "e77",
+    "type": "belt",
+    "x": 45,
+    "y": 46,
+    "rotation": 270
+  },
+  {
+    "id": "e78",
+    "type": "belt",
+    "x": 45,
+    "y": 47,
+    "rotation": 270
+  },
+  {
+    "id": "e79",
+    "type": "belt",
+    "x": 45,
+    "y": 48,
+    "rotation": 270
+  },
+  {
+    "id": "e80",
+    "type": "belt",
+    "x": 45,
+    "y": 49,
+    "rotation": 270
+  },
+  {
+    "id": "e81",
+    "type": "belt",
+    "x": 45,
+    "y": 50,
+    "rotation": 270
+  },
+  {
+    "id": "e82",
+    "type": "belt",
+    "x": 45,
+    "y": 51,
+    "rotation": 270
+  },
+  {
+    "id": "e83",
+    "type": "belt",
+    "x": 45,
+    "y": 52,
+    "rotation": 270
+  },
+  {
+    "id": "e84",
+    "type": "belt",
+    "x": 45,
+    "y": 53,
+    "rotation": 270
+  },
+  {
+    "id": "e85",
+    "type": "belt",
+    "x": 45,
+    "y": 54,
+    "rotation": 270
+  },
+  {
+    "id": "e86",
+    "type": "smelter",
+    "x": 45,
+    "y": 55,
+    "rotation": 270,
+    "recipeId": "refinedStone"
+  },
+  {
+    "id": "e87",
+    "type": "belt",
+    "x": 44,
+    "y": 55,
+    "rotation": 0
+  },
+  {
+    "id": "e88",
+    "type": "extractor",
+    "x": 43,
+    "y": 55,
+    "rotation": 0,
+    "resourceNode": "stone"
+  },
+  {
+    "id": "e89",
+    "type": "belt",
+    "x": 44,
+    "y": 41,
+    "rotation": 0
+  },
+  {
+    "id": "e90",
+    "type": "belt",
+    "x": 43,
+    "y": 41,
+    "rotation": 0
+  },
+  {
+    "id": "e91",
+    "type": "belt",
+    "x": 42,
+    "y": 41,
+    "rotation": 0
+  },
+  {
+    "id": "e92",
+    "type": "belt",
+    "x": 41,
+    "y": 41,
+    "rotation": 0
+  },
+  {
+    "id": "e93",
+    "type": "belt",
+    "x": 40,
+    "y": 41,
+    "rotation": 0
+  },
+  {
+    "id": "e94",
+    "type": "assembler",
+    "x": 39,
+    "y": 41,
+    "rotation": 0,
+    "recipeId": "gear"
+  },
+  {
+    "id": "e95",
+    "type": "belt",
+    "x": 39,
+    "y": 40,
+    "rotation": 90
+  },
+  {
+    "id": "e96",
+    "type": "belt",
+    "x": 39,
+    "y": 39,
+    "rotation": 90
+  },
+  {
+    "id": "e97",
+    "type": "belt",
+    "x": 39,
+    "y": 38,
+    "rotation": 90
+  },
+  {
+    "id": "e98",
+    "type": "belt",
+    "x": 39,
+    "y": 37,
+    "rotation": 90
+  },
+  {
+    "id": "e99",
+    "type": "belt",
+    "x": 39,
+    "y": 36,
+    "rotation": 90
+  },
+  {
+    "id": "e100",
+    "type": "belt",
+    "x": 39,
+    "y": 35,
+    "rotation": 90
+  },
+  {
+    "id": "e101",
+    "type": "smelter",
+    "x": 39,
+    "y": 34,
+    "rotation": 90,
+    "recipeId": "ironIngot"
+  },
+  {
+    "id": "e102",
+    "type": "belt",
+    "x": 40,
+    "y": 34,
+    "rotation": 180
+  },
+  {
+    "id": "e103",
+    "type": "belt",
+    "x": 41,
+    "y": 34,
+    "rotation": 180
+  },
+  {
+    "id": "e104",
+    "type": "belt",
+    "x": 42,
+    "y": 34,
+    "rotation": 180
+  },
+  {
+    "id": "e105",
+    "type": "belt",
+    "x": 43,
+    "y": 34,
+    "rotation": 180
+  },
+  {
+    "id": "e106",
+    "type": "belt",
+    "x": 44,
+    "y": 34,
+    "rotation": 180
+  },
+  {
+    "id": "e107",
+    "type": "belt",
+    "x": 45,
+    "y": 34,
+    "rotation": 180
+  },
+  {
+    "id": "e108",
+    "type": "belt",
+    "x": 46,
+    "y": 34,
+    "rotation": 180
+  },
+  {
+    "id": "e109",
+    "type": "belt",
+    "x": 47,
+    "y": 34,
+    "rotation": 180
+  },
+  {
+    "id": "e110",
+    "type": "extractor",
+    "x": 48,
+    "y": 34,
+    "rotation": 180,
+    "resourceNode": "ironOre"
+  },
+  {
+    "id": "e111",
+    "type": "belt",
+    "x": 39,
+    "y": 33,
+    "rotation": 90
+  },
+  {
+    "id": "e112",
+    "type": "belt",
+    "x": 39,
+    "y": 32,
+    "rotation": 90
+  },
+  {
+    "id": "e113",
+    "type": "belt",
+    "x": 39,
+    "y": 31,
+    "rotation": 90
+  },
+  {
+    "id": "e114",
+    "type": "belt",
+    "x": 39,
+    "y": 30,
+    "rotation": 90
+  },
+  {
+    "id": "e115",
+    "type": "belt",
+    "x": 39,
+    "y": 29,
+    "rotation": 90
+  },
+  {
+    "id": "e116",
+    "type": "extractor",
+    "x": 39,
+    "y": 28,
+    "rotation": 90,
+    "resourceNode": "coal"
+  },
+  {
+    "id": "e117",
+    "type": "belt",
+    "x": 56,
+    "y": 37,
+    "rotation": 180
+  },
+  {
+    "id": "e118",
+    "type": "belt",
+    "x": 55,
+    "y": 37,
+    "rotation": 180
+  },
+  {
+    "id": "e119",
+    "type": "belt",
+    "x": 54,
+    "y": 37,
+    "rotation": 180
+  },
+  {
+    "id": "e120",
+    "type": "belt",
+    "x": 53,
+    "y": 37,
+    "rotation": 180
+  },
+  {
+    "id": "e121",
+    "type": "belt",
+    "x": 52,
+    "y": 37,
+    "rotation": 180
+  },
+  {
+    "id": "e122",
+    "type": "belt",
+    "x": 51,
+    "y": 37,
+    "rotation": 180
+  },
+  {
+    "id": "e123",
+    "type": "belt",
+    "x": 50,
+    "y": 37,
+    "rotation": 180
+  },
+  {
+    "id": "e124",
+    "type": "belt",
+    "x": 49,
+    "y": 37,
+    "rotation": 180
+  },
+  {
+    "id": "e125",
+    "type": "belt",
+    "x": 48,
+    "y": 37,
+    "rotation": 180
+  },
+  {
+    "id": "e126",
+    "type": "belt",
+    "x": 47,
+    "y": 37,
+    "rotation": 180
+  },
+  {
+    "id": "e127",
+    "type": "belt",
+    "x": 46,
+    "y": 37,
+    "rotation": 180
+  },
+  {
+    "id": "e128",
+    "type": "belt",
+    "x": 45,
+    "y": 40,
+    "rotation": 270
+  },
+  {
+    "id": "e129",
+    "type": "belt",
+    "x": 45,
+    "y": 39,
+    "rotation": 270
+  },
+  {
+    "id": "e130",
+    "type": "belt",
+    "x": 45,
+    "y": 38,
+    "rotation": 270
+  },
+  {
+    "id": "e131",
+    "type": "assembler",
+    "x": 45,
+    "y": 37,
+    "rotation": 180,
+    "recipeId": "motor"
+  },
+  {
+    "id": "e132",
+    "type": "depot",
+    "x": 44,
+    "y": 37,
+    "rotation": 180
+  }
+]

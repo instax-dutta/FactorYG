@@ -1,8 +1,8 @@
-import { MACHINES } from "../src/content/machines";
-import { RECIPES } from "../src/content/recipes";
+import { writeFileSync } from "node:fs";
 import { NEW_GAME_SEED, createInitialState } from "../src/sim/initialState";
+import { arePortsConnected, getWorldPortCells } from "../src/sim/connections";
 import { rotateGridPoint } from "../src/sim/rotation";
-import { arePortsConnected, getProducedResource, getWorldPortCells } from "../src/sim/connections";
+import { getRecipe } from "../src/content/recipes";
 import type {
   Entity,
   MachineType,
@@ -30,9 +30,10 @@ export interface SolveResult {
   ok: boolean;
   entities: LayoutEntity[];
   beltCount: number;
-  anchor?: Cell;
-  spineMachines: number;
-  leafMachines: number;
+  placements: number;
+  nodesUsed: number;
+  restarts: number;
+  exhausted?: boolean;
 }
 
 interface PlanNode {
@@ -40,1415 +41,826 @@ interface PlanNode {
   type: MachineType;
   recipe: RecipeId;
   feeders: Array<{ resource: ResourceId; port: number; child?: PlanNode }>;
-  spine: boolean;
 }
 
-interface Route {
-  cells: Cell[];
-  rotations: Rotation[];
+interface PlanSpec {
+  id: string;
+  type: MachineType;
+  recipe: RecipeId;
+  inputs: Array<{ resource: ResourceId; child?: string }>;
 }
 
-interface LeafSolution {
-  node: PlanNode;
-  cell: Cell;
+interface GenEntity {
+  type: MachineType;
+  x: number;
+  y: number;
   rotation: Rotation;
-  sources: Map<ResourceId, Cell>;
-  extractorRotations: Rotation[];
-  rawRoutes: Route[];
-  link: Route;
-  cost: number;
+  recipeId?: RecipeId;
+  resourceNode?: ResourceId;
 }
 
-interface Slot {
-  portCell: Cell;
-  direction: Cell;
-  consumerCell: Cell;
-  consumerId: string;
-}
-
-interface SpineLayout {
-  placed: Map<PlanNode, { cell: Cell; rotation: Rotation }>;
-  slots: Map<PlanNode, Slot>;
-  ports: Map<PlanNode, Map<PlanNode, number>>;
-}
-
-interface Attempt {
-  layout: SpineLayout;
-  solutions: LeafSolution[];
-  cost: number;
-  anchor: Cell;
+interface SubtreeCandidate {
+  x: number;
+  y: number;
+  rotation: Rotation;
+  entities: GenEntity[];
+  mask: Uint32Array;
+  belts: number;
 }
 
 const GRID = 64;
-const EDGE = 2;
-const MAX_RUN = GRID - 1;
-
+const WORD_STRIDE = GRID / 32;
+const MASK_WORDS = WORD_STRIDE * GRID;
 const ROTATIONS: readonly Rotation[] = [0, 90, 180, 270];
-const OUTPUT_OFFSETS: Readonly<Record<Rotation, Cell>> = {
-  0: { x: 1, y: 0 },
-  90: { x: 0, y: 1 },
-  180: { x: -1, y: 0 },
-  270: { x: 0, y: -1 },
-};
-const ROTATION_FOR_OUTPUT: Readonly<Record<string, Rotation>> = {
-  "1,0": 0,
-  "0,1": 90,
-  "-1,0": 180,
-  "0,-1": 270,
-};
+const SCAN_STEP = 4;
+const PER_CALL_STEPS = 120_000;
+const PER_ROOT_CAP = 6;
+const PER_ROOT_KEEP = 3;
+const POOL_LIMIT = 1200;
+const MAX_SPAN = 20;
+const DEPOSIT_SPAN = 14;
+const SUBTREE_SEEDS: readonly PlanSpec[] = [
+  { id: "circuit", type: "assembler", recipe: "circuit", inputs: [
+    { resource: "wire", child: "wire" },
+    { resource: "gear", child: "gear1" },
+  ] },
+  { id: "frame", type: "assembler", recipe: "frame", inputs: [
+    { resource: "plate", child: "plate" },
+    { resource: "gear", child: "gear2" },
+  ] },
+];
 
-function key(x: number, y: number): string {
-  return `${x},${y}`;
+const PLAN_SPECS: readonly PlanSpec[] = [
+  { id: "motor", type: "assembler", recipe: "motor", inputs: [
+    { resource: "circuit", child: "circuit" },
+    { resource: "frame", child: "frame" },
+  ] },
+  { id: "circuit", type: "assembler", recipe: "circuit", inputs: [
+    { resource: "wire", child: "wire" },
+    { resource: "gear", child: "gear1" },
+  ] },
+  { id: "frame", type: "assembler", recipe: "frame", inputs: [
+    { resource: "plate", child: "plate" },
+    { resource: "gear", child: "gear2" },
+  ] },
+  { id: "wire", type: "assembler", recipe: "wire", inputs: [
+    { resource: "copperIngot", child: "copper" },
+  ] },
+  { id: "gear1", type: "assembler", recipe: "gear", inputs: [
+    { resource: "ironIngot", child: "iron1" },
+  ] },
+  { id: "gear2", type: "assembler", recipe: "gear", inputs: [
+    { resource: "ironIngot", child: "iron2" },
+  ] },
+  { id: "plate", type: "assembler", recipe: "plate", inputs: [
+    { resource: "ironIngot", child: "iron3" },
+    { resource: "refinedStone", child: "stone" },
+  ] },
+  { id: "copper", type: "smelter", recipe: "copperIngot", inputs: [
+    { resource: "copperOre" },
+  ] },
+  { id: "stone", type: "smelter", recipe: "refinedStone", inputs: [
+    { resource: "stone" },
+  ] },
+  { id: "iron1", type: "smelter", recipe: "ironIngot", inputs: [
+    { resource: "ironOre" },
+    { resource: "coal" },
+  ] },
+  { id: "iron2", type: "smelter", recipe: "ironIngot", inputs: [
+    { resource: "ironOre" },
+    { resource: "coal" },
+  ] },
+  { id: "iron3", type: "smelter", recipe: "ironIngot", inputs: [
+    { resource: "ironOre" },
+    { resource: "coal" },
+  ] },
+];
+
+const SPEC_BY_ID = new Map(PLAN_SPECS.map((spec) => [spec.id, spec]));
+
+const OUT_DIRECTION = new Map<Rotation, Cell>(
+  ROTATIONS.map((rotation) => {
+    const point = rotateGridPoint({ x: 1, y: 0 }, rotation);
+    return [rotation, { x: point.x, y: point.y }];
+  }),
+);
+
+const DIRECTION_ROTATION = new Map<string, Rotation>(
+  [...OUT_DIRECTION].map(([rotation, direction]) => [`${direction.x},${direction.y}`, rotation]),
+);
+
+function portDirections(rotation: Rotation): [Cell, Cell] {
+  const first = rotateGridPoint({ x: -1, y: 0 }, rotation);
+  const second = rotateGridPoint({ x: 0, y: -1 }, rotation);
+  return [{ x: first.x, y: first.y }, { x: second.x, y: second.y }];
 }
 
-function same(a: Cell, b: Cell): boolean {
+function sameCell(a: Cell, b: Cell): boolean {
   return a.x === b.x && a.y === b.y;
 }
 
-function add(a: Cell, b: Cell): Cell {
-  return { x: a.x + b.x, y: a.y + b.y };
+function negate(direction: Cell): Cell {
+  return { x: -direction.x, y: -direction.y };
 }
 
-function manhattan(a: Cell, b: Cell): number {
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+function inBounds(x: number, y: number): boolean {
+  return x >= 0 && y >= 0 && x < GRID && y < GRID;
 }
 
-function inBounds(cell: Cell): boolean {
-  return cell.x >= 1 && cell.y >= 1 && cell.x < GRID - 1 && cell.y < GRID - 1;
+function cellWord(x: number, y: number): number {
+  return WORD_STRIDE * y + (x >= GRID / 2 ? 1 : 0);
 }
 
-function outputDirection(rotation: Rotation): Cell {
-  return OUTPUT_OFFSETS[rotation];
+function cellBit(x: number): number {
+  return 1 << (x % 32);
 }
 
-function rotationForOutput(direction: Cell): Rotation | undefined {
-  return ROTATION_FOR_OUTPUT[key(direction.x, direction.y)];
+function maskHolds(mask: Uint32Array, x: number, y: number): boolean {
+  return (mask[cellWord(x, y)] & cellBit(x)) !== 0;
 }
 
-function inputPortDirection(rotation: Rotation, portIndex: number): Cell | undefined {
-  const port = MACHINES.assembler.ports[portIndex];
-  if (port === undefined || port.kind !== "input") {
-    return undefined;
-  }
-  const rotated = rotateGridPoint(port.offset as Cell, rotation) as Cell;
-  return { x: rotated.x, y: rotated.y };
+function maskAdd(mask: Uint32Array, x: number, y: number): void {
+  mask[cellWord(x, y)] |= cellBit(x);
 }
 
-function inputPortCount(type: MachineType): number {
-  return MACHINES[type].ports.filter((port) => port.kind === "input").length;
-}
-
-function uniqueInputs(recipe: RecipeId): ResourceId[] {
-  return Object.keys(RECIPES[recipe].inputs) as ResourceId[];
-}
-
-function producerRecipeFor(resource: ResourceId): RecipeId | undefined {
-  return (Object.keys(RECIPES) as RecipeId[]).find((id) => RECIPES[id].output.resource === resource);
-}
-
-/**
- * Expands a recipe into a plan. Every consumer gets its own producer, because a
- * producer's single output port reaches exactly one cell and therefore exactly
- * one consumer. A consumer needing two units of one resource still gets one
- * producer, because those units are buffered and arrive over successive runs.
- */
-export function planChain(rootRecipe: RecipeId = "motor"): PlanNode[] {
-  const plan: PlanNode[] = [];
-  let counter = 0;
-
-  const build = (recipe: RecipeId): PlanNode => {
-    counter += 1;
-    const inputs = uniqueInputs(recipe);
-    const node: PlanNode = {
-      id: `${RECIPES[recipe].machine}-${recipe}-${counter}`,
-      type: RECIPES[recipe].machine,
-      recipe,
-      feeders: inputs.map((resource, index) => ({ resource, port: index })),
-      spine: inputs.some((resource) => producerRecipeFor(resource) !== undefined),
-    };
-    plan.push(node);
-
-    let port = 0;
-    for (const feeder of node.feeders) {
-      const producer = producerRecipeFor(feeder.resource);
-      if (producer === undefined) {
-        continue;
-      }
-      feeder.child = build(producer);
-      port += 1;
-    }
-    return node;
-  };
-
-  build(rootRecipe);
-  return plan;
-}
-
-function portAssignments(portCount: number, inputCount: number): number[][] {
-  const result: number[][] = [];
-  const walk = (chosen: number[], rest: number[]): void => {
-    if (chosen.length === inputCount) {
-      result.push(chosen);
-      return;
-    }
-    for (let index = 0; index < rest.length; index += 1) {
-      walk([...chosen, rest[index]], [...rest.slice(0, index), ...rest.slice(index + 1)]);
-    }
-  };
-  walk([], Array.from({ length: portCount }, (_, index) => index));
-  return result;
-}
-
-/**
- * Lays a straight run of belts between two cells. A belt's input port is
- * diametrically opposite its output port, so a run can never turn: the two ends
- * must share a row or a column, and every belt in the run carries the same
- * rotation. The run covers the cells strictly between the ends, so an
- * adjacency is a direct feed and delivers with no belt at all.
- */
-function straightRun(from: Cell, to: Cell): Route | undefined {
-  if (same(from, to)) {
-    return { cells: [], rotations: [] };
-  }
-  const deltaX = to.x - from.x;
-  const deltaY = to.y - from.y;
-  if (deltaX !== 0 && deltaY !== 0) {
-    return undefined;
-  }
-  const step: Cell = deltaX !== 0 ? { x: Math.sign(deltaX), y: 0 } : { x: 0, y: Math.sign(deltaY) };
-  const rotation = rotationForOutput(step);
-  if (rotation === undefined) {
-    return undefined;
-  }
-  const cells: Cell[] = [];
-  for (let x = from.x + step.x, y = from.y + step.y; x !== to.x || y !== to.y; x += step.x, y += step.y) {
-    const cell = { x, y };
-    if (!inBounds(cell)) {
-      return undefined;
-    }
-    cells.push(cell);
-  }
-  return { cells, rotations: cells.map(() => rotation) };
-}
-
-/** Assigns each leaf supplier a distinct resource node for every raw input. */
-function assignNodes(
-  leaves: readonly PlanNode[],
-  nodes: ReadonlyArray<{ resource: ResourceId; x: number; y: number; id: string }>,
-): Map<PlanNode, Map<ResourceId, Cell>> | undefined {
-  const used = new Set<string>();
-  const result = new Map<PlanNode, Map<ResourceId, Cell>>();
-  const ordered = [...leaves].sort(
-    (a, b) => uniqueInputs(b.recipe).length - uniqueInputs(a.recipe).length,
-  );
-
-  for (const leaf of ordered) {
-    const inputs = uniqueInputs(leaf.recipe);
-    let best: { map: Map<ResourceId, Cell>; cost: number } | undefined;
-    const walk = (depth: number, chosen: Cell[], cost: number): void => {
-      if (depth === inputs.length) {
-        if (best === undefined || cost < best.cost) {
-          const map = new Map<ResourceId, Cell>();
-          inputs.forEach((resource, index) => {
-            const cell = chosen[index];
-            if (cell !== undefined) {
-              map.set(resource, cell);
-            }
-          });
-          best = { map, cost };
-        }
-        return;
-      }
-      for (const node of nodes) {
-        if (used.has(key(node.x, node.y)) || node.resource !== inputs[depth]) {
-          continue;
-        }
-        const cell = { x: node.x, y: node.y };
-        const spread =
-          depth === 0 ? 0 : cost + manhattan(chosen[0] as Cell, cell);
-        chosen.push(cell);
-        walk(depth + 1, chosen, spread);
-        chosen.pop();
-      }
-    };
-    walk(0, [], 0);
-    if (best === undefined) {
-      return undefined;
-    }
-    for (const cell of best.map.values()) {
-      const node = nodes.find((candidate) => candidate.x === cell.x && candidate.y === cell.y);
-      if (node !== undefined) {
-        used.add(node.id);
-      }
-    }
-    result.set(leaf, best.map);
-  }
-
-  return result;
-}
-
-type PortChoice = Map<PlanNode, number[]>;
-
-function injective(portCount: number, childCount: number): number[][] {
-  const result: number[][] = [];
-  const walk = (chosen: number[], rest: number[]): void => {
-    if (chosen.length === childCount) {
-      result.push(chosen);
-      return;
-    }
-    for (let index = 0; index < rest.length; index += 1) {
-      walk([...chosen, rest[index]], [...rest.slice(0, index), ...rest.slice(index + 1)]);
-    }
-  };
-  walk([], Array.from({ length: portCount }, (_, index) => index));
-  return result;
-}
-
-/**
- * Every way of wiring the tree's children to input ports. Which port a child
- * uses is not fixed by the recipe: it decides the direction a child sits in and
- * therefore the whole shape of the layout, so the solver enumerates them all.
- */
-function portChoiceSets(plan: PlanNode[], root: PlanNode): PortChoice[] {
-  let results: PortChoice[] = [new Map()];
-  const ordered = [...plan].sort((a, b) => depthOf(plan, a) - depthOf(plan, b));
-  for (const node of ordered) {
-    const children = node.feeders
-      .map((feeder) => feeder.child)
-      .filter((child): child is PlanNode => child !== undefined);
-    if (children.length === 0) {
-      continue;
-    }
-    const options = injective(inputPortCount(node.type), children.length);
-    const next: PortChoice[] = [];
-    for (const base of results) {
-      for (const option of options) {
-        const copy = new Map(base);
-        copy.set(node, option);
-        next.push(copy);
-      }
-    }
-    results = next;
-    if (results.length > 4096) {
-      break;
-    }
-  }
-  void root;
-  void plan;
-  return results;
-}
-
-function depthOf(plan: PlanNode[], node: PlanNode): number {
-  const index = plan.indexOf(node);
-  return index;
-}
-
-function layoutSpine(
-  root: PlanNode,
-  anchor: Cell,
-  choice: PortChoice,
-  rootRotation: Rotation = 0,
-): SpineLayout | undefined {
-  const placed = new Map<PlanNode, { cell: Cell; rotation: Rotation }>();
-  const slots = new Map<PlanNode, Slot>();
-  const portsUsed = new Map<PlanNode, Map<PlanNode, number>>();
-  const claimed = new Set<string>();
-
-  const visit = (node: PlanNode, cell: Cell, rotation: Rotation): boolean => {
-    if (!inBounds(cell) || claimed.has(key(cell.x, cell.y))) {
+function masksDisjoint(a: Uint32Array, b: Uint32Array): boolean {
+  for (let word = 0; word < MASK_WORDS; word += 1) {
+    if ((a[word] & b[word]) !== 0) {
       return false;
     }
-    claimed.add(key(cell.x, cell.y));
-    placed.set(node, { cell, rotation });
-    portsUsed.set(node, new Map());
+  }
+  return true;
+}
 
-    let childIndex = 0;
+function resourceNodes(seed: number): Map<ResourceId, Cell[]> {
+  const byResource = new Map<ResourceId, Cell[]>();
+  for (const node of createInitialState(seed).grid.nodes) {
+    const existing = byResource.get(node.resource);
+    if (existing === undefined) {
+      byResource.set(node.resource, [{ x: node.x, y: node.y }]);
+    } else {
+      existing.push({ x: node.x, y: node.y });
+    }
+  }
+  return byResource;
+}
+
+export function planChain(rootRecipe: RecipeId = "motor"): PlanNode[] {
+  const built = new Map<string, PlanNode>();
+  const build = (id: string): PlanNode => {
+    const existing = built.get(id);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const spec = SPEC_BY_ID.get(id);
+    if (spec === undefined) {
+      throw new Error(`unknown plan node ${id}`);
+    }
+    const node: PlanNode = { id: spec.id, type: spec.type, recipe: spec.recipe, feeders: [] };
+    built.set(id, node);
+    node.feeders = spec.inputs.map((input, port) => ({
+      resource: input.resource,
+      port,
+      ...(input.child === undefined ? {} : { child: build(input.child) }),
+    }));
+    return node;
+  };
+  const root = [...SPEC_BY_ID.values()].find((spec) => spec.recipe === rootRecipe);
+  if (root === undefined) {
+    throw new Error(`no plan for ${rootRecipe}`);
+  }
+  const ordered: PlanNode[] = [];
+  const seen = new Set<string>();
+  const flatten = (node: PlanNode): void => {
+    if (seen.has(node.id)) {
+      return;
+    }
+    seen.add(node.id);
+    ordered.push(node);
     for (const feeder of node.feeders) {
-      const child = feeder.child;
-      if (child === undefined) {
-        continue;
+      if (feeder.child !== undefined) {
+        flatten(feeder.child);
       }
-      const port = choice.get(node)?.[childIndex] ?? feeder.port;
-      childIndex += 1;
-      const direction = inputPortDirection(rotation, port);
-      if (direction === undefined) {
-        return false;
+    }
+  };
+  flatten(build(root.id));
+  return ordered;
+}
+
+class Halt extends Error {}
+
+interface GenContext {
+  occupied: Uint32Array;
+  entities: GenEntity[];
+  stepsLeft: number;
+  halted: boolean;
+}
+
+function occupy(context: GenContext, x: number, y: number): void {
+  context.occupied[cellWord(x, y)] |= cellBit(x);
+}
+
+function release(context: GenContext, x: number, y: number): void {
+  context.occupied[cellWord(x, y)] &= ~cellBit(x);
+}
+
+function free(context: GenContext, x: number, y: number): boolean {
+  return (context.occupied[cellWord(x, y)] & cellBit(x)) === 0;
+}
+
+function spanFree(context: GenContext, x: number, y: number, direction: Cell, span: number): boolean {
+  for (let step = 1; step <= span; step += 1) {
+    const cx = x + direction.x * step;
+    const cy = y + direction.y * step;
+    if (!inBounds(cx, cy) || !free(context, cx, cy)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function layBelts(
+  context: GenContext,
+  x: number,
+  y: number,
+  direction: Cell,
+  span: number,
+  rotation: Rotation,
+): void {
+  for (let step = 1; step < span; step += 1) {
+    const bx = x + direction.x * step;
+    const by = y + direction.y * step;
+    occupy(context, bx, by);
+    context.entities.push({ type: "belt", x: bx, y: by, rotation });
+  }
+}
+
+function unlayBelts(context: GenContext, x: number, y: number, direction: Cell, span: number): void {
+  for (let step = 1; step < span; step += 1) {
+    release(context, x + direction.x * step, y + direction.y * step);
+  }
+}
+
+function growSubtree(
+  spec: PlanSpec,
+  x: number,
+  y: number,
+  rotation: Rotation,
+  context: GenContext,
+  onComplete: (spec: PlanSpec, x: number, y: number, rotation: Rotation) => boolean,
+  nodes: Map<ResourceId, Cell[]>,
+): boolean {
+  if (context.halted) {
+    return false;
+  }
+  context.stepsLeft -= 1;
+  if (context.stepsLeft <= 0) {
+    context.halted = true;
+    return false;
+  }
+  if (!inBounds(x, y) || !free(context, x, y)) {
+    return false;
+  }
+  occupy(context, x, y);
+  context.entities.push({ type: spec.type, x, y, rotation, recipeId: spec.recipe });
+  const mark = context.entities.length - 1;
+  const ports = portDirections(rotation);
+  const assignments: number[][] =
+    spec.inputs.length === 2 ? [[0, 1], [1, 0]] : [[0], [1]];
+  let complete = false;
+
+  const assign = (assignment: number[], depth: number): void => {
+    if (complete || context.halted) {
+      return;
+    }
+    if (depth === spec.inputs.length) {
+      complete = onComplete(spec, x, y, rotation);
+      if (complete) {
+        context.halted = true;
       }
-      if (child.spine) {
-        const childRotation = rotationForOutput({ x: -direction.x, y: -direction.y });
-        if (childRotation === undefined || !visit(child, add(cell, direction), childRotation)) {
-          return false;
+      return;
+    }
+    const input = spec.inputs[depth];
+    const port = ports[assignment[depth]];
+    const back = negate(port);
+    const beltRotation = DIRECTION_ROTATION.get(`${back.x},${back.y}`);
+    if (beltRotation === undefined) {
+      return;
+    }
+    if (input.child === undefined) {
+      const candidates = (nodes.get(input.resource) ?? [])
+        .map((node) => {
+          const along = (node.x - x) * port.x + (node.y - y) * port.y;
+          return { node, span: along };
+        })
+        .filter(
+          (entry) =>
+            entry.span >= 1 &&
+            x + port.x * entry.span === entry.node.x &&
+            y + port.y * entry.span === entry.node.y,
+        )
+        .sort((a, b) => a.span - b.span);
+      for (const entry of candidates) {
+        if (context.halted) {
+          return;
         }
-      } else {
-        portsUsed.get(node)?.set(child, port);
-        slots.set(child, {
-          portCell: add(cell, direction),
-          direction,
-          consumerCell: cell,
-          consumerId: node.id,
+        if (!spanFree(context, x, y, port, entry.span)) {
+          continue;
+        }
+        const beltMark = context.entities.length;
+        layBelts(context, x, y, port, entry.span, beltRotation);
+        occupy(context, entry.node.x, entry.node.y);
+        context.entities.push({
+          type: "extractor",
+          x: entry.node.x,
+          y: entry.node.y,
+          rotation: beltRotation,
+          resourceNode: input.resource,
         });
-      }
-    }
-    return true;
-  };
-
-  if (!visit(root, anchor, rootRotation)) {
-    return undefined;
-  }
-  return { placed, slots, ports: portsUsed };
-}
-
-/**
- * Finds where a leaf supplier can stand so that every raw input arrives on a
- * straight run and the supplier's own output reaches its consumer's port cell
- * on a straight run. Both ends of a run are fixed by geometry, so the only free
- * variable is how far back along the consumer's port the supplier sits.
- */
-function solveLeaf(
-  node: PlanNode,
-  sources: ReadonlyMap<ResourceId, Cell>,
-  slot: Slot,
-  machineBlocked: ReadonlySet<string>,
-  beltBlocked: ReadonlySet<string>,
-): LeafSolution | undefined {
-  return solveLeafAll(node, sources, slot, machineBlocked, beltBlocked)[0];
-}
-
-function solveLeafAll(
-  node: PlanNode,
-  sources: ReadonlyMap<ResourceId, Cell>,
-  slot: Slot,
-  machineBlocked: ReadonlySet<string>,
-  beltBlocked: ReadonlySet<string>,
-): LeafSolution[] {
-  const inputs = uniqueInputs(node.recipe);
-  const ports = inputPortCount(node.type);
-  const direction = slot.direction;
-  const rotation = rotationForOutput(direction);
-  if (rotation === undefined) {
-    return [];
-  }
-
-  const found: LeafSolution[] = [];
-  for (const assignment of portAssignments(ports, inputs.length)) {
-    const portDirections = assignment.map((portIndex) => inputPortDirection(rotation, portIndex));
-    void ports;
-    if (portDirections.some((entry) => entry === undefined)) {
-      continue;
-    }
-
-    for (let run = 0; run <= MAX_RUN; run += 1) {
-      const cell = { x: slot.portCell.x - direction.x * run, y: slot.portCell.y - direction.y * run };
-      if (!inBounds(cell) || machineBlocked.has(key(cell.x, cell.y))) {
-        continue;
-      }
-
-      const rawRoutes: Route[] = [];
-      const extractorRotations: Rotation[] = [];
-      const taken = new Set<string>(beltBlocked);
-      taken.add(key(cell.x, cell.y));
-      let cost = run === 0 ? 0 : run - 1;
-      let feasible = true;
-
-      for (let inputIndex = 0; inputIndex < inputs.length; inputIndex += 1) {
-        const resource = inputs[inputIndex];
-        const source = sources.get(resource);
-        const portDirection = portDirections[inputIndex];
-        if (source === undefined || portDirection === undefined) {
-          feasible = false;
-          break;
+        assign(assignment, depth + 1);
+        release(context, entry.node.x, entry.node.y);
+        unlayBelts(context, x, y, port, entry.span);
+        context.entities.length = beltMark;
+        if (complete || context.halted) {
+          return;
         }
-        const portCell = add(cell, portDirection);
-        if (!inBounds(portCell) || taken.has(key(portCell.x, portCell.y))) {
-          feasible = false;
-          break;
-        }
-        const route = straightRun(source, portCell);
-        if (route === undefined) {
-          feasible = false;
-          break;
-        }
-        if (route.cells.some((beltCell) => taken.has(key(beltCell.x, beltCell.y)))) {
-          feasible = false;
-          break;
-        }
-        const extractorRotation = routeForExtractor(source, route, cell);
-        if (extractorRotation === undefined) {
-          feasible = false;
-          break;
-        }
-        for (const beltCell of route.cells) {
-          taken.add(key(beltCell.x, beltCell.y));
-        }
-        rawRoutes[inputIndex] = route;
-        extractorRotations[inputIndex] = extractorRotation;
-        cost += route.cells.length;
       }
-
-      if (!feasible) {
-        continue;
-      }
-
-      const link = straightRun(cell, slot.portCell);
-      if (link === undefined) {
-        continue;
-      }
-      if (link.cells.some((beltCell) => taken.has(key(beltCell.x, beltCell.y)))) {
-        continue;
-      }
-
-      found.push({
-        node,
-        cell,
-        rotation,
-        sources: new Map(sources),
-        extractorRotations,
-        rawRoutes,
-        link,
-        cost,
-      });
-    }
-  }
-
-  found.sort((left, right) => left.cost - right.cost || left.cell.y - right.cell.y || left.cell.x - right.cell.x);
-  return found;
-}
-
-function routeForExtractor(source: Cell, route: Route, reader: Cell): Rotation | undefined {
-  const first = route.cells[0];
-  if (first === undefined) {
-    return rotationForOutput({ x: reader.x - source.x, y: reader.y - source.y });
-  }
-  return rotationForOutput({ x: first.x - source.x, y: first.y - source.y });
-}
-
-interface FreeState {
-  placed: Map<PlanNode, { cell: Cell; rotation: Rotation }>;
-  assignments: Map<PlanNode, Map<ResourceId, Cell>>;
-  cost: number;
-}
-
-function allLeafAssignments(
-  leaf: PlanNode,
-  nodes: ReadonlyArray<{ resource: ResourceId; x: number; y: number }>,
-): Map<ResourceId, Cell>[] {
-  const inputs = uniqueInputs(leaf.recipe);
-  const found: Map<ResourceId, Cell>[] = [];
-  const walk = (depth: number, chosen: Map<ResourceId, Cell>): void => {
-    if (found.length >= 40) {
       return;
     }
-    if (depth === inputs.length) {
-      found.push(new Map(chosen));
+    const child = SPEC_BY_ID.get(input.child);
+    if (child === undefined) {
       return;
     }
-    for (const node of nodes) {
-      if (node.resource !== inputs[depth] || chosen.has(node.resource)) {
-        continue;
+    for (let span = 1; span <= MAX_SPAN; span += 1) {
+      if (context.halted) {
+        return;
       }
-      chosen.set(node.resource, { x: node.x, y: node.y });
-      walk(depth + 1, chosen);
-      chosen.delete(node.resource);
-    }
-  };
-  walk(0, new Map());
-  found.sort((left, right) => {
-    const spread = (map: ReadonlyMap<ResourceId, Cell>): number => {
-      const cells = [...map.values()];
-      if (cells.length < 2) {
-        return 0;
-      }
-      return manhattan(cells[0], cells[1]);
-    };
-    return spread(left) - spread(right);
-  });
-  return found;
-}
-
-/**
- * A free-standing supplier position: the machine stands where a straight run
- * from each of its resource nodes reaches one of its input port cells.
- */
-function freeLeafOptions(
-  leaf: PlanNode,
-  sources: ReadonlyMap<ResourceId, Cell>,
-  blocked: ReadonlySet<string>,
-  limit: number,
-): Array<{ cell: Cell; rotation: Rotation }> {
-  const inputs = uniqueInputs(leaf.recipe);
-  const ports = inputPortCount(leaf.type);
-  const found: Array<{ cell: Cell; rotation: Rotation; cost: number }> = [];
-
-  for (const rotation of ROTATIONS) {
-    const dirs: Cell[] = [];
-    for (let index = 0; index < ports; index += 1) {
-      const direction = inputPortDirection(rotation, index);
-      if (direction === undefined) {
+      const cx = x + port.x * span;
+      const cy = y + port.y * span;
+      if (!inBounds(cx, cy) || !spanFree(context, x, y, port, span)) {
         break;
       }
-      dirs.push(direction);
+      const beltMark = context.entities.length;
+      layBelts(context, x, y, port, span, beltRotation);
+      growSubtree(child, cx, cy, beltRotation, context, () => {
+        assign(assignment, depth + 1);
+        return context.halted;
+      }, nodes);
+      unlayBelts(context, x, y, port, span);
+      context.entities.length = beltMark;
+      if (complete || context.halted) {
+        return;
+      }
     }
-    if (dirs.length !== ports) {
-      continue;
-    }
+  };
 
-    for (const assignment of portAssignments(ports, inputs.length)) {
-      for (let x = 1; x < GRID - 1; x += 1) {
-        for (let y = 1; y < GRID - 1; y += 1) {
-          const cell = { x, y };
-          if (blocked.has(key(x, y))) {
-            continue;
-          }
-          let cost = 0;
-          let feasible = true;
-          for (let inputIndex = 0; inputIndex < inputs.length; inputIndex += 1) {
-            const source = sources.get(inputs[inputIndex]);
-            const portDirection = dirs[assignment[inputIndex]];
-            if (source === undefined || portDirection === undefined) {
-              feasible = false;
-              break;
-            }
-            const portCell = add(cell, portDirection);
-            if (!inBounds(portCell)) {
-              feasible = false;
-              break;
-            }
-            const route = straightRun(source, portCell);
-            if (route === undefined) {
-              feasible = false;
-              break;
-            }
-            if (route.cells.some((beltCell) => blocked.has(key(beltCell.x, beltCell.y)))) {
-              feasible = false;
-              break;
-            }
-            cost += route.cells.length;
-          }
-          if (feasible) {
-            found.push({ cell, rotation, cost });
+  for (const assignment of assignments) {
+    if (complete || context.halted) {
+      break;
+    }
+    assign(assignment, 0);
+  }
+  release(context, x, y);
+  context.entities.length = mark;
+  return complete;
+}
+
+function collectSubtrees(
+  spec: PlanSpec,
+  rotation: Rotation,
+  nodes: Map<ResourceId, Cell[]>,
+): SubtreeCandidate[] {
+  const kept: SubtreeCandidate[] = [];
+  for (let y = 1; y < GRID - 1; y += SCAN_STEP) {
+    for (let x = 1; x < GRID - 1; x += SCAN_STEP) {
+      const found: SubtreeCandidate[] = [];
+      const context: GenContext = {
+        occupied: new Uint32Array(MASK_WORDS),
+        entities: [],
+        stepsLeft: PER_CALL_STEPS,
+        halted: false,
+      };
+      const onComplete = (
+        done: PlanSpec,
+        cx: number,
+        cy: number,
+        crot: Rotation,
+      ): boolean => {
+        const entities = context.entities.map((entity) => ({ ...entity }));
+        const mask = new Uint32Array(MASK_WORDS);
+        let belts = 0;
+        for (const entity of entities) {
+          maskAdd(mask, entity.x, entity.y);
+          if (entity.type === "belt") {
+            belts += 1;
           }
         }
+        found.push({ x: cx, y: cy, rotation: crot, entities, mask, belts });
+        if (found.length >= PER_ROOT_CAP) {
+          throw new Halt();
+        }
+        return false;
+      };
+      try {
+        growSubtree(spec, x, y, rotation, context, onComplete, nodes);
+      } catch (error) {
+        if (!(error instanceof Halt)) {
+          throw error;
+        }
+      }
+      found.sort((a, b) => a.belts - b.belts);
+      for (const candidate of found.slice(0, PER_ROOT_KEEP)) {
+        kept.push(candidate);
       }
     }
   }
-
-  found.sort((left, right) => left.cost - right.cost || left.cell.y - right.cell.y || left.cell.x - right.cell.x);
-  return found.slice(0, limit).map((entry) => ({ cell: entry.cell, rotation: entry.rotation }));
+  return kept.slice(0, POOL_LIMIT);
 }
 
-function rayHit(origin: Cell, direction: Cell, otherOrigin: Cell, otherDirection: Cell): Cell | undefined {
-  const det = direction.x * -otherDirection.y - direction.y * -otherDirection.x;
-  if (det === 0) {
+function rayMeeting(
+  fromA: Cell,
+  dirA: Cell,
+  fromB: Cell,
+  dirB: Cell,
+): { k: number; m: number; cell: Cell } | undefined {
+  const determinant = dirA.x * negate(dirB).y - dirA.y * negate(dirB).x;
+  if (determinant === 0) {
     return undefined;
   }
-  const dx = otherOrigin.x - origin.x;
-  const dy = otherOrigin.y - origin.y;
-  const k = (dx * -otherDirection.y - dy * -otherDirection.x) / det;
-  const m = (direction.x * dy - direction.y * dx) / det;
+  const dx = fromB.x - fromA.x;
+  const dy = fromB.y - fromA.y;
+  const k = (dx * negate(dirB).y - dy * negate(dirB).x) / determinant;
+  const m = (dirA.x * dy - dirA.y * dx) / determinant;
   if (!Number.isInteger(k) || !Number.isInteger(m) || k < 1 || m < 1) {
     return undefined;
   }
-  const hit = { x: origin.x + direction.x * k, y: origin.y + direction.y * k };
-  return inBounds(hit) ? hit : undefined;
+  const cell = { x: fromA.x + dirA.x * k, y: fromA.y + dirA.y * k };
+  return inBounds(cell.x, cell.y) ? { k, m, cell } : undefined;
 }
 
-/**
- * Builds the chain bottom up. A consumer stands wherever its suppliers' output
- * rays meet, so the whole layout is a tree of straight runs rather than a
- * compact block, and nothing is assumed about where the root ends up.
- */
-function solveFree(
-  plan: PlanNode[],
-  root: PlanNode,
-  leaves: readonly PlanNode[],
-  nodes: ReadonlyArray<{ resource: ResourceId; x: number; y: number }>,
-  nodeCells: ReadonlySet<string>,
-  beamWidth: number,
-  leafLimit: number,
-): { placed: Map<PlanNode, { cell: Cell; rotation: Rotation }>; assignments: Map<PlanNode, Map<ResourceId, Cell>> } | undefined {
-  const rawAssignments = new Map<PlanNode, Map<ResourceId, Cell>[]>();
-  for (const leaf of leaves) {
-    rawAssignments.set(leaf, allLeafAssignments(leaf, nodes));
+function runClear(
+  a: Uint32Array,
+  b: Uint32Array,
+  from: Cell,
+  direction: Cell,
+  first: number,
+  last: number,
+): boolean {
+  for (let step = first; step <= last; step += 1) {
+    const cx = from.x + direction.x * step;
+    const cy = from.y + direction.y * step;
+    if (!inBounds(cx, cy) || maskHolds(a, cx, cy) || maskHolds(b, cx, cy)) {
+      return false;
+    }
   }
-  const depth = new Map<PlanNode, number>();
-  const measure = (node: PlanNode, level: number): void => {
-    depth.set(node, level);
-    for (const feeder of node.feeders) {
-      if (feeder.child !== undefined) {
-        measure(feeder.child, level + 1);
-      }
-    }
-  };
-  measure(root, 0);
-
-  const order = [...plan].sort((a, b) => (depth.get(b) ?? 0) - (depth.get(a) ?? 0));
-  let beam: FreeState[] = [{ placed: new Map(), assignments: new Map(), cost: 0 }];
-
-  for (const node of order) {
-    const next: FreeState[] = [];
-    for (const state of beam) {
-      const children = node.feeders
-        .map((feeder) => feeder.child)
-        .filter((child): child is PlanNode => child !== undefined);
-
-      if (children.length === 0) {
-        const candidates = rawAssignments.get(node) ?? [];
-        if (candidates.length === 0) {
-          continue;
-        }
-        const blocked = new Set<string>(nodeCells);
-        for (const entry of state.placed.values()) {
-          blocked.add(key(entry.cell.x, entry.cell.y));
-        }
-        for (const sources of candidates) {
-          for (const option of freeLeafOptions(node, sources, blocked, leafLimit)) {
-            const placed = new Map(state.placed);
-            placed.set(node, { cell: option.cell, rotation: option.rotation });
-            next.push({
-              placed,
-              cost: state.cost,
-              assignments: new Map(state.assignments).set(node, sources),
-            });
-          }
-        }
-        continue;
-      }
-
-      if (children.length === 1) {
-        const child = state.placed.get(children[0]);
-        if (child === undefined) {
-          continue;
-        }
-        const childDirection = outputDirection(child.rotation);
-        for (let k = 1; k < GRID - 1; k += 1) {
-          const cell = { x: child.cell.x + childDirection.x * k, y: child.cell.y + childDirection.y * k };
-          if (!inBounds(cell)) {
-            continue;
-          }
-          for (const rotation of ROTATIONS) {
-            const feeds = ROTATIONS.some((candidate) => {
-              const portDirection = inputPortDirection(candidate, 0);
-              return portDirection !== undefined && same(portDirection, { x: -childDirection.x, y: -childDirection.y });
-            });
-            if (!feeds) {
-              continue;
-            }
-            const placed = new Map(state.placed);
-            placed.set(node, { cell, rotation });
-            next.push({ placed, assignments: state.assignments, cost: state.cost + k });
-          }
-        }
-        continue;
-      }
-
-      const first = state.placed.get(children[0]);
-      const second = state.placed.get(children[1]);
-      if (first === undefined || second === undefined) {
-        continue;
-      }
-      const firstDirection = outputDirection(first.rotation);
-      const secondDirection = outputDirection(second.rotation);
-      const cell = rayHit(first.cell, firstDirection, second.cell, secondDirection);
-      if (cell === undefined) {
-        continue;
-      }
-      const ports = inputPortCount(node.type);
-      const firstNeed = { x: -firstDirection.x, y: -firstDirection.y };
-      const secondNeed = { x: -secondDirection.x, y: -secondDirection.y };
-      for (let firstPort = 0; firstPort < ports; firstPort += 1) {
-        for (let secondPort = 0; secondPort < ports; secondPort += 1) {
-          if (firstPort === secondPort) {
-            continue;
-          }
-          const rotation = ROTATIONS.find((candidate) => {
-            const a = inputPortDirection(candidate, firstPort);
-            const b = inputPortDirection(candidate, secondPort);
-            return a !== undefined && b !== undefined && same(a, firstNeed) && same(b, secondNeed);
-          });
-          if (rotation === undefined) {
-            continue;
-          }
-          const placed = new Map(state.placed);
-          placed.set(node, { cell, rotation });
-          next.push({
-            placed,
-            assignments: state.assignments,
-            cost: state.cost + manhattan(first.cell, cell) + manhattan(second.cell, cell),
-          });
-        }
-      }
-    }
-
-    if (next.length === 0) {
-      return undefined;
-    }
-    next.sort((left, right) => left.cost - right.cost);
-    beam = next.slice(0, beamWidth);
-  }
-
-  const complete = beam.find((state) => state.placed.has(root));
-  return complete === undefined ? undefined : { placed: complete.placed, assignments: complete.assignments };
+  return true;
 }
 
-export function solve(seed: number = NEW_GAME_SEED): SolveResult {
-  const state = createInitialState(seed);
-  const nodes = state.grid.nodes;
-  const plan = planChain("motor");
-
-  const root = plan.find((node) => node.spine);
-  if (root === undefined) {
-    return { ok: false, entities: [], beltCount: 0, spineMachines: 0, leafMachines: 0 };
-  }
-  const spine = plan.filter((node) => node.spine);
-  const leaves = plan.filter((node) => !node.spine);
-  const nodeCells = new Set(nodes.map((node) => key(node.x, node.y)));
-
-  const choices = portChoiceSets(plan, root);
-  const attempts: Attempt[] = [];
-  for (const rootRotation of ROTATIONS) {
-    for (const choice of choices) {
-      for (let x = EDGE; x < GRID - EDGE; x += ANCHOR_STEP) {
-        for (let y = EDGE; y < GRID - EDGE; y += ANCHOR_STEP) {
-          const attempt = attemptAnchor(plan, root, { x, y }, choice, rootRotation, nodes, nodeCells);
-          if (attempt !== undefined) {
-            attempts.push(attempt);
-          }
-        }
-      }
-    }
-  }
-
-  if (process.env.SOLVER_MODE === "free") {
-    const free = solveFree(plan, root, leaves, nodes, nodeCells, 600, 60);
-    if (free !== undefined) {
-      const entities = emitLayout(plan, free.assignments, free.placed, new Map(), nodeCells);
-      if (entities !== undefined && validateLayout(entities).length === 0) {
-        return {
-          ok: true,
-          entities,
-          beltCount: entities.filter((entity) => entity.type === "belt").length,
-          anchor: free.placed.get(root)?.cell,
-          spineMachines: spine.length,
-          leafMachines: leaves.length,
-        };
-      }
-      if (process.env.DEBUG_SOLVE !== undefined) {
-        console.error(" free layout rejected", entities === undefined ? "emit failed" : "invalid");
-      }
-    } else if (process.env.DEBUG_SOLVE !== undefined) {
-      console.error(" free search exhausted");
-    }
-  }
-
-  attempts.sort((left, right) => left.cost - right.cost || left.anchor.x - right.anchor.x || left.anchor.y - right.anchor.y);
-
-  for (const attempt of attempts) {
-    const entities = buildEntities(attempt, spine, root, nodeCells);
-    if (entities === undefined) {
-      if (process.env.DEBUG_SOLVE !== undefined) {
-        console.error(" build failed at", attempt.anchor.x, attempt.anchor.y);
-      }
-      continue;
-    }
-    const probs = validateLayout(entities);
-    if (process.env.DEBUG_SOLVE !== undefined) {
-      console.error(" validate", attempt.anchor.x, attempt.anchor.y, probs.length, probs.slice(0, 2).join(" | "));
-    }
-    if (probs.length > 0) {
-      continue;
-    }
-    return {
-      ok: true,
-      entities,
-      beltCount: entities.filter((entity) => entity.type === "belt").length,
-      anchor: attempt.anchor,
-      spineMachines: spine.length,
-      leafMachines: leaves.length,
-    };
-  }
-
-  return { ok: false, entities: [], beltCount: 0, spineMachines: 0, leafMachines: 0 };
-}
-
-const ANCHOR_STEP = 6;
-
-interface LeafOption {
-  solution: LeafSolution;
-  nodes: string[];
-}
-
-/**
- * Tries every anchor for the spine. For each anchor every leaf supplier is
- * offered every legal combination of resource nodes and every legal position on
- * its consumer's port ray, and the anchor is scored by the cheapest set of
- * choices that share no node and no cell, so no leaf is starved by an earlier
- * one. That makes the search exhaustive over the anchors rather than greedy.
- */
-function attemptAnchor(
-  plan: PlanNode[],
-  root: PlanNode,
-  anchor: Cell,
-  choice: PortChoice,
-  rootRotation: Rotation,
-  nodes: ReadonlyArray<{ resource: ResourceId; x: number; y: number; id: string }>,
-  nodeCells: ReadonlySet<string>,
-): Attempt | undefined {
-  const layout = layoutSpine(root, anchor, choice, rootRotation);
-  if (layout === undefined) {
-    return undefined;
-  }
-  const machineBlocked = new Set<string>(nodeCells);
-  for (const placed of layout.placed.values()) {
-    machineBlocked.add(key(placed.cell.x, placed.cell.y));
-  }
-  const beltBlocked = new Set<string>();
-  for (const placed of layout.placed.values()) {
-    beltBlocked.add(key(placed.cell.x, placed.cell.y));
-  }
-
-  const leaves = plan.filter((node) => !node.spine).sort(
-    (a, b) => optionBreadth(a, nodes) - optionBreadth(b, nodes),
-  );
-
-  const optionsFor = (leaf: PlanNode): LeafOption[] => {
-    const slot = layout.slots.get(leaf);
-    if (slot === undefined) {
-      return [];
-    }
-    const inputs = uniqueInputs(leaf.recipe);
-    const options: LeafOption[] = [];
-    const seen = new Set<string>();
-    const walk = (depth: number, chosen: Cell[], keys: string[]): void => {
-      if (depth === inputs.length) {
-        const sources = new Map<ResourceId, Cell>();
-        inputs.forEach((resource, index) => {
-          const cell = chosen[index];
-          if (cell !== undefined) {
-            sources.set(resource, cell);
-          }
-        });
-        for (const solution of solveLeafAll(leaf, sources, slot, machineBlocked, beltBlocked)) {
-          const signature = `${keys.join("|")}:${solution.cell.x},${solution.cell.y}:${solution.rotation}`;
-          if (seen.has(signature)) {
-            continue;
-          }
-          seen.add(signature);
-          options.push({ solution, nodes: keys });
-        }
-        return;
-      }
-      for (const node of nodes) {
-        if (node.resource !== inputs[depth]) {
-          continue;
-        }
-        chosen.push({ x: node.x, y: node.y });
-        walk(depth + 1, chosen, [...keys, node.id]);
-        chosen.pop();
-      }
-    };
-    walk(0, [], []);
-    return options;
-  };
-
-  const perLeaf = leaves.map((leaf) => optionsFor(leaf));
-  if (process.env.DEBUG_SOLVE === "detail") {
-    console.error(" anchor", anchor.x, anchor.y, "r", rootRotation, perLeaf.map((options, index) => `${leaves[index].recipe}=${options.length}`).join(" "));
-  }
-  if (perLeaf.some((options) => options.length === 0)) {
-    return undefined;
-  }
-
-  let best: { picked: LeafOption[]; cost: number } | undefined;
-  const usedNodes = new Set<string>();
-  const usedCells = new Set<string>();
-  const picked: LeafOption[] = [];
-
-  const search = (index: number, cost: number): void => {
-    if (best !== undefined && cost >= best.cost) {
-      return;
-    }
-    if (index === perLeaf.length) {
-      best = { picked: [...picked], cost };
-      return;
-    }
-    const options = perLeaf[index];
-    for (const option of options) {
-      if (option.nodes.some((id) => usedNodes.has(id))) {
-        continue;
-      }
-      const cellKey = key(option.solution.cell.x, option.solution.cell.y);
-      if (usedCells.has(cellKey)) {
-        continue;
-      }
-      let clash = false;
-      for (const cell of [
-        ...option.solution.rawRoutes.flatMap((route) => route.cells),
-        ...option.solution.link.cells,
-        ...[...option.solution.sources.values()],
-      ]) {
-        if (usedCells.has(key(cell.x, cell.y))) {
-          clash = true;
-          break;
-        }
-      }
-      if (clash) {
-        continue;
-      }
-      const addedCells = new Set<string>();
-      for (const route of [...option.solution.rawRoutes, option.solution.link]) {
-        for (const beltCell of route.cells) {
-          addedCells.add(key(beltCell.x, beltCell.y));
-        }
-      }
-      for (const source of option.solution.sources.values()) {
-        addedCells.add(key(source.x, source.y));
-      }
-      addedCells.add(cellKey);
-      for (const id of option.nodes) {
-        usedNodes.add(id);
-      }
-      for (const entry of addedCells) {
-        usedCells.add(entry);
-      }
-      picked.push(option);
-      search(index + 1, cost + option.solution.cost);
-      picked.pop();
-      for (const id of option.nodes) {
-        usedNodes.delete(id);
-      }
-      for (const entry of addedCells) {
-        usedCells.delete(entry);
-      }
-    }
-  };
-
-  search(0, 0);
-  if (process.env.DEBUG_SOLVE !== undefined) {
-    console.error("   joint", best === undefined ? "NONE" : best.cost);
-  }
-  if (best === undefined) {
-    return undefined;
-  }
-
-  return {
-    layout,
-    solutions: best.picked.map((option) => option.solution),
-    cost: best.cost,
-    anchor,
-  };
-}
-
-function optionBreadth(
-  leaf: PlanNode,
-  nodes: ReadonlyArray<{ resource: ResourceId }>,
-): number {
-  return uniqueInputs(leaf.recipe).reduce((total, resource) => {
-    return total + nodes.filter((node) => node.resource === resource).length;
-  }, 0);
-}
-
-function buildEntities(
-  attempt: Attempt,
-  spine: readonly PlanNode[],
-  root: PlanNode,
-  nodeCells: ReadonlySet<string>,
-): LayoutEntity[] | undefined {
-  const entities: LayoutEntity[] = [];
-  const used = new Set<string>();
-
-  for (const solution of attempt.solutions) {
-    for (const cell of [
-      solution.cell,
-      ...solution.rawRoutes.flatMap((route) => route.cells),
-      ...solution.link.cells,
-    ]) {
-      if (used.has(key(cell.x, cell.y))) {
-        if (process.env.DEBUG_SOLVE !== undefined) {
-          console.error("  cell clash", key(cell.x, cell.y), "on", solution.node.id);
-        }
-        return undefined;
-      }
-      used.add(key(cell.x, cell.y));
-    }
-  }
-
-  for (const solution of attempt.solutions) {
-    entities.push({
-      id: solution.node.id,
-      type: solution.node.type,
-      x: solution.cell.x,
-      y: solution.cell.y,
-      rotation: solution.rotation,
-      recipeId: solution.node.recipe,
-    });
-    for (let inputIndex = 0; inputIndex < uniqueInputs(solution.node.recipe).length; inputIndex += 1) {
-      const resource = uniqueInputs(solution.node.recipe)[inputIndex];
-      const source = solution.sources.get(resource);
-      const route = solution.rawRoutes[inputIndex];
-      const extractorRotation = solution.extractorRotations[inputIndex];
-      if (source === undefined || route === undefined || extractorRotation === undefined) {
-        return undefined;
-      }
-      entities.push({
-        id: `extractor-${solution.node.id}-${resource}`,
-        type: "extractor",
-        x: source.x,
-        y: source.y,
-        rotation: extractorRotation,
-        resourceNode: resource,
-      });
-      for (let beltIndex = 0; beltIndex < route.cells.length; beltIndex += 1) {
-        entities.push({
-          id: `belt-raw-${solution.node.id}-${resource}-${beltIndex}`,
-          type: "belt",
-          x: route.cells[beltIndex].x,
-          y: route.cells[beltIndex].y,
-          rotation: route.rotations[beltIndex] ?? 0,
-        });
-      }
-    }
-    for (let beltIndex = 0; beltIndex < solution.link.cells.length; beltIndex += 1) {
-      entities.push({
-        id: `belt-link-${solution.node.id}-${beltIndex}`,
-        type: "belt",
-        x: solution.link.cells[beltIndex].x,
-        y: solution.link.cells[beltIndex].y,
-        rotation: solution.link.rotations[beltIndex] ?? 0,
-      });
-    }
-  }
-
-  for (const node of spine) {
-    const placed = attempt.layout.placed.get(node);
-    if (placed === undefined) {
-      return undefined;
-    }
-    entities.push({
-      id: node.id,
-      type: node.type,
-      x: placed.cell.x,
-      y: placed.cell.y,
-      rotation: placed.rotation,
-      recipeId: node.recipe,
-    });
-  }
-
-  const rootPlaced = attempt.layout.placed.get(root);
-  if (rootPlaced === undefined) {
-    return undefined;
-  }
-  const motorDirection = outputDirection(rootPlaced.rotation);
-  const motorOutput = add(rootPlaced.cell, motorDirection);
-  const depotRotation = ROTATIONS.find((rotation) =>
-    same(inputPortDirection(rotation, 0) ?? { x: 9, y: 9 }, { x: -motorDirection.x, y: -motorDirection.y }),
-  );
-  if (
-    !inBounds(motorOutput) ||
-    used.has(key(motorOutput.x, motorOutput.y)) ||
-    depotRotation === undefined
-  ) {
-    if (process.env.DEBUG_SOLVE !== undefined) {
-      console.error("  depot problem at", motorOutput.x, motorOutput.y, "used", used.has(key(motorOutput.x, motorOutput.y)), "rot", depotRotation);
-    }
-    return undefined;
-  }
-  entities.push({
-    id: "depot-motor",
-    type: "depot",
-    x: motorOutput.x,
-    y: motorOutput.y,
-    rotation: depotRotation,
-  });
-
-  return entities;
-}
-
-function fallbackAssignments(
-  leaves: readonly PlanNode[],
-  nodes: ReadonlyArray<{ resource: ResourceId; x: number; y: number; id: string }>,
-): Map<PlanNode, Map<ResourceId, Cell>> {
-  const used = new Set<string>();
-  const result = new Map<PlanNode, Map<ResourceId, Cell>>();
-  for (const leaf of leaves) {
-    const inputs = uniqueInputs(leaf.recipe);
-    const map = new Map<ResourceId, Cell>();
-    for (const resource of inputs) {
-      const node = nodes
-        .filter((candidate) => candidate.resource === resource && !used.has(key(candidate.x, candidate.y)))
-        .sort((a, b) => a.y - b.y || a.x - b.x)[0];
-      const chosen = node ?? nodes.find((candidate) => candidate.resource === resource);
-      if (chosen === undefined) {
-        return result;
-      }
-      used.add(key(chosen.x, chosen.y));
-      map.set(resource, { x: chosen.x, y: chosen.y });
-    }
-    result.set(leaf, map);
-  }
-  return result;
-}
-
-/**
- * Turns a placement into entities. Every feeder, whether it comes from a
- * resource node or from another machine, is a straight run that ends on the
- * consumer's input port cell, so one loop lays the whole tree.
- */
-function emitLayout(
-  plan: PlanNode[],
-  assignments: ReadonlyMap<PlanNode, Map<ResourceId, Cell>>,
-  placed: ReadonlyMap<PlanNode, { cell: Cell; rotation: Rotation }>,
-  ports: ReadonlyMap<PlanNode, Map<PlanNode, number>>,
-  nodeCells: ReadonlySet<string>,
-): LayoutEntity[] | undefined {
-  const belts: Array<{ cell: Cell; rotation: Rotation; id: string }> = [];
-  const extractors: LayoutEntity[] = [];
-  const used = new Set<string>();
-  const reservedNodes = new Set<string>();
-  void nodeCells;
-
-  for (const node of plan) {
-    const entry = placed.get(node);
-    if (entry === undefined) {
-      return undefined;
-    }
-    for (const feeder of node.feeders) {
-      const port =
-        feeder.child === undefined ? feeder.port : ports.get(node)?.get(feeder.child) ?? feeder.port;
-      const portDirection = inputPortDirection(entry.rotation, port);
-      if (portDirection === undefined) {
-        return undefined;
-      }
-      const portCell = add(entry.cell, portDirection);
-      let source: Cell | undefined;
-      if (feeder.child !== undefined) {
-        const child = placed.get(feeder.child);
-        source = child?.cell;
-      } else {
-        source = assignments.get(node)?.get(feeder.resource);
-      }
-      if (source === undefined) {
-        return undefined;
-      }
-      const route = straightRun(source, portCell);
-      if (route === undefined) {
-        return undefined;
-      }
-      for (let index = 0; index < route.cells.length; index += 1) {
-        const beltCell = route.cells[index];
-        if (used.has(key(beltCell.x, beltCell.y))) {
-          return undefined;
-        }
-        used.add(key(beltCell.x, beltCell.y));
-        belts.push({
-          cell: beltCell,
-          rotation: route.rotations[index] ?? 0,
-          id: `belt-${node.id}-${feeder.resource}-${index}`,
-        });
-      }
-      if (feeder.child === undefined) {
-        const extractorRotation = routeForExtractor(source, route, entry.cell);
-        const sourceKey = key(source.x, source.y);
-        if (extractorRotation === undefined || used.has(sourceKey) || reservedNodes.has(sourceKey)) {
-          return undefined;
-        }
-        reservedNodes.add(sourceKey);
-        extractors.push({
-          id: `extractor-${node.id}-${feeder.resource}`,
-          type: "extractor",
-          x: source.x,
-          y: source.y,
-          rotation: extractorRotation,
-          resourceNode: feeder.resource,
-        });
-      }
-    }
-    if (used.has(key(entry.cell.x, entry.cell.y))) {
-      return undefined;
-    }
-    used.add(key(entry.cell.x, entry.cell.y));
-  }
-
-  const machines = plan.map((node) => {
-    const entry = placed.get(node) as { cell: Cell; rotation: Rotation };
-    return {
-      id: node.id,
-      type: node.type,
-      x: entry.cell.x,
-      y: entry.cell.y,
-      rotation: entry.rotation,
-      recipeId: node.recipe,
-    } satisfies LayoutEntity;
-  });
-
-  const root = plan.find((node) => node.type === "assembler" && node.recipe === "motor");
-  const rootEntry = root === undefined ? undefined : placed.get(root);
-  if (rootEntry === undefined) {
-    return undefined;
-  }
-  const motorDirection = outputDirection(rootEntry.rotation);
-  const motorOutput = add(rootEntry.cell, motorDirection);
-  const depotRotation = ROTATIONS.find((rotation) =>
-    same(inputPortDirection(rotation, 0) ?? { x: 9, y: 9 }, { x: -motorDirection.x, y: -motorDirection.y }),
-  );
-  if (!inBounds(motorOutput) || used.has(key(motorOutput.x, motorOutput.y)) || depotRotation === undefined) {
-    return undefined;
-  }
-  const depot: LayoutEntity = {
-    id: "depot-motor",
-    type: "depot",
-    x: motorOutput.x,
-    y: motorOutput.y,
-    rotation: depotRotation,
-  };
-
-  return [
-    ...extractors,
-    ...machines,
-    ...belts.map((belt) => ({
-      id: belt.id,
-      type: "belt" as const,
-      x: belt.cell.x,
-      y: belt.cell.y,
-      rotation: belt.rotation,
-    })),
-    depot,
-  ];
-}
-
-function toEntity(layout: LayoutEntity, index: number): Entity {
-  return {
-    id: `entity-${index + 1}`,
-    type: layout.type,
-    x: layout.x,
-    y: layout.y,
-    rotation: layout.rotation,
-    level: 1,
-    ...(layout.recipeId === undefined ? {} : { recipeId: layout.recipeId }),
-    ...(layout.resourceNode === undefined ? {} : { resourceNode: layout.resourceNode }),
-  };
-}
-
-function producerBehind(entities: readonly Entity[], cell: Cell, seen: Set<string>): Entity | undefined {
-  const source = entities.find((entity) => entity.x === cell.x && entity.y === cell.y);
-  if (source === undefined || source.type !== "belt") {
-    return source;
-  }
-  if (seen.has(source.id)) {
-    return undefined;
-  }
-  seen.add(source.id);
-  for (const port of getWorldPortCells(source)) {
-    if (port.port.kind !== "input") {
-      continue;
-    }
-    const found = producerBehind(entities, { x: port.x, y: port.y }, seen);
-    if (found !== undefined) {
-      return found;
+function motorRotation(dirA: Cell, dirB: Cell): Rotation | undefined {
+  const negA = negate(dirA);
+  const negB = negate(dirB);
+  for (const rotation of ROTATIONS) {
+    const [first, second] = portDirections(rotation);
+    if ((sameCell(first, negA) && sameCell(second, negB)) || (sameCell(first, negB) && sameCell(second, negA))) {
+      return rotation;
     }
   }
   return undefined;
 }
 
-export function validateLayout(layout: readonly LayoutEntity[], seed: number = NEW_GAME_SEED): string[] {
+interface CombinedLayout {
+  entities: GenEntity[];
+  belts: number;
+}
+
+function pairSubtrees(
+  circuits: readonly SubtreeCandidate[],
+  frames: readonly SubtreeCandidate[],
+  dirA: Cell,
+  dirB: Cell,
+): CombinedLayout | undefined {
+  const motorRotationChoice = motorRotation(dirA, dirB);
+  if (motorRotationChoice === undefined) {
+    return undefined;
+  }
+  const motorOut = OUT_DIRECTION.get(motorRotationChoice);
+  if (motorOut === undefined) {
+    return undefined;
+  }
+  let best: CombinedLayout | undefined;
+  for (const circuit of circuits) {
+    for (const frame of frames) {
+      const meeting = rayMeeting(circuit, dirA, frame, dirB);
+      if (meeting === undefined) {
+        continue;
+      }
+      if (maskHolds(circuit.mask, meeting.cell.x, meeting.cell.y)) {
+        continue;
+      }
+      if (maskHolds(frame.mask, meeting.cell.x, meeting.cell.y)) {
+        continue;
+      }
+      if (!runClear(circuit.mask, frame.mask, circuit, dirA, 1, meeting.k - 1)) {
+        continue;
+      }
+      if (!runClear(circuit.mask, frame.mask, frame, dirB, 1, meeting.m - 1)) {
+        continue;
+      }
+      if (!masksDisjoint(circuit.mask, frame.mask)) {
+        continue;
+      }
+      let deposited = false;
+      for (let span = 1; span <= DEPOSIT_SPAN; span += 1) {
+        if (!runClear(circuit.mask, frame.mask, meeting.cell, motorOut, 0, span - 1)) {
+          break;
+        }
+        const entities: GenEntity[] = [
+          ...circuit.entities,
+          ...frame.entities,
+          ...beltRun(circuit, dirA, meeting.k),
+          ...beltRun(frame, dirB, meeting.m),
+          {
+            type: "assembler",
+            x: meeting.cell.x,
+            y: meeting.cell.y,
+            rotation: motorRotationChoice,
+            recipeId: "motor",
+          },
+          ...beltRun(meeting.cell, motorOut, span),
+          {
+            type: "depot",
+            x: meeting.cell.x + motorOut.x * span,
+            y: meeting.cell.y + motorOut.y * span,
+            rotation: DIRECTION_ROTATION.get(`${motorOut.x},${motorOut.y}`) ?? 0,
+          },
+        ];
+        const belts = entities.filter((entity) => entity.type === "belt").length;
+        if (best === undefined || belts < best.belts) {
+          best = { entities, belts };
+        }
+        deposited = true;
+        break;
+      }
+      if (!deposited) {
+        continue;
+      }
+    }
+  }
+  return best;
+}
+
+function beltRun(origin: Cell, direction: Cell, span: number): GenEntity[] {
+  const rotation = DIRECTION_ROTATION.get(`${direction.x},${direction.y}`);
+  if (rotation === undefined) {
+    return [];
+  }
+  const run: GenEntity[] = [];
+  for (let step = 1; step < span; step += 1) {
+    run.push({
+      type: "belt",
+      x: origin.x + direction.x * step,
+      y: origin.y + direction.y * step,
+      rotation,
+    });
+  }
+  return run;
+}
+
+export const __probe = { growSubtree, resourceNodes, SPEC_BY_ID, collectSubtrees, OUT_DIRECTION };
+
+export function solve(seed: number = NEW_GAME_SEED): SolveResult {
+  const nodes = resourceNodes(seed);
+  const pools = new Map<string, SubtreeCandidate[]>();
+  for (const spec of SUBTREE_SEEDS) {
+    for (const rotation of ROTATIONS) {
+      const direction = OUT_DIRECTION.get(rotation);
+      if (direction === undefined) {
+        continue;
+      }
+      const key = `${spec.id}|${direction.x},${direction.y}`;
+      pools.set(key, collectSubtrees(spec, rotation, nodes));
+    }
+  }
+  const directions = [...OUT_DIRECTION.values()];
+  let best: CombinedLayout | undefined;
+  for (const dirA of directions) {
+    const circuits = pools.get(`circuit|${dirA.x},${dirA.y}`);
+    if (circuits === undefined) {
+      continue;
+    }
+    for (const dirB of directions) {
+      if (Math.abs(dirA.x * dirB.x + dirA.y * dirB.y) !== 0) {
+        continue;
+      }
+      const frames = pools.get(`frame|${dirB.x},${dirB.y}`);
+      if (frames === undefined) {
+        continue;
+      }
+      const combined = pairSubtrees(circuits, frames, dirA, dirB);
+      if (combined !== undefined && (best === undefined || combined.belts < best.belts)) {
+        best = combined;
+      }
+    }
+  }
+  if (best === undefined) {
+    return {
+      ok: false,
+      entities: [],
+      beltCount: 0,
+      placements: 0,
+      nodesUsed: 0,
+      restarts: 0,
+      exhausted: true,
+    };
+  }
+  const entities: LayoutEntity[] = best.entities.map((entity, order) => ({
+    id: `e${order}`,
+    type: entity.type,
+    x: entity.x,
+    y: entity.y,
+    rotation: entity.rotation,
+    ...(entity.recipeId === undefined ? {} : { recipeId: entity.recipeId }),
+    ...(entity.resourceNode === undefined ? {} : { resourceNode: entity.resourceNode }),
+  }));
+  const nodeCells = new Set(
+    entities
+      .filter((entity) => entity.type === "extractor")
+      .map((entity) => `${entity.x},${entity.y}`),
+  );
+  return {
+    ok: true,
+    entities,
+    beltCount: best.belts,
+    placements: entities.length,
+    nodesUsed: nodeCells.size,
+    restarts: 0,
+  };
+}
+
+function asEntity(entity: LayoutEntity): Entity {
+  return {
+    id: entity.id,
+    type: entity.type,
+    x: entity.x,
+    y: entity.y,
+    rotation: entity.rotation,
+    level: 1,
+    ...(entity.recipeId === undefined ? {} : { recipeId: entity.recipeId }),
+    ...(entity.resourceNode === undefined ? {} : { resourceNode: entity.resourceNode }),
+  };
+}
+
+function producedResource(entity: Entity): ResourceId | undefined {
+  if (entity.type === "extractor") {
+    return entity.resourceNode;
+  }
+  if (entity.recipeId === undefined) {
+    return undefined;
+  }
+  return getRecipe(entity.recipeId)?.output.resource;
+}
+
+export function validateLayout(
+  layout: readonly LayoutEntity[],
+  seed: number = NEW_GAME_SEED,
+): string[] {
   const problems: string[] = [];
-  const entities = layout.map(toEntity);
-  const occupied = new Set<string>();
-  const state = createInitialState(seed);
-
+  const entities = layout.map(asEntity);
+  const byCell = new Map<string, Entity>();
   for (const entity of entities) {
-    const cellKey = key(entity.x, entity.y);
-    if (occupied.has(cellKey)) {
-      problems.push(`two entities share cell ${cellKey}`);
-    }
-    occupied.add(cellKey);
-    if (entity.x < 0 || entity.y < 0 || entity.x >= state.grid.width || entity.y >= state.grid.height) {
-      problems.push(`entity ${entity.id} is outside the grid at ${cellKey}`);
-    }
-  }
-
-  for (const entity of entities) {
-    if (entity.type !== "extractor") {
+    const key = `${entity.x},${entity.y}`;
+    if (byCell.has(key)) {
+      problems.push(`two entities share cell ${key}`);
       continue;
     }
-    const node = state.grid.nodes.find((candidate) => candidate.x === entity.x && candidate.y === entity.y);
-    if (node === undefined) {
-      problems.push(`extractor ${entity.id} stands on no resource node`);
-    } else if (node.resource !== entity.resourceNode) {
-      problems.push(`extractor ${entity.id} claims ${entity.resourceNode} on a ${node.resource} node`);
+    byCell.set(key, entity);
+  }
+  for (const entity of entities) {
+    if (!inBounds(entity.x, entity.y)) {
+      problems.push(`${entity.type} at ${entity.x},${entity.y} is outside the grid`);
     }
   }
-
-  for (const belt of entities.filter((entity) => entity.type === "belt")) {
-    const output = getWorldPortCells(belt).find((port) => port.port.kind === "output");
+  const nodes = resourceNodes(seed);
+  for (const entity of entities) {
+    if (entity.type !== "extractor" || entity.resourceNode === undefined) {
+      continue;
+    }
+    const stands = (nodes.get(entity.resourceNode) ?? []).some(
+      (node) => node.x === entity.x && node.y === entity.y,
+    );
+    if (!stands) {
+      problems.push(`extractor at ${entity.x},${entity.y} is not on a ${entity.resourceNode} node`);
+    }
+  }
+  for (const entity of entities) {
+    const output = getWorldPortCells(entity).find((port) => port.port.kind === "output");
     if (output === undefined) {
-      problems.push(`belt ${belt.id} has no output port`);
       continue;
     }
-    const next = entities.find((entity) => entity.x === output.x && entity.y === output.y);
-    if (next === undefined) {
-      problems.push(`belt ${belt.id} points at nothing from ${belt.x},${belt.y}`);
-    } else if (!arePortsConnected(belt, next)) {
-      problems.push(`belt ${belt.id} at ${belt.x},${belt.y} does not connect to ${next.id}`);
+    const target = byCell.get(`${output.x},${output.y}`);
+    if (target === undefined) {
+      problems.push(`${entity.type} at ${entity.x},${entity.y} has nothing on its output port cell`);
+      continue;
+    }
+    if (!arePortsConnected(entity, target)) {
+      problems.push(
+        `${entity.type} at ${entity.x},${entity.y} does not connect to ${target.type} at ${target.x},${target.y}`,
+      );
     }
   }
-
   for (const entity of entities) {
     if (entity.type !== "smelter" && entity.type !== "assembler") {
       continue;
     }
-    const recipe = entity.recipeId === undefined ? undefined : RECIPES[entity.recipeId as RecipeId];
-    if (recipe === undefined || recipe.machine !== entity.type) {
-      problems.push(`processor ${entity.id} has no runnable recipe`);
+    if (entity.recipeId === undefined) {
+      problems.push(`${entity.type} at ${entity.x},${entity.y} has no recipe`);
       continue;
     }
-    const ports = getWorldPortCells(entity).filter((port) => port.port.kind === "input");
-    for (const resource of uniqueInputs(recipe.id)) {
-      const fed = ports.some((port) => {
-        const producer = producerBehind(entities, { x: port.x, y: port.y }, new Set());
-        if (producer === undefined) {
-          return false;
+    const recipe = getRecipe(entity.recipeId);
+    if (recipe === undefined) {
+      problems.push(`${entity.type} at ${entity.x},${entity.y} names an unknown recipe ${entity.recipeId}`);
+      continue;
+    }
+    const needed = new Set<ResourceId>(Object.keys(recipe.inputs) as ResourceId[]);
+    const fed = new Set<ResourceId>();
+    for (const port of getWorldPortCells(entity).filter((cell) => cell.port.kind === "input")) {
+      let current = byCell.get(`${port.x},${port.y}`);
+      if (current === undefined) {
+        continue;
+      }
+      const visited = new Set<string>();
+      while (current !== undefined && current.type === "belt") {
+        const key = `${current.x},${current.y}`;
+        if (visited.has(key)) {
+          problems.push(`the belt run feeding ${entity.recipeId} at ${entity.x},${entity.y} loops`);
+          current = undefined;
+          break;
         }
-        const producerOutput = getWorldPortCells(producer).find((cell) => cell.port.kind === "output");
-        return producerOutput !== undefined && getProducedResource(producer, producerOutput.port) === resource;
-      });
-      if (!fed) {
-        problems.push(`processor ${entity.id} has no producer for ${resource}`);
+        visited.add(key);
+        const entry: Cell | undefined = getWorldPortCells(current).find(
+          (cell) => cell.port.kind === "input",
+        );
+        current =
+          entry === undefined ? undefined : byCell.get(`${entry.x},${entry.y}`);
+      }
+      if (current === undefined) {
+        problems.push(
+          `the belt run feeding ${entity.recipeId} at ${entity.x},${entity.y} has no producer at its start`,
+        );
+        continue;
+      }
+      const resource = producedResource(current);
+      if (resource === undefined || !needed.has(resource)) {
+        problems.push(
+          `an input of ${entity.recipeId} at ${entity.x},${entity.y} is fed ${resource ?? current.type}, which it does not need`,
+        );
+        continue;
+      }
+      fed.add(resource);
+    }
+    for (const resource of needed) {
+      if (!fed.has(resource)) {
+        problems.push(`no producer reaches the ${resource} input of ${entity.recipeId} at ${entity.x},${entity.y}`);
       }
     }
-    const output = getWorldPortCells(entity).find((port) => port.port.kind === "output");
-    if (output === undefined) {
-      problems.push(`processor ${entity.id} has no output port`);
-      continue;
-    }
-    const consumer = entities.find((candidate) => candidate.x === output.x && candidate.y === output.y);
-    if (consumer === undefined) {
-      problems.push(`processor ${entity.id} has no consumer on its output port cell`);
-    } else if (!arePortsConnected(entity, consumer)) {
-      problems.push(`processor ${entity.id} does not connect to ${consumer.id}`);
-    }
   }
-
   return problems;
 }
 
-const invokedDirectly = process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`;
+export function layoutJson(seed: number = NEW_GAME_SEED, path?: string): string {
+  const result = solve(seed);
+  const json = JSON.stringify(result.entities, null, 2);
+  if (path !== undefined) {
+    writeFileSync(path, `${json}\n`);
+  }
+  return json;
+}
+
+const invokedDirectly =
+  process.argv[1] !== undefined && process.argv[1].includes("solve-motor-chain");
 
 if (invokedDirectly) {
   const started = Date.now();
   const result = solve(NEW_GAME_SEED);
-  if (!result.ok) {
-    console.log("no solution found");
-    process.exitCode = 1;
-  } else {
-    const problems = validateLayout(result.entities);
-    console.log(
-      `motor chain solved in ${Date.now() - started}ms: ${result.entities.length} entities, ${result.beltCount} belts, ${result.spineMachines} spine, ${result.leafMachines} leaves, ${problems.length} problems`,
-    );
-    for (const problem of problems) {
-      console.log(`  ${problem}`);
-    }
-    if (problems.length > 0) {
-      process.exitCode = 1;
-    }
+  const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+  const problems = result.ok ? validateLayout(result.entities, NEW_GAME_SEED) : ["solver found nothing"];
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        ok: result.ok,
+        entities: result.placements,
+        belts: result.beltCount,
+        nodesUsed: result.nodesUsed,
+        problems: problems.length,
+        detail: problems.slice(0, 8),
+        seconds: Number(elapsed),
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  if (result.ok) {
+    layoutJson(NEW_GAME_SEED, "scripts/motor-chain-layout.json");
+    process.stdout.write("wrote scripts/motor-chain-layout.json\n");
   }
 }
