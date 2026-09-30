@@ -3,6 +3,12 @@ import { getMachineUpgradeCost, getUpgradeLevel } from "../../content/machines";
 import type { SimulationStore } from "../../sim/store";
 import type { Entity } from "../../sim/types";
 import { useSimulationSnapshot } from "../hooks/useSimulationSnapshot";
+import {
+  LEFT_RAIL_INSPECTOR_MAX_HEIGHT,
+  LEFT_RAIL_LEFT,
+  LEFT_RAIL_TOP,
+  LEFT_RAIL_WIDTH,
+} from "../layout";
 import { getCommandReasonMessage, getMachineLabel } from "../presentation";
 
 interface EntityInspectorProps {
@@ -33,10 +39,13 @@ export function EntityInspector({ store }: EntityInspectorProps) {
       data-testid="entity-inspector"
       style={{
         position: "absolute",
-        top: 128,
-        left: 24,
+        top: LEFT_RAIL_TOP,
+        left: LEFT_RAIL_LEFT,
         zIndex: 3,
-        width: 240,
+        boxSizing: "border-box",
+        width: LEFT_RAIL_WIDTH,
+        maxHeight: LEFT_RAIL_INSPECTOR_MAX_HEIGHT,
+        overflowY: "auto",
         padding: 16,
         border: "1px solid rgba(229, 242, 246, 0.28)",
         borderRadius: 8,

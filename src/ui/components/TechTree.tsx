@@ -9,6 +9,11 @@ import type { SimulationStore } from "../../sim/store";
 import type { SimulationSnapshot } from "../../sim/types";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useSimulationSnapshot } from "../hooks/useSimulationSnapshot";
+import {
+  LEFT_RAIL_LEFT,
+  LEFT_RAIL_TOGGLE_TOP,
+  LEFT_RAIL_WIDTH,
+} from "../layout";
 import { getCommandReasonMessage, getMachineLabel } from "../presentation";
 
 interface TechTreeProps {
@@ -403,10 +408,11 @@ function formatNumber(value: number): string {
 
 const toggleStyle = {
   position: "absolute" as const,
-  top: 400,
-  left: 24,
+  top: LEFT_RAIL_TOGGLE_TOP,
+  left: LEFT_RAIL_LEFT,
   zIndex: 3,
-  width: 240,
+  boxSizing: "border-box" as const,
+  width: LEFT_RAIL_WIDTH,
   minHeight: 38,
   border: "1px solid #58758a",
   borderRadius: 6,

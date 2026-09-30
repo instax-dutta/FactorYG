@@ -1,0 +1,8 @@
+export const LEFT_RAIL_LEFT = 24;
+export const LEFT_RAIL_TOP = 128;
+export const LEFT_RAIL_WIDTH = 240;
+export const LEFT_RAIL_GAP = 12;
+export const LEFT_RAIL_TOGGLE_TOP = 400;
+
+export const LEFT_RAIL_INSPECTOR_MAX_HEIGHT =
+  LEFT_RAIL_TOGGLE_TOP - LEFT_RAIL_TOP - LEFT_RAIL_GAP;
