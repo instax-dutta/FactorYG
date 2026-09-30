@@ -28,47 +28,38 @@ interface PortKinds {
 }
 
 const ROTATION_COUNT = 4;
-const ROTATED_PORTS = new Map<string, PortDefinition[][]>();
-const PORT_KINDS = new Map<string, PortKinds[]>();
+const ROTATED_PORTS = new WeakMap<MachineDefinition, PortDefinition[][]>();
+const PORT_KINDS = new WeakMap<MachineDefinition, PortKinds[]>();
 
-function getPortKindsCache(type: string): PortKinds[] | undefined {
-  return PORT_KINDS.get(type);
-}
-
-function getCachedRotatedPorts(type: string, rotation: Rotation): readonly PortDefinition[] {
-  const definition = getMachine(type);
-  if (definition === undefined) {
-    return NO_PORTS;
-  }
-
-  const cached = ROTATED_PORTS.get(type);
-  if (cached === undefined) {
-    const built = definition.ports.map(() => [] as PortDefinition[]);
-    ROTATED_PORTS.set(type, built);
-    return fillRotatedPorts(built, definition.ports)[rotation / 90];
-  }
-
-  return cached[rotation / 90] ?? NO_PORTS;
-}
-
-function fillRotatedPorts(
-  built: PortDefinition[][],
-  ports: readonly PortDefinition[],
-): PortDefinition[][] {
-  for (let step = 0; step < ROTATION_COUNT; step += 1) {
-    built[step] = ports.map((port) => ({
-      ...port,
-      offset: rotateGridPoint(port.offset, (step * 90) as Rotation),
-    }));
-  }
-  return built;
-}
-
-function getCachedPortKinds(type: string, rotation: Rotation): PortKinds {
-  let byRotation = getPortKindsCache(type);
+function getCachedRotatedPorts(
+  definition: MachineDefinition,
+  rotation: Rotation,
+): readonly PortDefinition[] {
+  let byRotation = ROTATED_PORTS.get(definition);
   if (byRotation === undefined) {
     byRotation = [];
-    PORT_KINDS.set(type, byRotation);
+    for (let step = 0; step < ROTATION_COUNT; step += 1) {
+      byRotation.push(
+        definition.ports.map((port) => ({
+          ...port,
+          offset: rotateGridPoint(port.offset, (step * 90) as Rotation),
+        })),
+      );
+    }
+    ROTATED_PORTS.set(definition, byRotation);
+  }
+
+  return byRotation[rotation / 90] ?? NO_PORTS;
+}
+
+function getCachedPortKinds(
+  definition: MachineDefinition,
+  rotation: Rotation,
+): PortKinds {
+  let byRotation = PORT_KINDS.get(definition);
+  if (byRotation === undefined) {
+    byRotation = [];
+    PORT_KINDS.set(definition, byRotation);
   }
 
   const slot = rotation / 90;
@@ -77,7 +68,7 @@ function getCachedPortKinds(type: string, rotation: Rotation): PortKinds {
     return cached;
   }
 
-  const ports = getCachedRotatedPorts(type, rotation);
+  const ports = getCachedRotatedPorts(definition, rotation);
   const inputs: PortDefinition[] = [];
   const outputs: PortDefinition[] = [];
   for (const port of ports) {
@@ -93,8 +84,17 @@ function getCachedPortKinds(type: string, rotation: Rotation): PortKinds {
   return kinds;
 }
 
+function resolvePortSource(type: string): MachineDefinition | undefined {
+  return getMachine(type);
+}
+
 export function getWorldPortCells(entity: Entity): WorldPortCell[] {
-  const ports = getCachedRotatedPorts(entity.type, entity.rotation);
+  const definition = resolvePortSource(entity.type);
+  if (definition === undefined) {
+    return [];
+  }
+
+  const ports = getCachedRotatedPorts(definition, entity.rotation);
   if (ports.length === 0) {
     return [];
   }
@@ -115,8 +115,14 @@ export function arePortsConnected(
   inputEntity: Entity,
   carriedResource?: ResourceId,
 ): boolean {
-  const outputKinds = getCachedPortKinds(outputEntity.type, outputEntity.rotation);
-  const inputKinds = getCachedPortKinds(inputEntity.type, inputEntity.rotation);
+  const outputDefinition = resolvePortSource(outputEntity.type);
+  const inputDefinition = resolvePortSource(inputEntity.type);
+  if (outputDefinition === undefined || inputDefinition === undefined) {
+    return false;
+  }
+
+  const outputKinds = getCachedPortKinds(outputDefinition, outputEntity.rotation);
+  const inputKinds = getCachedPortKinds(inputDefinition, inputEntity.rotation);
   if (outputKinds.outputs.length === 0 || inputKinds.inputs.length === 0) {
     return false;
   }
