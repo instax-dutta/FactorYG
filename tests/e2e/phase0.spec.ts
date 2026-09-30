@@ -4,7 +4,11 @@ import {
   expectNoPanelOverlap,
   waitForBoundingBox,
 } from "./support/overlayLayout";
-import { waitForReady, type SceneTelemetry } from "./support/runtimeBridge";
+import {
+  screenPointForCell as screenPointForCellShared,
+  waitForReady,
+  type SceneTelemetry,
+} from "./support/runtimeBridge";
 import { CAMERA_MARGIN_PX } from "../../src/phaser/cameraConfig";
 import { STARTING_CURRENCY } from "../../src/content/balance";
 import { SAVE_KEY, TILE_SIZE_PX } from "../../src/sim/constants";
@@ -93,37 +97,6 @@ async function getTelemetry(page: Page): Promise<SceneTelemetry> {
     }
     return telemetry.getSnapshot();
   });
-}
-
-async function screenPointForCell(
-  page: Page,
-  cell: { x: number; y: number },
-): Promise<{ x: number; y: number }> {
-  return page.evaluate(
-    ({ cell, tileSize }) => {
-      const canvas = document.querySelector<HTMLCanvasElement>("[data-testid=game-canvas] canvas");
-      const telemetry = window.__FACTOR_Y_TELEMETRY__;
-      if (canvas === null || telemetry === undefined) {
-        throw new Error("Factor-Y canvas or telemetry unavailable");
-      }
-      const rect = canvas.getBoundingClientRect();
-      const intrinsicWidth = canvas.width;
-      const intrinsicHeight = canvas.height;
-      if (intrinsicWidth <= 0 || intrinsicHeight <= 0) {
-        throw new Error("Factor-Y canvas intrinsic dimensions unavailable");
-      }
-      const displayScale = Math.min(
-        rect.width / intrinsicWidth,
-        rect.height / intrinsicHeight,
-      );
-      const snapshot = telemetry.getSnapshot();
-      return {
-        x: rect.left + (cell.x * tileSize + tileSize / 2 - snapshot.camera.scrollX) * snapshot.camera.zoom * displayScale,
-        y: rect.top + (cell.y * tileSize + tileSize / 2 - snapshot.camera.scrollY) * snapshot.camera.zoom * displayScale,
-      };
-    },
-    { cell, tileSize: TILE_SIZE_PX },
-  );
 }
 
 async function visibleNodeCell(page: Page, resource: ResourceId): Promise<{ x: number; y: number }> {
@@ -247,7 +220,7 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
   await page.evaluate(() => {
     window.__FACTOR_Y__?.dispatch({ type: "setPlacementMode", machine: "extractor" });
   });
-  let point = await screenPointForCell(page, TEST_CELL);
+  let point = await screenPointForCellShared(page, TEST_CELL, TILE_SIZE_PX);
   await page.mouse.move(point.x, point.y);
   await expect.poll(async () => (await getTelemetry(page)).ghost.visible).toBe(true);
   await expect.poll(async () => (await getTelemetry(page)).ghost.valid).toBe(false);
@@ -255,7 +228,7 @@ test("mounts, controls, previews, simulates, and remounts the Phase 0 scene", as
   await page.evaluate(() => {
     window.__FACTOR_Y__?.dispatch({ type: "setPlacementMode", machine: "belt" });
   });
-  point = await screenPointForCell(page, TEST_CELL);
+  point = await screenPointForCellShared(page, TEST_CELL, TILE_SIZE_PX);
   await page.mouse.move(point.x + 1, point.y + 1);
   await expect.poll(async () => (await getTelemetry(page)).ghost.valid).toBe(true);
   expect((await getTelemetry(page)).ghost.rotation).toBe(0);
@@ -490,7 +463,7 @@ test("selects placed entities from the canvas and preserves placement mode", asy
   await page.getByTestId("build-belt").click();
   expect(await page.evaluate(() => window.__FACTOR_Y__?.getSnapshot().placementMode)).toBe("belt");
 
-  const extractorPoint = await screenPointForCell(page, TEST_NODE);
+  const extractorPoint = await screenPointForCellShared(page, TEST_NODE, TILE_SIZE_PX);
   await page.mouse.click(extractorPoint.x, extractorPoint.y);
   await expect(page.getByTestId("inspector-empty")).toBeVisible();
 
@@ -501,7 +474,7 @@ test("selects placed entities from the canvas and preserves placement mode", asy
   await expect(page.getByTestId("inspector-type")).toHaveText("Extractor");
   await expect(page.getByTestId("inspector-id")).toHaveText("entity-1");
 
-  const emptyPoint = await screenPointForCell(page, TEST_CELL);
+  const emptyPoint = await screenPointForCellShared(page, TEST_CELL, TILE_SIZE_PX);
   await page.mouse.click(emptyPoint.x, emptyPoint.y);
   await expect(page.getByTestId("inspector-empty")).toBeVisible();
 

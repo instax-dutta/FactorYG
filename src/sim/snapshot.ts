@@ -39,6 +39,7 @@ export function createSnapshot(state: SimulationState): SimulationSnapshot {
     expansionRights: hasGridExpansionRights(state),
     gridWidth: state.grid.width,
     gridHeight: state.grid.height,
+    entityCount: state.grid.entities.length,
     unlockedMachines,
     unlockedRecipes,
     selectedEntity: selectedEntitySnapshot,

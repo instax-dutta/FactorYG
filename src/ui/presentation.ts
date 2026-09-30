@@ -59,3 +59,11 @@ export function getSaveRecoveryMessage(reason: string | undefined): string {
 
   return saveRecoveryMessages[reason as SaveFailureReason] ?? saveRecoveryFallback;
 }
+
+export const firstRunHintHeading = "Start by mining";
+
+export const firstRunHintSteps: readonly string[] = [
+  "Pick a machine from the dock at the bottom left.",
+  "Click a glowing resource node on the ground to place it.",
+  "An extractor only works on a node, so aim for one of those.",
+];

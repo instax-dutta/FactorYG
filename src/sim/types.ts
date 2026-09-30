@@ -129,6 +129,7 @@ export interface SimulationSnapshot {
   expansionRights: boolean;
   gridWidth: number;
   gridHeight: number;
+  entityCount: number;
   unlockedMachines: MachineType[];
   unlockedRecipes: string[];
   selectedEntity?: Entity;

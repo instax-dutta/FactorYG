@@ -8,6 +8,7 @@ import { GameHeader } from "../ui/components/GameHeader";
 import { Hud } from "../ui/components/Hud";
 import { BuildDock } from "../ui/components/BuildDock";
 import { EntityInspector } from "../ui/components/EntityInspector";
+import { FirstRunHint } from "../ui/components/FirstRunHint";
 import { NotificationStack } from "../ui/components/NotificationStack";
 import { OfflineSummaryModal } from "../ui/components/OfflineSummaryModal";
 import { SaveRecoveryNotice } from "../ui/components/SaveRecoveryNotice";
@@ -70,6 +71,7 @@ export function App() {
       {runtime !== null ? (
         <>
           <Hud store={runtime.store} />
+          <FirstRunHint store={runtime.store} />
           <BuildDock store={runtime.store} />
           <EntityInspector store={runtime.store} />
           <TechTree store={runtime.store} />
