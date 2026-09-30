@@ -18,7 +18,9 @@ import type {
 const ALL_MACHINES = Object.keys(MACHINES) as MachineType[];
 const ALL_RECIPES = Object.keys(RECIPES);
 const SATURATED_EXTRACTOR_LEVEL = 20;
-const EQUIVALENCE_TICKS = 40;
+const EQUIVALENCE_TICKS = 600;
+const FALLBACK_TICKS = 300;
+const SILO_LEVEL = 40;
 const LARGE_GRID = 256;
 
 interface LayoutEntry {
@@ -101,20 +103,76 @@ function idleMachine(id: string, x: number, y: number, type: MachineType = "smel
   return { id, type, x, y, rotation: 0, level: 1, ...(type === "smelter" ? { recipeId: "ironIngot" } : {}) };
 }
 
+function siloRun(y: number, beltCount: number, prefix: string): Entity[] {
+  const entities: Entity[] = [
+    {
+      id: `${prefix}-extractor`,
+      type: "extractor",
+      x: 1,
+      y,
+      rotation: 0,
+      level: SILO_LEVEL,
+      resourceNode: "ironOre",
+    },
+  ];
+  for (let step = 0; step < beltCount; step += 1) {
+    entities.push({
+      id: `${prefix}-belt-${step}`,
+      type: "belt",
+      x: 2 + step,
+      y,
+      rotation: 0,
+      level: 1,
+    });
+  }
+  entities.push({
+    id: `${prefix}-silo`,
+    type: "silo",
+    x: 2 + beltCount,
+    y,
+    rotation: 0,
+    level: 1,
+  });
+  return entities;
+}
+
 function canonical(value: unknown): string {
   return JSON.stringify(value, (_key, entry: unknown) => (entry === undefined ? "missing" : entry));
 }
 
 describe("the active entity index", () => {
-  it("registers a newly placed entity as active so its first tick is never skipped", () => {
-    const [extractor] = beltRun(4, 3, 1, "run");
+  it("indexes every entity in a rebuilt world so the first tick is never skipped", () => {
+    const entities = beltRun(4, 3, 1, "run");
     const index = new ActiveEntityIndex();
 
-    index.rebuild([extractor]);
-    index.registerEntity(extractor);
+    index.rebuild(entities);
 
-    expect(index.isActive("run-extractor")).toBe(true);
-    expect(index.isCompleteFor([extractor])).toBe(true);
+    for (const entity of entities) {
+      expect(index.isActive(entity.id)).toBe(true);
+    }
+    expect(index.isCompleteFor(entities)).toBe(true);
+  });
+
+  it("places an entity through the store and ticks it without a stale index", () => {
+    const entities = beltRun(4, 8, 1, "run");
+    const state = fromEntities(entities);
+    const store = new SimulationStore(state, () => 0);
+    const events: RenderEvent[] = [];
+    store.subscribeEvents((event) => events.push(event));
+    const placed = store.dispatch({
+      type: "placeEntity",
+      machine: "silo",
+      x: 30,
+      y: 30,
+      rotation: 0,
+    });
+
+    store.advanceTicks(5);
+
+    expect(placed.ok).toBe(true);
+    expect(events.length).toBeGreaterThan(0);
+    expect(store.getSaveGame().grid.entities).toHaveLength(entities.length + 1);
+    expect(store.getSaveGame().grid.machines["entity-1"]).toBeDefined();
   });
 
   it("retires a machine that has run out of work so a saturated world stops rescanning it", () => {
@@ -135,18 +193,36 @@ describe("the active entity index", () => {
     expect(index.getTelemetry().productionSkips).toBeGreaterThan(0);
   });
 
-  it("marks an idle machine dirty when its neighbour changes and drains in world order", () => {
-    const entities = [idleMachine("smelter", 4, 4), idleMachine("depot-idle", 5, 4, "silo")];
+  it("visits a retired machine again once a belt beside it starts carrying an item", () => {
+    const entities = [
+      idleMachine("waiting-smelter", 5, 4),
+      { id: "feed-belt", type: "belt" as MachineType, x: 4, y: 4, rotation: 0 as Rotation, level: 1 },
+    ];
+    const state = fromEntities(entities);
     const index = new ActiveEntityIndex();
     index.rebuild(entities);
+    advanceSimulation(state, 3, [], index);
+    index.resetTelemetry();
 
-    index.markDirty("smelter");
-    index.markDirty("depot-idle");
-    index.markDirty("smelter");
+    const loaded: SimulationState = {
+      ...state,
+      grid: {
+        ...state.grid,
+        belts: {
+          ...state.grid.belts,
+          "feed-belt": { entityId: "feed-belt", item: "coal", progress: 0 },
+        },
+      },
+    };
+    const events: RenderEvent[] = [];
+    const next = advanceSimulation(loaded, 1, events, index);
 
-    expect(index.isDirty("smelter")).toBe(true);
-    expect(index.drainDirtyEntityIds()).toEqual(["smelter", "depot-idle"]);
-    expect(index.drainDirtyEntityIds()).toEqual([]);
+    expect(index.getTelemetry().chunksVisited).toBeGreaterThan(0);
+    expect(next.grid.machines["waiting-smelter"]?.input?.coal).toBe(1);
+    expect(next.grid.belts["feed-belt"]?.item).toBeUndefined();
+    expect(events.filter((event) => event.type === "beltItemChanged")).toEqual([
+      { type: "beltItemChanged", entityId: "feed-belt", item: undefined },
+    ]);
   });
 
   it("resolves a neighbour from its cell rather than by scanning the world", () => {
@@ -183,20 +259,25 @@ describe("the active entity index", () => {
     ).toBe(false);
   });
 
-  it("buckets entities into eight by eight cell chunks and reports which chunks are active", () => {
+  it("treats a rebuilt world as all active and narrows it as machines go idle", () => {
     const entities = beltRun(4, 5, 1, "run");
+    const state = fromEntities(entities);
     const index = new ActiveEntityIndex();
     index.rebuild(entities);
 
     const firstChunk = index.getChunkKey(0, 0);
-    const secondChunk = index.getChunkKey(16, 0);
+    const emptyChunk = index.getChunkKey(16, 0);
+    const adjacentChunk = index.getChunkKey(0, CHUNK_SIZE);
 
-    expect(firstChunk).not.toBe(secondChunk);
-    expect(index.getChunkEntityIds(firstChunk)).toContain("run-belt-0");
-    expect(index.getChunkEntityIds(secondChunk)).toEqual([]);
+    expect(firstChunk).not.toBe(emptyChunk);
     expect(index.isChunkActive(firstChunk)).toBe(true);
-    expect(index.isChunkActive(secondChunk)).toBe(false);
-    expect(index.isChunkActive(index.getChunkKey(0, CHUNK_SIZE))).toBe(false);
+    expect(index.isChunkActive(emptyChunk)).toBe(false);
+    expect(index.isChunkActive(adjacentChunk)).toBe(false);
+
+    const settled = advanceSimulation(state, 5, [], index);
+
+    expect(settled.tickCount).toBe(5);
+    expect(index.isChunkActive(emptyChunk)).toBe(false);
   });
 });
 
@@ -286,6 +367,11 @@ describe("indexed ticks agree with unindexed ticks", () => {
 
     expect(entities).toHaveLength(133);
     expect(indexedEvents.length).toBeGreaterThan(0);
+    expect(
+      indexedEvents.some((event) => event.type === "saleCompleted"),
+      "the equivalence window must reach a point where the motor chain actually sells, or the " +
+        "committed layout is only being compared before it has run a single recipe to completion",
+    ).toBe(true);
     expect(canonical(indexedEvents)).toBe(canonical(referenceEvents));
     expect(canonical(indexed)).toBe(canonical(reference));
   });
@@ -363,6 +449,57 @@ describe("indexed ticks agree with unindexed ticks", () => {
     expect(canonical(indexedEvents)).toBe(canonical(referenceEvents));
     expect(canonical(indexed)).toBe(canonical(reference));
   });
+
+  it("emits a byte identical storage full event when a shared silo fills", () => {
+    const entities = [...siloRun(4, 6, "west"), ...siloRun(30, 6, "east-2")];
+    const state = fromEntities(entities);
+    const referenceEvents: RenderEvent[] = [];
+    const indexedEvents: RenderEvent[] = [];
+    const index = new ActiveEntityIndex();
+    index.rebuild(entities);
+
+    const reference = advanceSimulation(state, EQUIVALENCE_TICKS, referenceEvents);
+    const indexed = advanceSimulation(state, EQUIVALENCE_TICKS, indexedEvents, index);
+    const fullEvents = referenceEvents.filter((event) => event.type === "storageFull");
+
+    expect(fullEvents.length).toBeGreaterThan(0);
+    expect(fullEvents.map((event) => (event as { entityId: string }).entityId).sort()).toEqual([
+      "east-2-silo",
+      "west-silo",
+    ]);
+    expect(getTotalAmount(reference.grid.machines["west-silo"]?.input ?? {})).toBe(
+      MACHINES.silo.storageCapacity,
+    );
+    expect(canonical(indexedEvents)).toBe(canonical(referenceEvents));
+    expect(canonical(indexed)).toBe(canonical(reference));
+  });
+
+  it("agrees with the unindexed arm on a world where the chunk gate actually skips", () => {
+    const entities = [
+      ...beltRun(4, 8, 1, "west"),
+      ...beltRun(200, 8, 1, "far"),
+      idleMachine("idle-smelter", 100, 100),
+      idleMachine("idle-silo", 140, 160, "silo"),
+      idleMachine("idle-smelter-2", 200, 60),
+      idleMachine("idle-silo-2", 60, 220, "silo"),
+    ];
+    const state = fromEntities(entities, LARGE_GRID, LARGE_GRID);
+    const referenceEvents: RenderEvent[] = [];
+    const indexedEvents: RenderEvent[] = [];
+    const index = new ActiveEntityIndex();
+    index.rebuild(entities);
+
+    const reference = advanceSimulation(state, EQUIVALENCE_TICKS, referenceEvents);
+    const indexed = advanceSimulation(state, EQUIVALENCE_TICKS, indexedEvents, index);
+    const telemetry = index.getTelemetry();
+
+    expect(telemetry.chunksSkipped).toBeGreaterThan(0);
+    expect(telemetry.chunksVisited).toBeGreaterThan(0);
+    expect(telemetry.chunksSkipped).toBeLessThan(telemetry.chunksVisited);
+    expect(indexedEvents.length).toBeGreaterThan(0);
+    expect(canonical(indexedEvents)).toBe(canonical(referenceEvents));
+    expect(canonical(indexed)).toBe(canonical(reference));
+  });
 });
 
 function motorLayoutEntities(): Entity[] {
@@ -384,21 +521,19 @@ describe("the correctness fallback", () => {
   it("processes every entity when the index is declared incomplete and matches the indexed path", () => {
     const entities = motorLayoutEntities();
     const state = fromEntities(entities);
-    const referenceEvents: RenderEvent[] = [];
     const indexedEvents: RenderEvent[] = [];
     const fallbackEvents: RenderEvent[] = [];
     const index = new ActiveEntityIndex();
     index.rebuild(entities);
 
-    const reference = advanceSimulation(state, EQUIVALENCE_TICKS, referenceEvents);
-    const indexed = advanceSimulation(state, EQUIVALENCE_TICKS, indexedEvents, index);
+    const indexed = advanceSimulation(state, FALLBACK_TICKS, indexedEvents, index);
     index.markIncomplete();
-    const fallback = advanceSimulation(state, EQUIVALENCE_TICKS, fallbackEvents, index);
+    const fallback = advanceSimulation(state, FALLBACK_TICKS, fallbackEvents, index);
 
+    expect(indexedEvents.length).toBeGreaterThan(0);
     expect(index.isCompleteFor(entities)).toBe(false);
     expect(canonical(fallbackEvents)).toBe(canonical(indexedEvents));
     expect(canonical(fallback)).toBe(canonical(indexed));
-    expect(canonical(indexed)).toBe(canonical(reference));
   });
 
   it("falls back when the world behind the index is not the one it indexed", () => {

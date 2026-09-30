@@ -27,12 +27,10 @@ export interface ActiveIndexTelemetry {
 
 export class ActiveEntityIndex implements WorldLookup {
   #source: readonly Entity[] = [];
-  #entityById = new Map<string, Entity>();
   #entityAt = new Map<string, Entity>();
   #order = new Map<string, number>();
   #belts: Entity[] = [];
   #active = new Set<string>();
-  #dirty = new Set<string>();
   #chunkEntities = new Map<string, string[]>();
   #activeChunks = new Set<string>();
   #duplicateCell = false;
@@ -45,7 +43,6 @@ export class ActiveEntityIndex implements WorldLookup {
 
   public rebuild(entities: readonly Entity[]): void {
     this.#source = entities;
-    this.#entityById = new Map<string, Entity>();
     this.#entityAt = new Map<string, Entity>();
     this.#order = new Map<string, number>();
     this.#belts = [];
@@ -61,7 +58,6 @@ export class ActiveEntityIndex implements WorldLookup {
         continue;
       }
 
-      this.#entityById.set(entity.id, entity);
       this.#order.set(entity.id, position);
       this.#active.add(entity.id);
       const cell = getCellKey(entity.x, entity.y);
@@ -121,10 +117,6 @@ export class ActiveEntityIndex implements WorldLookup {
     return true;
   }
 
-  public getEntityById(entityId: string): Entity | undefined {
-    return this.#entityById.get(entityId);
-  }
-
   public getBeltEntities(): readonly Entity[] {
     return this.#belts;
   }
@@ -165,11 +157,6 @@ export class ActiveEntityIndex implements WorldLookup {
     return undefined;
   }
 
-  public registerEntity(entity: Entity): void {
-    this.#active.add(entity.id);
-    this.#activeChunks.add(getChunkKey(entity.x, entity.y));
-  }
-
   public retireEntity(entityId: string): void {
     this.#active.delete(entityId);
   }
@@ -189,35 +176,13 @@ export class ActiveEntityIndex implements WorldLookup {
     this.#active.add(entity.id);
   }
 
-  public markDirty(entityId: string): void {
-    this.#dirty.add(entityId);
-    const entity = this.#entityById.get(entityId);
-    if (entity !== undefined) {
-      this.#active.add(entityId);
-      this.#activeChunks.add(getChunkKey(entity.x, entity.y));
-    }
-  }
-
-  public isDirty(entityId: string): boolean {
-    return this.#dirty.has(entityId);
-  }
-
-  public drainDirtyEntityIds(): string[] {
-    const drained: string[] = [];
-    for (const entity of this.#source) {
-      if (this.#dirty.delete(entity.id)) {
-        drained.push(entity.id);
-      }
-    }
-    return drained;
+  public markDirty(entityId: string, x: number, y: number): void {
+    this.#active.add(entityId);
+    this.#activeChunks.add(getChunkKey(x, y));
   }
 
   public getChunkKey(x: number, y: number): string {
     return getChunkKey(x, y);
-  }
-
-  public getChunkEntityIds(chunkKey: string): readonly string[] {
-    return this.#chunkEntities.get(chunkKey) ?? [];
   }
 
   public isChunkActive(chunkKey: string): boolean {

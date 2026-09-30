@@ -150,7 +150,7 @@ function produceAll(context: TickContext): boolean {
         ? tickExtractor(runtime, entity, state)
         : tickProcessor(runtime, entity, state);
     index?.observeProduction(entity, isQuiescentProducer(entity, nextRuntime, state));
-    if (writeRuntime(context, entity.id, nextRuntime)) {
+    if (writeRuntime(context, entity, nextRuntime)) {
       changed = true;
     }
   }
@@ -203,7 +203,7 @@ function transferMachineOutputs(context: TickContext): boolean {
           }
 
           state.grid.belts[target.id] = { ...belt, item: resource, progress: 0 };
-          index?.markDirty(target.id);
+          index?.markDirty(target.id, target.x, target.y);
           emitBeltItemChanged(context.events, target.id, resource);
         } else {
           const targetRuntime = state.grid.machines[target.id];
@@ -218,7 +218,7 @@ function transferMachineOutputs(context: TickContext): boolean {
             continue;
           }
 
-          writeRuntime(context, target.id, acceptance.runtime);
+          writeRuntime(context, target, acceptance.runtime);
           transferred = acceptance.accepted;
         }
 
@@ -226,7 +226,7 @@ function transferMachineOutputs(context: TickContext): boolean {
         if (
           writeRuntime(
             context,
-            entity.id,
+            entity,
             isSilo
               ? withdrawSiloInput(source, resource, transferred)
               : { ...source, output: removeResource(source.output, resource, transferred) },
@@ -275,7 +275,7 @@ function applyBlockedFlag(
     return false;
   }
 
-  writeRuntime(context, entity.id, {
+  writeRuntime(context, entity, {
     ...runtime,
     alreadyNotifiedBlocked: blocked,
     ...(refusalTicks === 0 ? { blockedRefusalTicks: undefined } : { blockedRefusalTicks: refusalTicks }),
@@ -287,7 +287,12 @@ function applyBlockedFlag(
   return true;
 }
 
-function writeRuntime(context: TickContext, entityId: string, next: MachineRuntime): boolean {
+function writeRuntime(
+  context: TickContext,
+  entity: Entity,
+  next: MachineRuntime,
+): boolean {
+  const entityId = entity.id;
   const previous = context.state.grid.machines[entityId];
   if (previous === next) {
     return false;
@@ -297,7 +302,7 @@ function writeRuntime(context: TickContext, entityId: string, next: MachineRunti
     context.previousRuntimes.set(entityId, previous);
   }
   context.state.grid.machines[entityId] = next;
-  context.index?.markDirty(entityId);
+  context.index?.markDirty(entityId, entity.x, entity.y);
   return true;
 }
 
@@ -386,7 +391,11 @@ function moveBeltsWithContext(context: TickContext): boolean {
   }
 
   const initiallyOccupied = new Set(items.keys());
-  const nextOccupancy = new Map<string, BeltCell>();
+  const beltById = new Map<string, Entity>();
+  for (const entity of beltEntities) {
+    beltById.set(entity.id, entity);
+  }
+  const nextOccupancy = new Map<string, { entity: string; cell: BeltCell }>();
   const movedSources: string[] = [];
   const movedTargets: Array<{ entityId: string; item: ResourceId }> = [];
   let moved = false;
@@ -405,14 +414,17 @@ function moveBeltsWithContext(context: TickContext): boolean {
       initiallyOccupied.has(target.id) ||
       nextOccupancy.has(target.id)
     ) {
-      nextOccupancy.set(entity.id, item);
+      nextOccupancy.set(entity.id, { entity: entity.id, cell: item });
       continue;
     }
 
     nextOccupancy.set(target.id, {
-      entityId: target.id,
-      item: item.item,
-      progress: 0,
+      entity: target.id,
+      cell: {
+        entityId: target.id,
+        item: item.item,
+        progress: 0,
+      },
     });
     movedSources.push(entity.id);
     movedTargets.push({ entityId: target.id, item: item.item });
@@ -437,14 +449,17 @@ function moveBeltsWithContext(context: TickContext): boolean {
     }
   }
 
-  for (const [entityId, occupancy] of nextOccupancy) {
+  for (const [entityId, entry] of nextOccupancy) {
     const belt = state.grid.belts[entityId];
     if (belt !== undefined) {
-      index?.markDirty(entityId);
+      const occupant = beltById.get(entityId);
+      if (occupant !== undefined) {
+        index?.markDirty(entityId, occupant.x, occupant.y);
+      }
       state.grid.belts[entityId] = {
         ...belt,
-        item: occupancy.item,
-        progress: occupancy.progress,
+        item: entry.cell.item,
+        progress: entry.cell.progress,
       };
     }
   }
@@ -506,10 +521,10 @@ function depositBeltItemsWithContext(context: TickContext): boolean {
         continue;
       }
 
-      writeRuntime(context, target.id, acceptance.runtime);
+      writeRuntime(context, target, acceptance.runtime);
       runtime = acceptance.runtime;
       state.grid.belts[source.id] = { ...belt, item: undefined, progress: 0 };
-      index?.markDirty(source.id);
+      index?.markDirty(source.id, source.x, source.y);
       emitBeltItemChanged(events, source.id, undefined);
       changed = true;
     }
@@ -556,7 +571,7 @@ function sellDepotInputs(context: TickContext, tick: number): boolean {
         ...runtime,
         input: removeResource(runtime.input, resource, amount),
       };
-      writeRuntime(context, entity.id, nextRuntime);
+      writeRuntime(context, entity, nextRuntime);
       runtime = nextRuntime;
       state.currencySamples.push({ tick, amount: sale.currency, entityId: entity.id, resource });
       context.events.push({
