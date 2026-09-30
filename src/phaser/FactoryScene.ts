@@ -39,6 +39,13 @@ import {
 } from "./render/EntityRenderer";
 import { createFloorTileData } from "./render/floorGrid";
 import {
+  createNodeRenderer,
+  NODE_VIEW_ALPHA,
+  type NodeRenderer,
+  type NodeSprite,
+  type NodeViewFactory,
+} from "./render/NodeRenderer";
+import {
   createMachineBlinker,
   createMachineBlinkTweenSpec,
   type MachineBlinker,
@@ -80,6 +87,7 @@ export class FactoryScene extends Phaser.Scene {
   private floorMap: Phaser.Tilemaps.Tilemap | undefined;
   private floorLayer: Phaser.Tilemaps.TilemapLayer | undefined;
   private gridDimensions: GridDimensions | undefined;
+  private nodeLayer!: Phaser.GameObjects.Layer;
   private machineLayer!: Phaser.GameObjects.Layer;
   private beltLayer!: Phaser.GameObjects.Layer;
   private beltItemLayer!: Phaser.GameObjects.Layer;
@@ -88,6 +96,7 @@ export class FactoryScene extends Phaser.Scene {
   private ghost!: Phaser.GameObjects.Sprite;
   private beltItemRenderer!: BeltItemRenderer;
   private entityRenderer!: EntityRenderer;
+  private nodeRenderer!: NodeRenderer;
   private vfxRenderer!: VfxRenderer;
   private inputAdapter: CameraInputAdapter | undefined;
   private snapshot!: SimulationSnapshot;
@@ -108,6 +117,8 @@ export class FactoryScene extends Phaser.Scene {
       heatEntityIds: [],
       saleBurstCount: 0,
       liveBurstCount: 0,
+      nodeSpriteCount: 0,
+      nodeSpriteCells: [],
     }),
   );
   private machineBlinker!: MachineBlinker;
@@ -152,6 +163,7 @@ export class FactoryScene extends Phaser.Scene {
     camera.centerOn((dimensions.width * TILE_SIZE_PX) / 2, (dimensions.height * TILE_SIZE_PX) / 2);
 
     this.refreshGridBounds();
+    this.nodeLayer = this.add.layer().setName("node-layer").setDepth(5);
     this.machineLayer = this.add.layer().setName("machine-layer").setDepth(10);
     this.beltLayer = this.add.layer().setName("belt-layer").setDepth(11);
     this.beltItemLayer = this.add.layer().setName("belt-item-layer").setDepth(12);
@@ -163,6 +175,7 @@ export class FactoryScene extends Phaser.Scene {
       .setVisible(false);
     this.ghostLayer.add(this.ghost);
     this.entityRenderer = createEntityRenderer({ factory: this.createEntityViewFactory() });
+    this.nodeRenderer = createNodeRenderer({ factory: this.createNodeViewFactory() });
     this.vfxRenderer = createVfxRenderer({
       factory: this.createVfxViewFactory(),
       tweens: this.createVfxTweenHost(),
@@ -273,6 +286,8 @@ export class FactoryScene extends Phaser.Scene {
   }
 
   private syncExistingWorld(): void {
+    this.nodeRenderer.sync(this.store.getNodes());
+
     for (const entity of this.store.getEntities()) {
       this.entityRenderer.place(entity);
     }
@@ -470,6 +485,22 @@ export class FactoryScene extends Phaser.Scene {
       hasTexture: (textureKey) => this.textures.exists(textureKey),
       createView: (descriptor) => this.createEntityView(descriptor),
     };
+  }
+
+  private createNodeViewFactory(): NodeViewFactory {
+    return {
+      hasTexture: (textureKey) => this.textures.exists(textureKey),
+      createView: (worldX, worldY, textureKey) => this.createNodeView(worldX, worldY, textureKey),
+    };
+  }
+
+  private createNodeView(worldX: number, worldY: number, textureKey: string): NodeSprite {
+    const sprite = this.add
+      .sprite(worldX, worldY, textureKey)
+      .setData("resourceNode", true)
+      .setAlpha(NODE_VIEW_ALPHA);
+    this.nodeLayer.add(sprite);
+    return { destroy: () => sprite.destroy() };
   }
 
   private createEntityView(descriptor: EntityViewDescriptor): EntityView {
@@ -694,6 +725,8 @@ export class FactoryScene extends Phaser.Scene {
           heatEntityIds: this.vfxRenderer.getHeatEntityIds(),
           saleBurstCount: this.vfxRenderer.getSaleBurstCount(),
           liveBurstCount: this.vfxRenderer.getLiveBurstCount(),
+          nodeSpriteCount: this.nodeRenderer.getSpriteCount(),
+          nodeSpriteCells: this.nodeRenderer.getSpriteCells(),
         }),
     );
   }
@@ -751,6 +784,7 @@ export class FactoryScene extends Phaser.Scene {
     this.floorMap = undefined;
     this.gridDimensions = undefined;
     this.beltItemRenderer?.destroy();
+    this.nodeRenderer?.destroy();
     this.vfxRenderer?.destroy();
     this.machineBlinker?.destroy();
     this.entityRenderer?.clearActive();

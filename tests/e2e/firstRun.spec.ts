@@ -5,6 +5,7 @@ import { TILE_SIZE_PX } from "../../src/sim/constants";
 
 interface SceneSnapshot {
   ghost: { visible: boolean; valid: boolean };
+  render: { nodeSpriteCount: number; nodeSpriteCells: readonly string[] };
 }
 
 interface Cell {
@@ -19,12 +20,149 @@ function scene(page: Page): Promise<SceneSnapshot> {
       throw new Error("Factor-Y telemetry unavailable");
     }
     const snapshot = telemetry.getSnapshot();
-    return { ghost: snapshot.ghost };
+    return {
+      ghost: snapshot.ghost,
+      render: {
+        nodeSpriteCount: snapshot.render.nodeSpriteCount,
+        nodeSpriteCells: snapshot.render.nodeSpriteCells,
+      },
+    };
   });
 }
 
 function nodesInInitialView(): Cell[] {
   return createInitialState(NEW_GAME_SEED).grid.nodes.map((node) => ({ x: node.x, y: node.y }));
+}
+
+test("every resource node in the world is actually drawn, not merely present in state", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForFunction(() => window.__FACTOR_Y_TELEMETRY__ !== undefined);
+
+  const expected = createInitialState(NEW_GAME_SEED).grid.nodes.map(
+    (node) => `${node.x},${node.y}`,
+  );
+
+  await expect
+    .poll(async () => (await scene(page)).render.nodeSpriteCount, { timeout: 10000 })
+    .toBe(expected.length);
+
+  const drawn = (await scene(page)).render.nodeSpriteCells;
+  expect([...drawn].sort()).toEqual([...expected].sort());
+});
+
+test("a drawn node reaches the screen, proved by two node cells differing from bare floor", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForFunction(() => window.__FACTOR_Y_TELEMETRY__ !== undefined);
+  await expect
+    .poll(async () => (await scene(page)).render.nodeSpriteCount, { timeout: 10000 })
+    .toBeGreaterThan(0);
+
+  const canvas = (await page.locator("canvas").boundingBox()) as NonNullable<
+    Awaited<ReturnType<() => Promise<{ x: number; y: number; width: number; height: number } | null>>>
+  >;
+  expect(canvas).not.toBeNull();
+
+  const state = createInitialState(NEW_GAME_SEED);
+  const inView: { x: number; y: number; resource: string }[] = [];
+  for (const node of state.grid.nodes) {
+    const point = await screenPointForCell(page, node, TILE_SIZE_PX);
+    if (
+      point.x >= canvas.x &&
+      point.x <= canvas.x + canvas.width &&
+      point.y >= canvas.y &&
+      point.y <= canvas.y + canvas.height
+    ) {
+      inView.push({ x: node.x, y: node.y, resource: node.resource });
+    }
+  }
+  expect(inView.length).toBeGreaterThan(1);
+
+  const clipFor = async (cell: { x: number; y: number }) => {
+    const point = await screenPointForCell(page, cell, TILE_SIZE_PX);
+    const size = Math.round(TILE_SIZE_PX * (canvas.width / 1280));
+    return {
+      x: Math.round(point.x - size / 2),
+      y: Math.round(point.y - size / 2),
+      width: size,
+      height: size,
+    };
+  };
+
+  const first = inView[0];
+  const second = inView.find(
+    (node) => node.resource !== first.resource && node.x !== first.x,
+  );
+  expect(second).toBeDefined();
+
+  const firstClip = await clipFor(first);
+  const secondClip = await clipFor(second as { x: number; y: number });
+  const nodeCells = new Set(state.grid.nodes.map((node) => `${node.x},${node.y}`));
+  const view = await page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>("[data-testid=game-canvas] canvas");
+    const telemetry = window.__FACTOR_Y_TELEMETRY__;
+    if (canvas === null || telemetry === undefined) {
+      throw new Error("Factor-Y canvas or telemetry unavailable");
+    }
+    const snapshot = telemetry.getSnapshot();
+    return {
+      scrollX: snapshot.camera.scrollX,
+      scrollY: snapshot.camera.scrollY,
+      zoom: snapshot.camera.zoom,
+      intrinsicWidth: canvas.width,
+      intrinsicHeight: canvas.height,
+    };
+  });
+  const firstVisibleX = Math.max(
+    0,
+    Math.floor(view.scrollX / (TILE_SIZE_PX * view.zoom)),
+  );
+  const firstVisibleY = Math.max(
+    0,
+    Math.floor(view.scrollY / (TILE_SIZE_PX * view.zoom)),
+  );
+  const lastVisibleX = Math.min(
+    state.grid.width,
+    Math.ceil((view.scrollX + view.intrinsicWidth) / (TILE_SIZE_PX * view.zoom)),
+  );
+  const lastVisibleY = Math.min(
+    state.grid.height,
+    Math.ceil((view.scrollY + view.intrinsicHeight) / (TILE_SIZE_PX * view.zoom)),
+  );
+
+  let floorCell: { x: number; y: number } | undefined;
+  for (let y = firstVisibleY; y < lastVisibleY && floorCell === undefined; y += 1) {
+    for (let x = firstVisibleX; x < lastVisibleX; x += 1) {
+      if (!nodeCells.has(`${x},${y}`)) {
+        floorCell = { x, y };
+        break;
+      }
+    }
+  }
+  expect(floorCell).toBeDefined();
+  const floorPoint = await screenPointForCell(page, floorCell as { x: number; y: number }, TILE_SIZE_PX);
+  const size = sizeOf(canvas);
+  const floorClip = {
+    x: Math.round(floorPoint.x - size / 2),
+    y: Math.round(floorPoint.y - size / 2),
+    width: size,
+    height: size,
+  };
+
+  const firstShot = await page.screenshot({ clip: firstClip });
+  const secondShot = await page.screenshot({ clip: secondClip });
+  const floorShot = await page.screenshot({ clip: floorClip });
+
+  expect(firstShot.byteLength).toBeGreaterThan(0);
+  expect(firstShot.equals(floorShot)).toBe(false);
+  expect(firstShot.equals(secondShot)).toBe(false);
+});
+
+function sizeOf(canvas: { width: number }): number {
+  return Math.round(TILE_SIZE_PX * (canvas.width / 1280));
 }
 
 test("a new player is told how to place a machine before anything is built", async ({ page }) => {

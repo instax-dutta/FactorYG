@@ -24,6 +24,7 @@ import type {
   GridDimensions,
   RenderEvent,
   ResourceId,
+  ResourceNode,
   SimulationCommand,
   SimulationSnapshot,
   SimulationState,
@@ -111,6 +112,11 @@ export class SimulationStore {
   public getEntities(): readonly Entity[] {
     const entities = this.#state.grid.entities.map((entity) => Object.freeze({ ...entity }));
     return Object.freeze(entities);
+  }
+
+  public getNodes(): readonly ResourceNode[] {
+    const nodes = this.#state.grid.nodes.map((node) => Object.freeze({ ...node }));
+    return Object.freeze(nodes);
   }
 
   public getBeltItems(): Readonly<Record<string, ResourceId>> {

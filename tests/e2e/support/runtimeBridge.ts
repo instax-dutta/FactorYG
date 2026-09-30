@@ -32,6 +32,10 @@ export interface SceneTelemetry {
     valid: boolean;
     rotation: number;
   };
+  render: {
+    nodeSpriteCount: number;
+    nodeSpriteCells: readonly string[];
+  };
 }
 
 export interface TelemetryBridge {

@@ -6,6 +6,9 @@ Own pure Phaser render helpers for Factor-I.
 
 - `textureKeys.ts` resolves machine and resource texture keys and frame paths.
 - `BeltItemRenderer.ts` converts typed belt-item events into injected views and glows.
+- `NodeRenderer.ts` draws the world resource nodes. Nodes were in the save, in the simulation, and in the content tables, and were drawn by nothing at all, so the one cell an extractor is allowed to stand on was invisible and a new player had no way to find it. Every node is a sprite in the node layer, resolved through `resolveResourceTextureKey` to that resource's own art, centred on its cell the same way `EntityRenderer` centres a machine. A node whose art cannot be loaded produces no sprite and no exception, so missing art degrades to an absent node rather than a broken scene.
+- Node art is drawn from `SimulationStore.getNodes()`, a read-only view like `getEntities` and `getBeltItems`, so the renderer cannot answer a question about the world by consulting a second copy. `NodeRenderer.sync` is idempotent and destroys a sprite for a node that left the world, because a prestige reset or an expansion rebuilds the node list and a leaked sprite would be drawn over a world that no longer has that cell.
+- The node layer sits below the machine and belt layers, so a machine built on a node covers it rather than the other way round, and node art is never substituted for machine art. A node is the only thing a player can mine, so its visibility is load-bearing gameplay rather than decoration, which is why `tests/e2e/firstRun.spec.ts` proves a node reaches the screen by comparing two node cells against bare floor instead of trusting a counter.
 - `EntityRenderer.ts` owns entity sprite bookkeeping behind injected views: placement, removal, the idle/active texture switch, the animation frame bucket, and the active-frame cache.
 - `floorGrid.ts` owns the floor tile data as a pure function of the plot size, so a floor rebuild is assertable without a live scene.
 - `machineBlink.ts` owns the blocked-machine pulse rate, tint, and hold, converts a start or stop into an injected tween, and exposes `createMachineBlinkTweenSpec` as the one place the pulse becomes a real Phaser tween.
@@ -35,7 +38,7 @@ Own pure Phaser render helpers for Factor-I.
 
 ## Verification
 
-- `npm run test -- tests/unit/beltItemRender.test.ts tests/unit/renderEvents.test.ts tests/unit/vfx.test.ts tests/unit/renderEventContract.test.ts tests/unit/sceneTelemetry.test.ts tests/unit/machineBlink.test.ts tests/unit/expansion.test.ts`
+- `npm run test -- tests/unit/nodeRenderer.test.ts tests/unit/beltItemRender.test.ts tests/unit/renderEvents.test.ts tests/unit/vfx.test.ts tests/unit/renderEventContract.test.ts tests/unit/sceneTelemetry.test.ts tests/unit/machineBlink.test.ts tests/unit/expansion.test.ts`
 - `npm run test:e2e -- tests/e2e/animation-state.spec.ts --workers=1`
 - `npm run test:e2e -- tests/e2e/vfx.spec.ts --workers=1`
 

@@ -46,6 +46,8 @@ function createRenderTelemetry(
     heatEntityIds: Object.freeze([]),
     saleBurstCount: 0,
     liveBurstCount: 0,
+    nodeSpriteCount: 0,
+    nodeSpriteCells: [],
     ...overrides,
   });
 }
@@ -137,6 +139,8 @@ describe("createSceneTelemetry", () => {
       heatEntityIds: [] as string[],
       saleBurstCount: 0,
       liveBurstCount: 0,
+      nodeSpriteCount: 0,
+      nodeSpriteCells: [],
     };
 
     const telemetry = createSceneTelemetry({
@@ -168,6 +172,8 @@ describe("createSceneTelemetry", () => {
       heatEntityIds: [],
       saleBurstCount: 0,
       liveBurstCount: 0,
+      nodeSpriteCount: 0,
+      nodeSpriteCells: [],
     });
   });
 
@@ -183,6 +189,8 @@ describe("createSceneTelemetry", () => {
       heatEntityIds: [],
       saleBurstCount: 0,
       liveBurstCount: 0,
+      nodeSpriteCount: 0,
+      nodeSpriteCells: [],
     });
 
     expect(Object.isFrozen(render.blockedEntityIds)).toBe(true);

@@ -12,6 +12,8 @@ export interface SceneRenderTelemetry {
   readonly heatEntityIds: readonly string[];
   readonly saleBurstCount: number;
   readonly liveBurstCount: number;
+  readonly nodeSpriteCount: number;
+  readonly nodeSpriteCells: readonly string[];
 }
 
 export interface SceneSoundTelemetry {
@@ -82,6 +84,8 @@ export function createSceneRenderTelemetry(input: SceneRenderTelemetry): SceneRe
     heatEntityIds: Object.freeze([...input.heatEntityIds]),
     saleBurstCount: input.saleBurstCount,
     liveBurstCount: input.liveBurstCount,
+    nodeSpriteCount: input.nodeSpriteCount,
+    nodeSpriteCells: input.nodeSpriteCells,
   });
 }
 
@@ -155,6 +159,8 @@ export const INITIAL_SCENE_TELEMETRY = createSceneTelemetry({
     heatEntityIds: [],
     saleBurstCount: 0,
     liveBurstCount: 0,
+    nodeSpriteCount: 0,
+    nodeSpriteCells: [],
   }),
   sound: createSceneSoundTelemetry(
     {
