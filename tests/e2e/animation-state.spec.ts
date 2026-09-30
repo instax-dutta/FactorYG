@@ -62,7 +62,10 @@ async function observeExtractorAnimation(page: Page): Promise<AnimationObservati
       await nextFrame();
       const placedRender = telemetry.getSnapshot().render;
 
+      bridge.advanceTicks(1);
+      await nextFrame();
       const activeWhileProducing = telemetry.getSnapshot().render;
+
       bridge.advanceTicks(40);
       await nextFrame();
       const idleOnceBufferIsFull = telemetry.getSnapshot().render;
