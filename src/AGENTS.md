@@ -9,6 +9,7 @@ Own the Factor-I browser application source tree.
 - `persistence/` owns save projection, migration, and storage adapters.
 - `phaser/` owns rendering, camera, and world input.
 - `sim/` owns deterministic game state and production logic.
+- `audio/` owns the sound asset table, its generator, the event-driven sound director, and the browser audio adapter.
 - `ui/` owns the React DOM overlay.
 
 ## Local Contracts
@@ -33,6 +34,7 @@ Own the Factor-I browser application source tree.
 ## Child DOX Index
 
 - `app/AGENTS.md` - runtime composition, autosave, and React/Phaser lifecycle.
+- `audio/AGENTS.md` - sound asset table, generator, event-driven director, and browser adapter.
 - `content/AGENTS.md` - canonical immutable content and asset manifests.
 - `persistence/AGENTS.md` - save schema, migration, and injected storage.
 - `phaser/AGENTS.md` - scene, camera, input, and render orchestration.

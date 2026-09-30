@@ -12,6 +12,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "art:sheet": "node scripts/art-contact-sheet.mjs",
+    "audio:generate": "node --import ./scripts/ts-resolve.mjs scripts/generate-audio.ts",
     "bench:grid": "node --import ./scripts/ts-resolve.mjs scripts/benchmark-grid.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
