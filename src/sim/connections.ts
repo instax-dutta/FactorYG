@@ -20,17 +20,94 @@ export function rotatePorts(ports: readonly PortDefinition[], rotation: Rotation
   }));
 }
 
-export function getWorldPortCells(entity: Entity): WorldPortCell[] {
-  const definition = getMachine(entity.type);
+const NO_PORTS: readonly PortDefinition[] = [];
+
+interface PortKinds {
+  readonly inputs: readonly PortDefinition[];
+  readonly outputs: readonly PortDefinition[];
+}
+
+const ROTATION_COUNT = 4;
+const ROTATED_PORTS = new Map<string, PortDefinition[][]>();
+const PORT_KINDS = new Map<string, PortKinds[]>();
+
+function getPortKindsCache(type: string): PortKinds[] | undefined {
+  return PORT_KINDS.get(type);
+}
+
+function getCachedRotatedPorts(type: string, rotation: Rotation): readonly PortDefinition[] {
+  const definition = getMachine(type);
   if (definition === undefined) {
+    return NO_PORTS;
+  }
+
+  const cached = ROTATED_PORTS.get(type);
+  if (cached === undefined) {
+    const built = definition.ports.map(() => [] as PortDefinition[]);
+    ROTATED_PORTS.set(type, built);
+    return fillRotatedPorts(built, definition.ports)[rotation / 90];
+  }
+
+  return cached[rotation / 90] ?? NO_PORTS;
+}
+
+function fillRotatedPorts(
+  built: PortDefinition[][],
+  ports: readonly PortDefinition[],
+): PortDefinition[][] {
+  for (let step = 0; step < ROTATION_COUNT; step += 1) {
+    built[step] = ports.map((port) => ({
+      ...port,
+      offset: rotateGridPoint(port.offset, (step * 90) as Rotation),
+    }));
+  }
+  return built;
+}
+
+function getCachedPortKinds(type: string, rotation: Rotation): PortKinds {
+  let byRotation = getPortKindsCache(type);
+  if (byRotation === undefined) {
+    byRotation = [];
+    PORT_KINDS.set(type, byRotation);
+  }
+
+  const slot = rotation / 90;
+  const cached = byRotation[slot];
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const ports = getCachedRotatedPorts(type, rotation);
+  const inputs: PortDefinition[] = [];
+  const outputs: PortDefinition[] = [];
+  for (const port of ports) {
+    if (port.kind === "output") {
+      outputs.push(port);
+    } else {
+      inputs.push(port);
+    }
+  }
+
+  const kinds: PortKinds = { inputs, outputs };
+  byRotation[slot] = kinds;
+  return kinds;
+}
+
+export function getWorldPortCells(entity: Entity): WorldPortCell[] {
+  const ports = getCachedRotatedPorts(entity.type, entity.rotation);
+  if (ports.length === 0) {
     return [];
   }
 
-  return rotatePorts(definition.ports, entity.rotation).map((port) => ({
-    port,
-    x: entity.x + port.offset.x,
-    y: entity.y + port.offset.y,
-  }));
+  const cells: WorldPortCell[] = [];
+  for (const port of ports) {
+    cells.push({
+      port,
+      x: entity.x + port.offset.x,
+      y: entity.y + port.offset.y,
+    });
+  }
+  return cells;
 }
 
 export function arePortsConnected(
@@ -38,23 +115,17 @@ export function arePortsConnected(
   inputEntity: Entity,
   carriedResource?: ResourceId,
 ): boolean {
-  const outputDefinition = getMachine(outputEntity.type);
-  const inputDefinition = getMachine(inputEntity.type);
-  if (outputDefinition === undefined || inputDefinition === undefined) {
+  const outputKinds = getCachedPortKinds(outputEntity.type, outputEntity.rotation);
+  const inputKinds = getCachedPortKinds(inputEntity.type, inputEntity.rotation);
+  if (outputKinds.outputs.length === 0 || inputKinds.inputs.length === 0) {
     return false;
   }
 
-  const outputPorts = rotatePorts(outputDefinition.ports, outputEntity.rotation).filter(
-    (port) => port.kind === "output",
-  );
-  const inputPorts = rotatePorts(inputDefinition.ports, inputEntity.rotation).filter(
-    (port) => port.kind === "input",
-  );
   const deltaX = inputEntity.x - outputEntity.x;
   const deltaY = inputEntity.y - outputEntity.y;
 
-  return outputPorts.some((outputPort) =>
-    inputPorts.some((inputPort) => {
+  return outputKinds.outputs.some((outputPort) =>
+    inputKinds.inputs.some((inputPort) => {
       const facesTarget =
         outputPort.offset.x === deltaX &&
         outputPort.offset.y === deltaY &&

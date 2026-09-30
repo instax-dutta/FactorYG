@@ -1,5 +1,6 @@
 import { FixedStepClock } from "./clock";
 import { TICK_MS } from "./constants";
+import { ActiveEntityIndex } from "./activeIndex";
 import {
   canExpandGrid,
   canResetPrestige,
@@ -42,6 +43,7 @@ type SimulationTick = (
   state: SimulationState,
   tickCount: number,
   events?: RenderEvent[],
+  index?: ActiveEntityIndex,
 ) => SimulationState;
 
 
@@ -57,6 +59,7 @@ export class SimulationStore {
   #clock: FixedStepClock;
   #advanceSimulation: SimulationTick;
   #timer: ReturnType<typeof setInterval> | undefined;
+  #index = new ActiveEntityIndex();
 
   public constructor(
     initialState: SimulationState,
@@ -67,6 +70,7 @@ export class SimulationStore {
     this.#snapshot = createSnapshot(this.#state);
     this.#clock = new FixedStepClock(TICK_MS, () => this.advanceTicks(1), now);
     this.#advanceSimulation = tickFunction;
+    this.#index.rebuild(this.#state.grid.entities);
   }
 
   public getSnapshot(): SimulationSnapshot {
@@ -208,7 +212,7 @@ export class SimulationStore {
     }
 
     const events: RenderEvent[] = [];
-    const nextState = this.#advanceSimulation(this.#state, count, events);
+    const nextState = this.#advanceSimulation(this.#state, count, events, this.#index);
     if (nextState === this.#state) {
       return;
     }
@@ -227,6 +231,7 @@ export class SimulationStore {
           return application;
         }
 
+        this.#index.rebuild(application.state.grid.entities);
         return {
           ...application,
           events: [{ type: "entityPlaced", entity: freezeEntity(application.entity) }],
@@ -255,14 +260,18 @@ export class SimulationStore {
         delete belts[entity.id];
         const selectedEntityId =
           this.#state.selectedEntityId === entity.id ? undefined : this.#state.selectedEntityId;
+        const remaining = this.#state.grid.entities.filter(
+          (candidate) => candidate.id !== entity.id,
+        );
 
+        this.#index.rebuild(remaining);
         return {
           state: {
             ...this.#state,
             selectedEntityId,
             grid: {
               ...this.#state.grid,
-              entities: this.#state.grid.entities.filter((candidate) => candidate.id !== entity.id),
+              entities: remaining,
               machines,
               belts,
             },

@@ -1,11 +1,14 @@
 import { TILE_SIZE_PX } from "./constants";
 import { getMachine } from "../content/machines";
+import { arePortsConnected, getWorldPortCells } from "./connections";
 import {
-  arePortsConnected,
-  findConnectedEntity,
-  getEntityAt,
-  getWorldPortCells,
-} from "./connections";
+  ActiveEntityIndex,
+  PRODUCING_MACHINE_TYPES,
+  createFullLookup,
+  isQuiescentProducer,
+  isQuiescentTransfer,
+  type WorldLookup,
+} from "./activeIndex";
 import { CURRENCY_RATE_WINDOW_TICKS, sellResource } from "./economy";
 import { getDrainableEntityIds } from "./chains";
 import {
@@ -25,17 +28,10 @@ import type {
   BeltCell,
   Entity,
   MachineRuntime,
-  MachineType,
   RenderEvent,
   ResourceId,
   SimulationState,
 } from "./types";
-
-const PRODUCING_MACHINE_TYPES: ReadonlySet<MachineType> = new Set<MachineType>([
-  "extractor",
-  "smelter",
-  "assembler",
-]);
 
 const BLOCKED_REFUSAL_TICKS_REQUIRED = 2;
 
@@ -49,10 +45,19 @@ interface TransferOutcome {
   moved: boolean;
 }
 
+interface TickContext {
+  readonly state: SimulationState;
+  readonly events: RenderEvent[];
+  readonly lookup: WorldLookup;
+  readonly index: ActiveEntityIndex | undefined;
+  readonly previousRuntimes: Map<string, MachineRuntime>;
+}
+
 export function advanceSimulation(
   state: SimulationState,
   tickCount: number,
   events: RenderEvent[] = [],
+  index?: ActiveEntityIndex,
 ): SimulationState {
   if (!Number.isInteger(tickCount) || tickCount <= 0) {
     return state;
@@ -61,7 +66,7 @@ export function advanceSimulation(
   const nextState = structuredClone(state);
   for (let tickIndex = 0; tickIndex < tickCount; tickIndex += 1) {
     nextState.tickCount += 1;
-    advanceOneTick(nextState, events, nextState.tickCount);
+    advanceOneTick(nextState, events, nextState.tickCount, index);
     const firstTick = nextState.tickCount - CURRENCY_RATE_WINDOW_TICKS + 1;
     nextState.currencySamples = nextState.currencySamples.filter(
       (sample) => sample.tick >= firstTick && sample.tick <= nextState.tickCount,
@@ -71,19 +76,59 @@ export function advanceSimulation(
   return nextState;
 }
 
-function advanceOneTick(state: SimulationState, events: RenderEvent[], tick: number): boolean {
-  const activeBefore = new Map<string, boolean>();
-  const storageFullBefore = new Set<string>();
-  for (const entity of state.grid.entities) {
-    const runtime = state.grid.machines[entity.id];
-    if (runtime !== undefined) {
-      activeBefore.set(entity.id, runtime.active);
-      if (isStorageFull(entity, runtime)) {
-        storageFullBefore.add(entity.id);
-      }
-    }
+function advanceOneTick(
+  state: SimulationState,
+  events: RenderEvent[],
+  tick: number,
+  index?: ActiveEntityIndex,
+): boolean {
+  const activeIndex = resolveIndex(state.grid.entities, index);
+  activeIndex?.refreshActivity(state);
+  const context: TickContext = {
+    state,
+    events,
+    lookup: activeIndex ?? createFullLookup(state.grid.entities),
+    index: activeIndex,
+    previousRuntimes: new Map<string, MachineRuntime>(),
+  };
+
+  let changed = false;
+  if (produceAll(context)) {
+    changed = true;
+  }
+  if (transferMachineOutputs(context)) {
+    changed = true;
+  }
+  if (moveBeltsWithContext(context)) {
+    changed = true;
+  }
+  if (depositBeltItemsWithContext(context)) {
+    changed = true;
+  }
+  if (sellDepotInputs(context, tick)) {
+    changed = true;
   }
 
+  emitRuntimeTransitions(context);
+  return changed;
+}
+
+function resolveIndex(
+  entities: readonly Entity[],
+  index: ActiveEntityIndex | undefined,
+): ActiveEntityIndex | undefined {
+  if (index === undefined || !index.canRebuild()) {
+    return undefined;
+  }
+
+  if (!index.isCompleteFor(entities)) {
+    index.rebuild(entities);
+  }
+  return index;
+}
+
+function produceAll(context: TickContext): boolean {
+  const { state, index } = context;
   let changed = false;
   for (const entity of state.grid.entities) {
     if (!PRODUCING_MACHINE_TYPES.has(entity.type)) {
@@ -95,59 +140,26 @@ function advanceOneTick(state: SimulationState, events: RenderEvent[], tick: num
       continue;
     }
 
+    if (index !== undefined && isQuiescentProducer(entity, runtime, state)) {
+      index.observeProduction(entity, true);
+      continue;
+    }
+
     const nextRuntime =
       entity.type === "extractor"
         ? tickExtractor(runtime, entity, state)
         : tickProcessor(runtime, entity, state);
-    if (nextRuntime !== runtime) {
-      state.grid.machines[entity.id] = nextRuntime;
+    index?.observeProduction(entity, isQuiescentProducer(entity, nextRuntime, state));
+    if (writeRuntime(context, entity.id, nextRuntime)) {
       changed = true;
-    }
-  }
-
-  if (transferMachineOutputs(state, events)) {
-    changed = true;
-  }
-  if (moveBelts(state, events)) {
-    changed = true;
-  }
-  if (depositBeltItems(state, events)) {
-    changed = true;
-  }
-  if (sellDepotInputs(state, events, tick)) {
-    changed = true;
-  }
-
-  for (const entity of state.grid.entities) {
-    const runtime = state.grid.machines[entity.id];
-    if (runtime === undefined) {
-      continue;
-    }
-
-    const previousActive = activeBefore.get(entity.id);
-    if (previousActive !== undefined && previousActive !== runtime.active) {
-      events.push({ type: "machineStateChanged", entityId: entity.id, active: runtime.active });
-    }
-
-    if (
-      runtime.bufferedResource !== undefined &&
-      isStorageFull(entity, runtime) &&
-      !storageFullBefore.has(entity.id)
-    ) {
-      events.push({
-        type: "storageFull",
-        entityId: entity.id,
-        resource: runtime.bufferedResource,
-        worldX: entity.x * TILE_SIZE_PX + TILE_SIZE_PX / 2,
-        worldY: entity.y * TILE_SIZE_PX + TILE_SIZE_PX / 2,
-      });
     }
   }
 
   return changed;
 }
 
-function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): boolean {
+function transferMachineOutputs(context: TickContext): boolean {
+  const { state, lookup, index } = context;
   let changed = false;
   const drainable = getDrainableEntityIds(state);
   for (const entity of state.grid.entities) {
@@ -160,7 +172,12 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
       continue;
     }
 
-    const target = findConnectedEntity(entity, state.grid.entities);
+    if (index !== undefined && isQuiescentTransfer(entity, runtime)) {
+      index.retireEntity(entity.id);
+      continue;
+    }
+
+    const target = lookup.getConnectedTarget(entity);
     const isSilo = entity.type === "silo";
     const stored = isSilo ? runtime.input : runtime.output;
     const outcome: TransferOutcome = { refused: false, moved: false };
@@ -186,7 +203,8 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
           }
 
           state.grid.belts[target.id] = { ...belt, item: resource, progress: 0 };
-          emitBeltItemChanged(events, target.id, resource);
+          index?.markDirty(target.id);
+          emitBeltItemChanged(context.events, target.id, resource);
         } else {
           const targetRuntime = state.grid.machines[target.id];
           if (targetRuntime === undefined) {
@@ -200,20 +218,28 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
             continue;
           }
 
-          state.grid.machines[target.id] = acceptance.runtime;
+          writeRuntime(context, target.id, acceptance.runtime);
           transferred = acceptance.accepted;
         }
 
-        state.grid.machines[entity.id] = isSilo
-          ? withdrawSiloInput(runtime, resource, transferred)
-          : { ...runtime, output: removeResource(runtime.output, resource, transferred) };
+        const source = state.grid.machines[entity.id] ?? runtime;
+        if (
+          writeRuntime(
+            context,
+            entity.id,
+            isSilo
+              ? withdrawSiloInput(source, resource, transferred)
+              : { ...source, output: removeResource(source.output, resource, transferred) },
+          )
+        ) {
+          changed = true;
+        }
         outcome.moved = true;
-        changed = true;
         break;
       }
     }
 
-    if (applyBlockedFlag(state, entity, outcome, drainable, events)) {
+    if (applyBlockedFlag(context, entity, outcome, drainable)) {
       changed = true;
     }
   }
@@ -222,13 +248,12 @@ function transferMachineOutputs(state: SimulationState, events: RenderEvent[]): 
 }
 
 function applyBlockedFlag(
-  state: SimulationState,
+  context: TickContext,
   entity: Entity,
   outcome: TransferOutcome,
   drainable: ReadonlySet<string>,
-  events: RenderEvent[],
 ): boolean {
-  const runtime = state.grid.machines[entity.id];
+  const runtime = context.state.grid.machines[entity.id];
   if (runtime === undefined) {
     return false;
   }
@@ -243,20 +268,74 @@ function applyBlockedFlag(
   const blocked =
     stuck &&
     (refusalTicks >= BLOCKED_REFUSAL_TICKS_REQUIRED || runtime.alreadyNotifiedBlocked);
-  if (refusalTicks === runtime.blockedRefusalTicks && blocked === runtime.alreadyNotifiedBlocked) {
+  if (
+    refusalTicks === (runtime.blockedRefusalTicks ?? 0) &&
+    blocked === runtime.alreadyNotifiedBlocked
+  ) {
     return false;
   }
 
-  state.grid.machines[entity.id] = {
+  writeRuntime(context, entity.id, {
     ...runtime,
     alreadyNotifiedBlocked: blocked,
     ...(refusalTicks === 0 ? { blockedRefusalTicks: undefined } : { blockedRefusalTicks: refusalTicks }),
-  };
+  });
   if (blocked && !runtime.alreadyNotifiedBlocked) {
-    events.push({ type: "blockedFull", entityId: entity.id });
+    context.events.push({ type: "blockedFull", entityId: entity.id });
   }
 
   return true;
+}
+
+function writeRuntime(context: TickContext, entityId: string, next: MachineRuntime): boolean {
+  const previous = context.state.grid.machines[entityId];
+  if (previous === next) {
+    return false;
+  }
+
+  if (previous !== undefined && !context.previousRuntimes.has(entityId)) {
+    context.previousRuntimes.set(entityId, previous);
+  }
+  context.state.grid.machines[entityId] = next;
+  context.index?.markDirty(entityId);
+  return true;
+}
+
+function emitRuntimeTransitions(context: TickContext): void {
+  const { state, events, previousRuntimes } = context;
+  if (previousRuntimes.size === 0) {
+    return;
+  }
+
+  for (const entity of state.grid.entities) {
+    const previous = previousRuntimes.get(entity.id);
+    if (previous === undefined) {
+      continue;
+    }
+
+    const runtime = state.grid.machines[entity.id];
+    if (runtime === undefined) {
+      continue;
+    }
+
+    if (previous.active !== runtime.active) {
+      events.push({ type: "machineStateChanged", entityId: entity.id, active: runtime.active });
+    }
+
+    if (
+      runtime.bufferedResource !== undefined &&
+      isStorageFull(entity, runtime) &&
+      !isStorageFull(entity, previous)
+    ) {
+      events.push({
+        type: "storageFull",
+        entityId: entity.id,
+        resource: runtime.bufferedResource,
+        worldX: entity.x * TILE_SIZE_PX + TILE_SIZE_PX / 2,
+        worldY: entity.y * TILE_SIZE_PX + TILE_SIZE_PX / 2,
+      });
+    }
+  }
 }
 
 function acceptMachineInput(
@@ -282,7 +361,18 @@ function acceptMachineInput(
 }
 
 export function moveBelts(state: SimulationState, events: RenderEvent[] = []): boolean {
-  const beltEntities = state.grid.entities.filter((entity) => entity.type === "belt");
+  return moveBeltsWithContext({
+    state,
+    events,
+    lookup: createFullLookup(state.grid.entities),
+    index: undefined,
+    previousRuntimes: new Map<string, MachineRuntime>(),
+  });
+}
+
+function moveBeltsWithContext(context: TickContext): boolean {
+  const { state, events, lookup, index } = context;
+  const beltEntities = lookup.getBeltEntities();
   const items = new Map<string, BeltCell>();
   for (const entity of beltEntities) {
     const belt = state.grid.belts[entity.id];
@@ -307,7 +397,7 @@ export function moveBelts(state: SimulationState, events: RenderEvent[] = []): b
       continue;
     }
 
-    const target = findConnectedEntity(entity, state.grid.entities);
+    const target = lookup.getConnectedTarget(entity);
     const targetBelt = target?.type === "belt" ? state.grid.belts[target.id] : undefined;
     if (
       target === undefined ||
@@ -350,6 +440,7 @@ export function moveBelts(state: SimulationState, events: RenderEvent[] = []): b
   for (const [entityId, occupancy] of nextOccupancy) {
     const belt = state.grid.belts[entityId];
     if (belt !== undefined) {
+      index?.markDirty(entityId);
       state.grid.belts[entityId] = {
         ...belt,
         item: occupancy.item,
@@ -362,6 +453,17 @@ export function moveBelts(state: SimulationState, events: RenderEvent[] = []): b
 }
 
 export function depositBeltItems(state: SimulationState, events: RenderEvent[] = []): boolean {
+  return depositBeltItemsWithContext({
+    state,
+    events,
+    lookup: createFullLookup(state.grid.entities),
+    index: undefined,
+    previousRuntimes: new Map<string, MachineRuntime>(),
+  });
+}
+
+function depositBeltItemsWithContext(context: TickContext): boolean {
+  const { state, events, lookup, index } = context;
   let changed = false;
 
   for (const target of state.grid.entities) {
@@ -374,12 +476,21 @@ export function depositBeltItems(state: SimulationState, events: RenderEvent[] =
       continue;
     }
 
+    if (index !== undefined) {
+      const chunk = index.getChunkKey(target.x, target.y);
+      if (!index.isChunkActive(chunk)) {
+        index.noteChunkSkipped();
+        continue;
+      }
+      index.noteChunkVisited();
+    }
+
     for (const { port, x, y } of getWorldPortCells(target)) {
       if (port.kind !== "input") {
         continue;
       }
 
-      const source = getEntityAt(state.grid.entities, x, y);
+      const source = lookup.getEntityAt(x, y);
       if (source?.type !== "belt") {
         continue;
       }
@@ -395,9 +506,10 @@ export function depositBeltItems(state: SimulationState, events: RenderEvent[] =
         continue;
       }
 
-      state.grid.machines[target.id] = acceptance.runtime;
+      writeRuntime(context, target.id, acceptance.runtime);
       runtime = acceptance.runtime;
       state.grid.belts[source.id] = { ...belt, item: undefined, progress: 0 };
+      index?.markDirty(source.id);
       emitBeltItemChanged(events, source.id, undefined);
       changed = true;
     }
@@ -414,12 +526,13 @@ function emitBeltItemChanged(
   events.push({ type: "beltItemChanged", entityId, item });
 }
 
-function sellDepotInputs(state: SimulationState, events: RenderEvent[], tick: number): boolean {
+function sellDepotInputs(context: TickContext, tick: number): boolean {
+  const { state } = context;
   let changed = false;
-    for (const entity of state.grid.entities) {
-      if (getMachine(entity.type)?.saleTerminal !== true) {
-        continue;
-      }
+  for (const entity of state.grid.entities) {
+    if (getMachine(entity.type)?.saleTerminal !== true) {
+      continue;
+    }
 
     let runtime = state.grid.machines[entity.id];
     if (runtime === undefined) {
@@ -443,10 +556,10 @@ function sellDepotInputs(state: SimulationState, events: RenderEvent[], tick: nu
         ...runtime,
         input: removeResource(runtime.input, resource, amount),
       };
-      state.grid.machines[entity.id] = nextRuntime;
+      writeRuntime(context, entity.id, nextRuntime);
       runtime = nextRuntime;
       state.currencySamples.push({ tick, amount: sale.currency, entityId: entity.id, resource });
-      events.push({
+      context.events.push({
         type: "saleCompleted",
         entityId: entity.id,
         resource,
