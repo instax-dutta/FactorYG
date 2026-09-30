@@ -50,6 +50,10 @@ interface PersistedEntity {
   resourceNode?: string;
 }
 
+interface PersistedMachineRuntime {
+  alreadyNotifiedBlocked?: boolean;
+}
+
 interface PersistedChain {
   id: string;
   outputResource: string;
@@ -61,7 +65,7 @@ interface PersistedSave {
   currency: number;
   lifetimeCurrency: number;
   unlocked: { machines: string[]; recipes: string[] };
-  grid: { entities: PersistedEntity[] };
+  grid: { entities: PersistedEntity[]; machines: Record<string, PersistedMachineRuntime> };
   productionChains: Record<string, PersistedChain>;
 }
 
@@ -939,6 +943,12 @@ test("earns the whole tech tree from ore sales and runs the committed Motor chai
   );
   expect(motorChain).toBeDefined();
   expect(motorChain?.sellValue).toBe(MOTOR_SELL_VALUE);
+
+  expect(Object.keys(finalSave.grid.machines).length).toBeGreaterThan(0);
+  const flagged = finalSave.grid.entities
+    .filter((entity) => finalSave.grid.machines[entity.id]?.alreadyNotifiedBlocked === true)
+    .map((entity) => `${entity.type}:${entity.recipeId ?? entity.resourceNode ?? "-"}@${entity.x},${entity.y}`);
+  expect(flagged).toEqual([]);
 
   expect(await hudCurrency(page)).toBeGreaterThanOrEqual(run.currency);
   expect(browserErrors).toEqual([]);

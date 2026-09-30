@@ -21,7 +21,7 @@ const LAYOUT_PATH = "scripts/motor-chain-layout.json";
 const ALL_MACHINES = Object.keys(MACHINES) as MachineType[];
 const ALL_RECIPES = Object.keys(RECIPES);
 const SATURATED_EXTRACTOR_LEVEL = 20;
-const SATURATED_TICKS = 300;
+const SATURATED_TICKS = 60;
 
 function committedLayout(): LayoutEntity[] {
   return JSON.parse(readFileSync(LAYOUT_PATH, "utf8")) as LayoutEntity[];
