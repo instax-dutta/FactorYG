@@ -8,7 +8,7 @@ Own the Phaser scene, camera, world input, and render orchestration.
 - `createGame.ts` owns Phaser boot configuration and renderer/scale setup.
 - `inputAdapter.ts` owns pan, zoom, pointer, keyboard, and drag state.
 - `telemetry.ts` owns the development/test scene snapshot, and `cameraConfig.ts` owns the camera margin and the zoom range as exported constants so the scene and a browser assertion read the same numbers.
-- `render/` owns pure render helpers and adapters, including the blocked-machine blink.
+- `render/` owns pure render helpers and adapters, including the blocked-machine blink and the entity sprite renderer.
 
 ## Local Contracts
 
@@ -21,7 +21,9 @@ Own the Phaser scene, camera, world input, and render orchestration.
 - The blink puts state in the tint channel and motion in the alpha channel: the blocked red is set once per transition and the tint the machine carried is restored exactly when the flow resumes, so a future recipe tint can never mask a block. `machineBlink.ts` owns those constants and builds the tween through `createMachineBlinkTweenSpec`, which is the single place the pulse becomes a real Phaser tween and is asserted directly so the motion cannot be silently flattened. No shipped machine sprite carries a tint today.
 - The snapshot reconcile owns the blink in both directions. `SimulationStore` publishes the snapshot before it publishes events, so `refreshBlockedMachines` always starts a blocked machine first and the `blockedFull` arm always finds it already blinking. The event is kept as the documented contract for the exhaustive switch and as the seam for a future immediate effect; it is not what starts the visual today.
 - A `machineStateChanged` event never starts or stops a blink: a blocked producer is also idle, so both events land in the same tick.
-- The scene's world bookkeeping is event-driven and never reconciled from a snapshot: `syncExistingWorld` runs once at boot, and `entitySprites`, `placedEntities`, `activeEntityIds`, and the belt-item views move only on `entityPlaced` and `entityRemoved`. A command that clears or replaces the world, such as a prestige reset, must publish one `entityRemoved` per removed entity, because nothing in the scene notices an entity that vanished without its event and the browser keeps drawing it, hit-testing it, and reporting it in telemetry entity ids.
+- The scene's world bookkeeping is event-driven and never reconciled from a snapshot: `syncExistingWorld` runs once at boot, and `EntityRenderer`'s sprite map, placed-entity map, and active set and the belt-item views move only on `entityPlaced` and `entityRemoved`. A command that clears or replaces the world, such as a prestige reset, must publish one `entityRemoved` per removed entity, because nothing in the scene notices an entity that vanished without its event and the browser keeps drawing it, hit-testing it, and reporting it in telemetry entity ids. The renderer is where that bookkeeping moved to, so the contract is unchanged and the renderer is the single owner: `FactoryScene` no longer holds a sprite map, a placed-entity map, or an active set of its own.
+- `syncActive` exists for the boot reconcile only, and reads `store.getActiveMachineIds()`. It is not a per-tick reconcile, because a per-tick reconcile would repair a dropped `machineStateChanged` event and hide the very regression the dirty-set optimisation could introduce. The equivalence is proved instead by `tests/unit/renderEvents.test.ts`, which drives a real store's event stream into the renderer and asserts the renderer's active set equals the store's own set after every tick of a real run without ever calling `syncActive`.
+- The animation frame loop is a bucket gate, not a per-frame rewrite. `updateActiveFrames` does nothing at all unless `EntityRenderer.advanceFrames` reports that the bucket moved, so an idle frame costs one integer division. The blink reads its base tint from `EntityView.baseTint`, which the scene reads back from the sprite, so restoring a blocked machine's tint still restores the tint it actually carried.
 - The scene reads the plot size from `store.getGridDimensions()` and never from a local grid constant, so a world that boots from an expanded save starts with the floor and the camera bounds the save actually describes. A duplicated local constant would silently floor a 96 by 96 world at 64 by 64.
 - `refreshGridBounds` rebuilds the floor tilemap and calls `camera.setBounds` with the new dimensions, and it runs on every published snapshot rather than on a render event, because the store publishes the snapshot before it publishes events and an expansion changes no entity. It compares the dimensions first and does nothing when they match, so a 10 Hz tick does not rebuild the map.
 - The floor tile data is a pure function of the plot size in `render/floorGrid.ts`, and the previous map and layer are destroyed before a rebuild, so an expanded plot cannot leave a stale 64 by 64 floor under the new one. Keeping the data pure is what makes the rebuild testable without a live scene.
@@ -36,9 +38,9 @@ Own the Phaser scene, camera, world input, and render orchestration.
 
 ## Verification
 
-- `npm run test -- tests/unit/cameraConfig.test.ts tests/unit/expansion.test.ts tests/unit/primaryInteraction.test.ts tests/unit/sceneTelemetry.test.ts tests/unit/renderEventContract.test.ts tests/unit/machineBlink.test.ts`
+- `npm run test -- tests/unit/cameraConfig.test.ts tests/unit/expansion.test.ts tests/unit/primaryInteraction.test.ts tests/unit/sceneTelemetry.test.ts tests/unit/renderEventContract.test.ts tests/unit/renderEvents.test.ts tests/unit/machineBlink.test.ts`
 - `npm run test:e2e -- tests/e2e/phase0.spec.ts --workers=1`
 
 ## Child DOX Index
 
-- `render/AGENTS.md` - texture resolution and belt-item render adapters.
+- `render/AGENTS.md` - texture resolution, entity and belt-item render adapters, and the blocked-machine blink.

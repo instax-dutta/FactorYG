@@ -1776,22 +1776,28 @@ git commit -m "feat: preserve saves across progression migrations"
 - Consumes: `RenderEvent`, asset manifest, machine runtime active flags, and resource item positions.
 - Produces: placement/removal sync, idle/active animation switching, item icon placement, and resource-colored glow sprites.
 
-- [ ] **Step 1: Write failing tests**
+**Most of this was already built.** `BeltItemRenderer.ts`, the sprite map, the placement and removal sync, the idle/active switch, the resource-colored additive glow, and `setAngle` rotation all shipped in earlier phases, and `FactoryScene` held the whole of it inline. The file list is therefore a floor and the missing piece was narrower than the step text: the entity bookkeeping had no unit seam at all. Every existing test of it read the scene source as text and matched it with regular expressions, which is a proxy that passes while the behaviour is wrong, so the four Step 1 assertions could not be written against it without a live Phaser scene.
+
+- [x] **Step 1: Write failing tests**
 
 Assert an extractor switches to active frames only while producing, a belt item follows its cell, a resource icon changes when item type changes, and an entity removal disposes its sprite without affecting neighbors.
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 ```bash
 npm run test -- tests/unit/renderEvents.test.ts
 npm run test:e2e -- tests/e2e/animation-state.spec.ts
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Keep a `Map<entityId, Phaser.GameObjects.Sprite>` in the scene. Consume render events from the store, reuse sprite objects for unchanged entities, and use `setAngle` for rotations.
 
-- [ ] **Step 4: Verify green**
+Implemented as specified in shape, with the map moved into `render/EntityRenderer.ts` behind an injected view factory rather than left in the scene. The map is still keyed by entity id, unchanged entities still reuse their view, and `setAngle` still carries rotation; what changed is that `FactoryScene` no longer holds a sprite map, a placed-entity map, or an active set of its own, so the scene cannot answer a question about the world by reading a second copy that no event reached. That is a deliberate move rather than a cosmetic one, because the prestige contract in `src/sim/AGENTS.md` depends on all of that bookkeeping sitting behind `entityRemoved`, and one owner is the only shape in which that contract can be checked.
+
+**Two performance claims are part of this task rather than decoration.** The old per-frame loop called `setTexture` on every active entity on every frame whether or not the animation bucket had moved, and it re-resolved each machine's active frame keys from the asset manifest on every entity on every frame, allocating a fresh key array each time. Frame keys are now cached per resolved machine definition in a `WeakMap` keyed on that definition, the same keying rule `sim/connections.ts` uses for port geometry, and `advanceFrames` returns early unless the bucket moved. Measured over 600 frames at 988 active entities: texture writes fall from 592,800 to 62,244, frame-key resolutions from 592,800 to 1, and the loop's own wall clock from 147.5 ms to 7.7 ms on the recording machine. The legacy figure is a lower bound, because the old loop also called `textures.exists` per entity per frame and this measurement omits that call. The count is asserted rather than only measured: `getWork()` reports both totals and `tests/unit/renderEvents.test.ts` pins them.
+
+- [x] **Step 4: Verify green**
 
 ```bash
 npm run test -- tests/unit/renderEvents.test.ts
@@ -1799,12 +1805,18 @@ npm run test:e2e -- tests/e2e/animation-state.spec.ts
 npm run test
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
+
+The commit message is the one this step specifies.
 
 ```bash
-git add src/phaser/render/EntityRenderer.ts src/phaser/render/BeltItemRenderer.ts src/phaser/FactoryScene.ts tests/unit/renderEvents.test.ts tests/e2e/animation-state.spec.ts
+git add src/phaser/render/EntityRenderer.ts tests/unit/renderEvents.test.ts tests/e2e/animation-state.spec.ts src/phaser/FactoryScene.ts src/phaser/AGENTS.md src/phaser/render/AGENTS.md tests/unit/AGENTS.md tests/e2e/AGENTS.md
 git commit -m "feat: synchronize machine and belt animations"
 ```
+
+**Decided here: the renderer's active set is proved against the store, not reconciled from it.** `EntityRenderer.syncActive` exists for the boot path and reads `store.getActiveMachineIds()`, and the spec never calls it during a run. That is the point: Task 4.4 turned the render-event pass into a visit of only the machines whose runtime the tick replaced, and the correctness of the whole animation layer now rests on that pass still emitting `machineStateChanged` for every machine whose `active` flag moves. A per-tick reconcile would repair a dropped event and hide it, so the spec instead drives a real store's event stream into the renderer and asserts, after every tick of a real run, that the renderer's active set equals the union of `getActiveMachineIds()` and the carrying belt ids. The claim the brief asked for is proved rather than assumed: no machine state event is dropped.
+
+**One browser assertion was withdrawn rather than written.** The first draft of `tests/e2e/animation-state.spec.ts` asserted that an extractor is idle before its first production. The runtime's fixed-step clock keeps ticking between Playwright round trips, so by the next frame boundary the extractor is already producing, and that assertion would have passed only against a machine whose clock had stopped. The provable pair is active while producing and idle once the output buffer is full; the pre-production idle state is asserted in the unit layer, where the tick loop is the test's own. This is recorded in `tests/e2e/AGENTS.md` because it is a property of this app's harness rather than of this spec.
 
 ## Task 4.2: Add Belt Glow, Smelter Heat, and Depot Sale Bursts
 
