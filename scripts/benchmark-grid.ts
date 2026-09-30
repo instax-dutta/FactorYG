@@ -189,6 +189,16 @@ export function describeEnvironment(): string {
   return `${model.trim()} | ${cpus().length} cores | ${Math.round(totalmem() / 1024 ** 3)} GiB | node ${process.version} | ${process.platform} ${process.arch}`;
 }
 
+export const SCALED_SCENARIO = "grid-1000";
+export const BASELINE_SCENARIO = "grid-100";
+
+function byName(
+  measurements: readonly TickMeasurement[],
+  name: string,
+): TickMeasurement | undefined {
+  return measurements.find((measurement) => measurement.name === name);
+}
+
 export function checkPortableContract(
   measurements: readonly TickMeasurement[],
 ): string[] {
@@ -202,9 +212,13 @@ export function checkPortableContract(
     }
   }
 
-  const smallest = measurements[0];
-  const largest = measurements[measurements.length - 2];
-  if (smallest !== undefined && largest !== undefined && smallest.meanMs > 0) {
+  const smallest = byName(measurements, BASELINE_SCENARIO);
+  const largest = byName(measurements, SCALED_SCENARIO);
+  if (smallest === undefined) {
+    failures.push(`no scenario named ${BASELINE_SCENARIO} was measured, so the scaling budget cannot be applied`);
+  } else if (largest === undefined) {
+    failures.push(`no scenario named ${SCALED_SCENARIO} was measured, so the scaling budget cannot be applied`);
+  } else if (smallest.meanMs > 0) {
     const ratio = largest.meanMs / smallest.meanMs;
     const entityRatio = largest.entityCount / smallest.entityCount;
     if (ratio > SCALING_BUDGET) {

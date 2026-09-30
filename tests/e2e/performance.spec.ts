@@ -13,9 +13,11 @@ import {
 
 const BASELINE_PATH = "docs/performance-baseline.md";
 const P95_TOLERANCE = 3;
+const BASELINE_HEADING = "## Committed baseline";
 const SCENARIO_ROW = /^\|\s*[`](grid-\d+)[`]\s*\|\s*(\d+)\s*\|\s*\d+x\d+\s*\|\s*(\d+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|/;
+const SCENARIO_ROW_GLOBAL = new RegExp(SCENARIO_ROW.source, "gm");
 
-interface CommittedBaseline {
+export interface CommittedBaseline {
   readonly name: string;
   readonly entityCount: number;
   readonly tickCount: number;
@@ -36,9 +38,34 @@ function readCommittedBaseline(): CommittedBaseline[] {
     );
   }
 
+  const rows = parseCommittedBaseline(document);
+  if (rows.length === 0) {
+    throw new Error(
+      `${BASELINE_PATH} carries no scenario rows beneath its "${BASELINE_HEADING}" heading. The ` +
+        "table must have one row per grid scenario, written as a markdown table row whose first " +
+        "cell is the scenario name in backticks, then entity count, grid, tick count, mean ms, " +
+        "p95 ms and max ms.",
+    );
+  }
+
+  return rows;
+}
+
+export function parseCommittedBaseline(document: string): CommittedBaseline[] {
+  const lines = document.split("\n");
+  const headingIndex = lines.findIndex((line) => line.trim() === BASELINE_HEADING);
+  if (headingIndex === -1) {
+    return [];
+  }
+
   const rows: CommittedBaseline[] = [];
-  for (const line of document.split("\n")) {
-    const match = SCENARIO_ROW.exec(line.trim());
+  for (let offset = headingIndex + 1; offset < lines.length; offset += 1) {
+    const line = (lines[offset] ?? "").trim();
+    if (line.startsWith("## ")) {
+      break;
+    }
+
+    const match = SCENARIO_ROW.exec(line);
     if (match === null) {
       continue;
     }
@@ -51,14 +78,6 @@ function readCommittedBaseline(): CommittedBaseline[] {
       p95Ms: Number(match[5]),
       maxMs: Number(match[6]),
     });
-  }
-
-  if (rows.length === 0) {
-    throw new Error(
-      `${BASELINE_PATH} carries no scenario rows. The table must have one row per grid scenario, ` +
-        "written as a markdown table row whose first cell is the scenario name in backticks, then " +
-        "entity count, grid, tick count, mean ms, p95 ms and max ms.",
-    );
   }
 
   return rows;
@@ -110,12 +129,20 @@ test.describe("large grid tick cost", () => {
     for (const target of scenarioTargets()) {
       const measurement = measureScenario(target.name, buildBeltRows(target.rows), createIndex);
       const budget = measurement.entityCount * CONNECTION_CHECKS_PER_ENTITY;
+      const observed = measurement.connectionChecksPerTick;
 
       expect(
-        measurement.connectionChecksPerTick,
-        `${target.name} performed ${measurement.connectionChecksPerTick.toFixed(1)} connection checks ` +
-          `per tick for ${measurement.entityCount} entities, over the ${CONNECTION_CHECKS_PER_ENTITY} ` +
-          `per entity budget. A linear scan for a neighbour is back.`,
+        observed,
+        `${target.name} performed ${observed.toFixed(1)} connection checks per tick, so the index ` +
+          "resolved no neighbours at all. An upper bound alone cannot tell a linear tick from a " +
+          "tick that never consults the index, which is why this is a two-sided assertion.",
+      ).toBeGreaterThan(0);
+
+      expect(
+        observed,
+        `${target.name} performed ${observed.toFixed(1)} connection checks per tick for ` +
+          `${measurement.entityCount} entities, over the ${CONNECTION_CHECKS_PER_ENTITY} per entity ` +
+          `budget. A linear scan for a neighbour is back.`,
       ).toBeLessThanOrEqual(budget);
     }
   });
@@ -146,6 +173,48 @@ test.describe("large grid tick cost", () => {
       `${largestTarget.name} costs ${ratio.toFixed(1)}x ${smallest.name} for ${entityRatio.toFixed(1)}x ` +
         `the entities, over the ${SCALING_BUDGET}x budget. The tick is super-linear in entity count.`,
     ).toBeLessThanOrEqual(SCALING_BUDGET);
+  });
+
+  test("reads the committed table rather than the pre-optimisation one", () => {
+    const document = readFileSync(BASELINE_PATH, "utf8");
+    const committed = parseCommittedBaseline(document);
+    const everyRow = [...document.matchAll(SCENARIO_ROW_GLOBAL)].map((match) => match[1] ?? "");
+
+    expect(everyRow.filter((name) => name === "grid-1000")).toHaveLength(2);
+    expect(committed.filter((row) => row.name === "grid-1000")).toHaveLength(1);
+
+    const largest = committed.find((row) => row.name === "grid-1000");
+    expect(largest?.p95Ms).toBe(12.07);
+    expect(largest?.p95Ms).toBeLessThan(20);
+  });
+
+  test("gates on the committed p95 even when the slow table is read first", () => {
+    const document = readFileSync(BASELINE_PATH, "utf8");
+    const lines = document.split("\n");
+    const headingIndex = lines.findIndex((line) => line.trim() === "## Committed baseline");
+    expect(headingIndex).toBeGreaterThan(-1);
+
+    const slow = "| `grid-1000` | 988 | 256x256 | 150 | 252.35 | 262.06 | 290.67 |";
+    const scrambled = [
+      ...lines.slice(0, headingIndex),
+      slow,
+      ...lines.slice(headingIndex),
+    ].join("\n");
+
+    const parsed = parseCommittedBaseline(scrambled);
+    const largest = parsed.find((row) => row.name === "grid-1000");
+
+    expect(parsed.filter((row) => row.name === "grid-1000")).toHaveLength(1);
+    expect(largest?.p95Ms).toBe(12.07);
+  });
+
+  test("finds no baseline at all when the committed heading is absent", () => {
+    const document = readFileSync(BASELINE_PATH, "utf8")
+      .split("\n")
+      .filter((line) => line.trim() !== "## Committed baseline")
+      .join("\n");
+
+    expect(parseCommittedBaseline(document)).toEqual([]);
   });
 
   test("runs the committed motor layout tick without falling back to a full world scan", () => {

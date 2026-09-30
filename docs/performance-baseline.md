@@ -13,6 +13,27 @@ npm run bench:grid -- --no-index
 `--no-index` measures the same worlds with the active entity index switched off, so
 the cost of the index itself is separable from the cost of the port-geometry cache.
 
+Three things about running this benchmark that are worth knowing before trusting a number
+it prints:
+
+- **It does not typecheck.** `tsconfig.json` includes only `src` and `tests`, so
+  `scripts/benchmark-grid.ts` is outside the project's type coverage. It runs under Node's
+  own type stripping, which erases types and checks nothing, so a type error in the
+  benchmark itself surfaces as a runtime failure or, worse, not at all. `npx eslint .`
+  does cover it, and the Playwright spec imports its helpers, so a signature that drifts
+  out of use fails there.
+- **It resolves modules differently from vite.** The repo's own imports are extensionless,
+  which vite resolves through its bundler and bare Node does not. `scripts/ts-resolve.mjs`
+  is a nine-line resolver hook registered by the `bench:grid` script to append `.ts`. That
+  is a different resolution path from the one the application and the test suite use, so
+  the benchmark exercises the same source through a loader the game never runs under.
+- **`buildMotorLayoutEntities()` reads its JSON from the working directory.** It calls
+  `readFileSync("scripts/motor-chain-layout.json")` with a relative path, so it resolves
+  only when the process was started from the project root. That is true of `npm run
+  bench:grid` and of the Playwright spec, both of which run from the root, and it would be
+  false for a caller that changed directory first. It is a known sharp edge rather than a
+  solved problem.
+
 ## Environment the numbers below were measured on
 
 - CPU: Intel Xeon E5-2620 v3 at 2.40 GHz, 12 cores, 47 GiB RAM, shared virtual machine.
@@ -44,7 +65,17 @@ tick, no rendering and no network.
 | `grid-1000` | 988 | 256x256 | 150 | 10.27 | 12.07 | 14.67 |
 | `motor-layout` | 133 | 64x64 | 150 | 1.34 | 1.77 | 3.04 |
 
-Before the same fixture, on the same machine, at commit `ac7b78e`:
+Mean tick cost fell 2.1x at 104 entities, 12.0x at 494, 24.6x at 988, and 9.1x on the
+committed motor layout. The 988-entity world was 252 ms per tick before, which at the
+shipped 10 Hz clock is a quarter of a second of simulation per frame.
+
+## Pre-optimisation reference, not a gate
+
+These are the same fixture on the same machine at commit `ac7b78e`, kept for comparison
+and read by nothing. `tests/e2e/performance.spec.ts` parses only the rows beneath the
+`## Committed baseline` heading above and stops at the next heading, so this table cannot
+be read as the budget even if it were reordered, and three tests in that spec fail if it
+ever is.
 
 | scenario | entities | grid | tick count | mean ms | p95 ms | max ms |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -52,10 +83,6 @@ Before the same fixture, on the same machine, at commit `ac7b78e`:
 | `grid-500` | 494 | 256x256 | 150 | 66.56 | 68.23 | 75.60 |
 | `grid-1000` | 988 | 256x256 | 150 | 252.35 | 262.06 | 290.67 |
 | `motor-layout` | 133 | 64x64 | 150 | 11.79 | 12.67 | 14.15 |
-
-Mean tick cost fell 2.1x at 104 entities, 12.0x at 494, 24.6x at 988, and 9.1x on the
-committed motor layout. The 988-entity world was 252 ms per tick before, which at the
-shipped 10 Hz clock is a quarter of a second of simulation per frame.
 
 ## What is asserted, and why not a millisecond figure
 
@@ -66,12 +93,16 @@ developer laptop, so an 8 ms bar is a statement about one box, not about the cod
 would pass everywhere except slow CI and fail there for no reason connected to the
 change. What is asserted instead:
 
-1. **Port connection checks per tick stay at or below 1.5 per entity.** This is a work
-   count, not a time, so it is identical on every machine. It is also the direct
-   measure of the defect this change fixed: the unindexed tick scanned the entity list
-   for every neighbour, which is quadratic in entity count, while the indexed tick
-   resolves a neighbour from its cell. Measured: 0.5 checks per entity at every size
-   (52 at 104 entities, 494 at 988), against roughly 250,000 at 988 entities before.
+1. **Port connection checks per tick stay at or below 1.5 per entity, and above zero.**
+   This is a work count, not a time, so it is identical on every machine. It is also
+   the direct measure of the defect this change fixed: the unindexed tick scanned the
+   entity list for every neighbour, which is quadratic in entity count, while the indexed
+   tick resolves a neighbour from its cell. Measured: 0.5 checks per entity at every size
+   (52 at 104 entities, 494 at 988), against roughly 250,000 at 988 entities before. The
+   floor matters as much as the ceiling. An upper bound alone is satisfied by an index
+   that is never consulted at all, and `bench:grid -- --no-index` reports zero checks for
+   every scenario precisely because it takes the unindexed path, so a gate written only
+   as a ceiling would have passed the exact configuration it exists to reject.
 2. **The tick does not cost more than 12x for 9.5x the entities.** Linear work is 9.5x
    over this span, so 12x leaves a 26% allowance and still fails loudly on a quadratic
    regression, which would be 90x. Measured: 8.1x after, 53.2x before.
