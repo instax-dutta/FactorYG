@@ -1,3 +1,6 @@
+import type { SoundKey } from "../audio/assets";
+import type { SoundPlaybackState, SoundTriggerCounts } from "../audio/sound";
+
 export interface SceneRenderTelemetry {
   readonly entityIds: readonly string[];
   readonly activeEntityIds: readonly string[];
@@ -9,6 +12,21 @@ export interface SceneRenderTelemetry {
   readonly heatEntityIds: readonly string[];
   readonly saleBurstCount: number;
   readonly liveBurstCount: number;
+}
+
+export interface SceneSoundTelemetry {
+  readonly unlocked: boolean;
+  readonly contextCreated: boolean;
+  readonly bufferCount: number;
+  readonly readyBufferCount: number;
+  readonly decodeFailureCount: number;
+  readonly triggeredCounts: Readonly<Record<SoundKey, number>>;
+  readonly playedCounts: Readonly<Record<SoundKey, number>>;
+  readonly suppressedCount: number;
+  readonly unavailableCount: number;
+  readonly loopStartCount: number;
+  readonly loopStopCount: number;
+  readonly activeLoopCount: number;
 }
 
 export interface SceneTelemetry {
@@ -26,6 +44,7 @@ export interface SceneTelemetry {
     readonly rotation: number;
   };
   readonly render: SceneRenderTelemetry;
+  readonly sound: SceneSoundTelemetry;
 }
 
 export interface SceneTelemetryInput {
@@ -43,6 +62,7 @@ export interface SceneTelemetryInput {
     rotation: number;
   };
   render: SceneRenderTelemetry;
+  sound: SceneSoundTelemetry;
 }
 
 export interface SceneRenderTelemetryCache {
@@ -85,6 +105,26 @@ export function createRenderTelemetryCache(
   };
 }
 
+export function createSceneSoundTelemetry(
+  triggerCounts: SoundTriggerCounts,
+  playback: SoundPlaybackState,
+): SceneSoundTelemetry {
+  return Object.freeze({
+    unlocked: playback.unlocked,
+    contextCreated: playback.contextCreated,
+    bufferCount: playback.bufferCount,
+    readyBufferCount: playback.readyBufferCount,
+    decodeFailureCount: playback.decodeFailureCount,
+    triggeredCounts: Object.freeze({ ...triggerCounts.triggeredCounts }),
+    playedCounts: Object.freeze({ ...playback.playedCounts }),
+    suppressedCount: playback.suppressedCount,
+    unavailableCount: playback.unavailableCount,
+    loopStartCount: triggerCounts.loopStartCount,
+    loopStopCount: triggerCounts.loopStopCount,
+    activeLoopCount: playback.activeLoopCount,
+  });
+}
+
 export function createSceneTelemetry(input: SceneTelemetryInput): SceneTelemetry {
   const camera = Object.freeze({ ...input.camera });
   const ghost = Object.freeze({ ...input.ghost });
@@ -96,6 +136,7 @@ export function createSceneTelemetry(input: SceneTelemetryInput): SceneTelemetry
     camera,
     ghost,
     render,
+    sound: input.sound,
   });
 }
 
@@ -115,4 +156,23 @@ export const INITIAL_SCENE_TELEMETRY = createSceneTelemetry({
     saleBurstCount: 0,
     liveBurstCount: 0,
   }),
+  sound: createSceneSoundTelemetry(
+    {
+      triggeredCounts: {} as Readonly<Record<SoundKey, number>>,
+      loopStartCount: 0,
+      loopStopCount: 0,
+      activeLoopCount: 0,
+    },
+    {
+      unlocked: false,
+      contextCreated: false,
+      bufferCount: 0,
+      readyBufferCount: 0,
+      decodeFailureCount: 0,
+      playedCounts: {} as Readonly<Record<SoundKey, number>>,
+      suppressedCount: 0,
+      unavailableCount: 0,
+      activeLoopCount: 0,
+    },
+  ),
 });

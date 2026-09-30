@@ -9,6 +9,7 @@ Own the Phaser scene, camera, world input, and render orchestration.
 - `inputAdapter.ts` owns pan, zoom, pointer, keyboard, and drag state.
 - `telemetry.ts` owns the development/test scene snapshot, and `cameraConfig.ts` owns the camera margin and the zoom range as exported constants so the scene and a browser assertion read the same numbers.
 - `render/` owns pure render helpers and adapters, including the blocked-machine blink and the entity sprite renderer.
+- The scene owns the audio seam. It constructs the browser sound player and the sound director, and it is the only runtime importer of `src/audio`.
 
 ## Local Contracts
 
@@ -29,6 +30,10 @@ Own the Phaser scene, camera, world input, and render orchestration.
 - The scene reads the plot size from `store.getGridDimensions()` and never from a local grid constant, so a world that boots from an expanded save starts with the floor and the camera bounds the save actually describes. A duplicated local constant would silently floor a 96 by 96 world at 64 by 64.
 - `refreshGridBounds` rebuilds the floor tilemap and calls `camera.setBounds` with the new dimensions, and it runs on every published snapshot rather than on a render event, because the store publishes the snapshot before it publishes events and an expansion changes no entity. It compares the dimensions first and does nothing when they match, so a 10 Hz tick does not rebuild the map.
 - The floor tile data is a pure function of the plot size in `render/floorGrid.ts`, and the previous map and layer are destroyed before a rebuild, so an expanded plot cannot leave a stale 64 by 64 floor under the new one. Keeping the data pure is what makes the rebuild testable without a live scene.
+- The scene is the render seam for sound as well as for pixels. `handleRenderEvent` forwards every event to the sound director before its own switch, so sound sees the whole event stream rather than the subset that happens to draw something, and the snapshot subscription forwards every snapshot so the director can read an unlock. Both forwards are unconditional and the director decides what is silent, which is why adding a render event cannot silently add or remove a sound.
+- The sound unlock is a real user gesture and nothing else. The scene listens for the scene's own pointer-down and any-key-down and calls `unlock()` on the player, and removes both listeners in cleanup. Nothing calls `unlock` at boot, so a run that boots with an audio context already alive cannot happen, and a browser that refuses to create one degrades to the no-op player rather than failing the scene.
+- Scene telemetry publishes a `sound` block so a browser test can observe playback without hearing it: the director's per-key trigger counts and loop start and stop totals beside the player's `unlocked`, `contextCreated`, decoded buffer counts, decode failures, per-key played counts, suppressed and unavailable counts, and active loop count. `triggeredCounts` and `playedCounts` are deliberately both present, because the gap between them is the autoplay gate and the decode gate, and collapsing them into one number would hide the difference between "no sound happened" and "sound was refused".
+- `createSceneSoundTelemetry` builds that block from the audio layer's own two report shapes rather than restating their fields, and `INITIAL_SCENE_TELEMETRY` carries a zero of each rather than importing a constructor. That keeps `telemetry.ts` free of a value import from `src/audio`, which matters because `src/app/runtime.ts` imports this module: a value import would make the app layer a runtime importer of the audio layer and would fail the reachability rule `tests/unit/sound.test.ts` enforces.
 - Render telemetry publishes `blockedEntityIds` so a browser test can observe which machines are blinking without reaching into a sprite or a tween.
 - Render telemetry also publishes `camera.boundsWidth` and `camera.boundsHeight`, read back from `camera.getBounds()` rather than recomputed from the config the scene intended to apply. Reporting the intent would report a correct-looking number even when `setBounds` was never called, so the observable is the camera's real bounds. A browser test seeds an expanded save and reads them, which is the only proof that a world loaded at a non-default size sizes its floor and its camera from the store.
 - The scene owns the floor tilemap for its whole lifetime: `rebuildFloor` destroys the previous map and layer before building, and `cleanup` destroys the current map and layer and clears the remembered dimensions, so shutdown and a rebuild cannot leave a stale floor behind.
@@ -40,7 +45,7 @@ Own the Phaser scene, camera, world input, and render orchestration.
 
 ## Verification
 
-- `npm run test -- tests/unit/cameraConfig.test.ts tests/unit/expansion.test.ts tests/unit/primaryInteraction.test.ts tests/unit/sceneTelemetry.test.ts tests/unit/renderEventContract.test.ts tests/unit/renderEvents.test.ts tests/unit/vfx.test.ts tests/unit/machineBlink.test.ts`
+- `npm run test -- tests/unit/cameraConfig.test.ts tests/unit/expansion.test.ts tests/unit/primaryInteraction.test.ts tests/unit/sceneTelemetry.test.ts tests/unit/renderEventContract.test.ts tests/unit/renderEvents.test.ts tests/unit/vfx.test.ts tests/unit/machineBlink.test.ts tests/unit/sound.test.ts`
 - `npm run test:e2e -- tests/e2e/phase0.spec.ts --workers=1`
 
 ## Child DOX Index

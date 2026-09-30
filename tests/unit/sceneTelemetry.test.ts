@@ -6,10 +6,31 @@ import { SimulationStore } from "../../src/sim/store";
 import {
   createRenderTelemetryCache,
   createSceneRenderTelemetry,
+  createSceneSoundTelemetry,
   createSceneTelemetry,
   INITIAL_SCENE_TELEMETRY,
   type SceneRenderTelemetry,
 } from "../../src/phaser/telemetry";
+
+const SOUND_TELEMETRY = createSceneSoundTelemetry(
+  {
+    triggeredCounts: { machine: 0, belt: 0, unlock: 0, sale: 0, blocked: 0 },
+    loopStartCount: 0,
+    loopStopCount: 0,
+    activeLoopCount: 0,
+  },
+  {
+    unlocked: false,
+    contextCreated: false,
+    bufferCount: 5,
+    readyBufferCount: 0,
+    decodeFailureCount: 0,
+    playedCounts: { machine: 0, belt: 0, unlock: 0, sale: 0, blocked: 0 },
+    suppressedCount: 0,
+    unavailableCount: 0,
+    activeLoopCount: 0,
+  },
+);
 
 function createRenderTelemetry(
   overrides: Partial<SceneRenderTelemetry> = {},
@@ -38,17 +59,37 @@ describe("createSceneTelemetry", () => {
       camera: { scrollX: 0, scrollY: 0, zoom: 1, boundsWidth: 4352, boundsHeight: 4352 },
       ghost: { visible: false, valid: false, rotation: 0 },
       render,
+      sound: SOUND_TELEMETRY,
     });
     const second = createSceneTelemetry({
       ready: true,
       camera: { scrollX: 12, scrollY: 34, zoom: 2, boundsWidth: 6400, boundsHeight: 6400 },
       ghost: { visible: true, valid: true, rotation: 90 },
       render,
+      sound: SOUND_TELEMETRY,
     });
 
     expect(first.render).toBe(render);
     expect(second.render).toBe(render);
+    expect(first.sound).toBe(SOUND_TELEMETRY);
     expect(second.camera).not.toBe(first.camera);
+  });
+
+  it("carries the sound block so a browser test can read playback without hearing it", () => {
+    const telemetry = createSceneTelemetry({
+      ready: true,
+      camera: { scrollX: 0, scrollY: 0, zoom: 1, boundsWidth: 4352, boundsHeight: 4352 },
+      ghost: { visible: false, valid: false, rotation: 0 },
+      render: createRenderTelemetry(),
+      sound: SOUND_TELEMETRY,
+    });
+
+    expect(telemetry.sound.bufferCount).toBe(5);
+    expect(telemetry.sound.unlocked).toBe(false);
+    expect(telemetry.sound.triggeredCounts.sale).toBe(0);
+    expect(Object.isFrozen(telemetry.sound)).toBe(true);
+    expect(INITIAL_SCENE_TELEMETRY.sound.unlocked).toBe(false);
+    expect(INITIAL_SCENE_TELEMETRY.sound.contextCreated).toBe(false);
   });
 
   it("carries the camera bounds so a browser test can observe a resized world", () => {
@@ -57,6 +98,7 @@ describe("createSceneTelemetry", () => {
       camera: { scrollX: 0, scrollY: 0, zoom: 1, boundsWidth: 6400, boundsHeight: 6016 },
       ghost: { visible: false, valid: false, rotation: 0 },
       render: createRenderTelemetry(),
+      sound: SOUND_TELEMETRY,
     });
 
     expect(telemetry.camera).toEqual({
@@ -102,6 +144,7 @@ describe("createSceneTelemetry", () => {
       camera: { scrollX: 0, scrollY: 0, zoom: 1, boundsWidth: 4352, boundsHeight: 4352 },
       ghost: { visible: false, valid: false, rotation: 0 },
       render: mutable,
+      sound: SOUND_TELEMETRY,
     });
 
     expect(telemetry.render).not.toBe(mutable);

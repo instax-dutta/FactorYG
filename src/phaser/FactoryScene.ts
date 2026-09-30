@@ -1,4 +1,10 @@
 import Phaser from "phaser";
+import { createSceneSoundPlayer } from "../audio/browserPlayer";
+import {
+  createSoundDirector,
+  type SoundDirector,
+  type SoundPlayer,
+} from "../audio/sound";
 import { ASSET_MANIFEST, type AssetKey } from "../content/assetManifest";
 import { getMachine } from "../content/machines";
 import { TILE_SIZE_PX } from "../sim/constants";
@@ -57,6 +63,7 @@ import {
 import {
   createRenderTelemetryCache,
   createSceneRenderTelemetry,
+  createSceneSoundTelemetry,
   createSceneTelemetry,
   type SceneRenderTelemetry,
   type SceneTelemetry,
@@ -104,6 +111,8 @@ export class FactoryScene extends Phaser.Scene {
     }),
   );
   private machineBlinker!: MachineBlinker;
+  private soundPlayer!: SoundPlayer;
+  private soundDirector!: SoundDirector;
   private unsubscribeSnapshot: (() => void) | undefined;
   private unsubscribeEvents: (() => void) | undefined;
 
@@ -164,6 +173,9 @@ export class FactoryScene extends Phaser.Scene {
       resolvePosition: (entityId) => this.entityRenderer.resolveWorldPosition(entityId),
     });
     this.machineBlinker = createMachineBlinker(this.createMachineBlinkHost());
+    this.soundPlayer = createSceneSoundPlayer();
+    this.soundDirector = createSoundDirector({ player: this.soundPlayer });
+    this.soundDirector.handleSnapshot(this.store.getSnapshot());
 
     this.snapshot = this.store.getSnapshot();
     this.unsubscribeSnapshot = this.store.subscribe((snapshot) => {
@@ -171,6 +183,7 @@ export class FactoryScene extends Phaser.Scene {
       this.refreshGridBounds();
       this.refreshGhost();
       this.refreshBlockedMachines();
+      this.soundDirector.handleSnapshot(snapshot);
       this.publishTelemetry();
     });
     this.unsubscribeEvents = this.store.subscribeEvents((event) => this.handleRenderEvent(event));
@@ -182,6 +195,8 @@ export class FactoryScene extends Phaser.Scene {
       onPointerMove: (cell) => this.updateGhost(cell),
       onRotate: () => this.store.dispatch({ type: "rotatePlacement" }),
     });
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, this.unlockSound);
+    this.input.keyboard?.on(Phaser.Input.Keyboard.Events.ANY_KEY_DOWN, this.unlockSound);
     this.events.once("shutdown", this.cleanup);
     this.events.once("destroy", this.cleanup);
 
@@ -367,6 +382,7 @@ export class FactoryScene extends Phaser.Scene {
   }
 
   private handleRenderEvent(event: RenderEvent): void {
+    this.soundDirector.handleEvent(event);
     switch (event.type) {
       case "entityPlaced":
         if (this.entityRenderer.place(event.entity)) {
@@ -650,6 +666,10 @@ export class FactoryScene extends Phaser.Scene {
     });
   }
 
+  private readonly unlockSound = (): void => {
+    this.soundPlayer.unlock();
+  };
+
   private notifyReady(): void {
     if (this.readyNotified || !this.ready || this.cleaned) {
       return;
@@ -679,7 +699,7 @@ export class FactoryScene extends Phaser.Scene {
   }
 
   private publishTelemetry(): void {
-    if (this.cleaned || this.snapshot === undefined) {
+    if (this.cleaned || this.snapshot === undefined || this.soundPlayer === undefined) {
       return;
     }
     const camera = this.cameras.main;
@@ -700,6 +720,10 @@ export class FactoryScene extends Phaser.Scene {
           rotation: this.snapshot.pendingRotation,
         },
         render: this.readRenderTelemetry(),
+        sound: createSceneSoundTelemetry(
+          this.soundDirector.getTriggerCounts(),
+          this.soundPlayer.getState(),
+        ),
       }),
     );
   }
@@ -718,6 +742,9 @@ export class FactoryScene extends Phaser.Scene {
     this.unsubscribeEvents = undefined;
     this.inputAdapter?.dispose();
     this.inputAdapter = undefined;
+    this.input.off(Phaser.Input.Events.POINTER_DOWN, this.unlockSound);
+    this.input.keyboard?.off(Phaser.Input.Keyboard.Events.ANY_KEY_DOWN, this.unlockSound);
+    this.soundDirector?.dispose();
     this.floorLayer?.destroy();
     this.floorLayer = undefined;
     this.floorMap?.destroy();
