@@ -47,6 +47,14 @@ import {
   resolveIdleTextureKey,
 } from "./render/textureKeys";
 import {
+  createVfxRenderer,
+  type VfxRenderer,
+  type VfxTweenHost,
+  type VfxView,
+  type VfxViewDescriptor,
+  type VfxViewFactory,
+} from "./render/VfxRenderer";
+import {
   createRenderTelemetryCache,
   createSceneRenderTelemetry,
   createSceneTelemetry,
@@ -73,6 +81,7 @@ export class FactoryScene extends Phaser.Scene {
   private ghost!: Phaser.GameObjects.Sprite;
   private beltItemRenderer!: BeltItemRenderer;
   private entityRenderer!: EntityRenderer;
+  private vfxRenderer!: VfxRenderer;
   private inputAdapter: CameraInputAdapter | undefined;
   private snapshot!: SimulationSnapshot;
   private ghostCell: { x: number; y: number } | undefined;
@@ -89,6 +98,9 @@ export class FactoryScene extends Phaser.Scene {
       beltGlowCount: 0,
       beltItemEventCount: 0,
       blockedEntityIds: [],
+      heatEntityIds: [],
+      saleBurstCount: 0,
+      liveBurstCount: 0,
     }),
   );
   private machineBlinker!: MachineBlinker;
@@ -142,6 +154,11 @@ export class FactoryScene extends Phaser.Scene {
       .setVisible(false);
     this.ghostLayer.add(this.ghost);
     this.entityRenderer = createEntityRenderer({ factory: this.createEntityViewFactory() });
+    this.vfxRenderer = createVfxRenderer({
+      factory: this.createVfxViewFactory(),
+      tweens: this.createVfxTweenHost(),
+      resolveEntity: (entityId) => this.entityRenderer.getEntity(entityId),
+    });
     this.beltItemRenderer = createBeltItemRenderer({
       factory: this.createBeltItemViewFactory(),
       resolvePosition: (entityId) => this.entityRenderer.resolveWorldPosition(entityId),
@@ -360,6 +377,7 @@ export class FactoryScene extends Phaser.Scene {
         this.machineBlinker.stop(event.entityId);
         this.entityRenderer.remove(event.entityId);
         this.beltItemRenderer.remove(event.entityId);
+        this.vfxRenderer.remove(event.entityId);
         this.renderTelemetry.markDirty();
         break;
       }
@@ -368,6 +386,9 @@ export class FactoryScene extends Phaser.Scene {
           this.entityRenderer.setActive(event.entityId);
         } else {
           this.entityRenderer.setIdle(event.entityId);
+        }
+        if (this.vfxRenderer.apply(event)) {
+          this.renderTelemetry.markDirty();
         }
         break;
       case "beltItemChanged":
@@ -386,7 +407,9 @@ export class FactoryScene extends Phaser.Scene {
         this.renderNotice(event.worldX, event.worldY);
         break;
       case "saleCompleted":
-        this.renderNotice(event.worldX, event.worldY);
+        if (this.vfxRenderer.apply(event)) {
+          this.renderTelemetry.markDirty();
+        }
         break;
       default:
         return this.assertUnreachableRenderEvent(event);
@@ -469,6 +492,98 @@ export class FactoryScene extends Phaser.Scene {
       },
       destroy: () => {
         sprite.destroy();
+      },
+    };
+  }
+
+  private createVfxViewFactory(): VfxViewFactory {
+    return {
+      hasTexture: (textureKey) => this.textures.exists(textureKey),
+      createView: (descriptor) => this.createVfxView(descriptor),
+    };
+  }
+
+  private createVfxView(descriptor: VfxViewDescriptor): VfxView {
+    const sprite = this.add.sprite(
+      descriptor.worldX,
+      descriptor.worldY,
+      frameTextureKey(descriptor.assetKey, 0),
+    );
+    if (descriptor.additive) {
+      sprite.setBlendMode(Phaser.BlendModes.ADD);
+    }
+    sprite.setTint(descriptor.tint);
+    sprite.setScale(descriptor.scale);
+    sprite.setAlpha(descriptor.alpha);
+    this.vfxLayer.add(sprite);
+
+    return {
+      get x(): number {
+        return sprite.x;
+      },
+      set x(value: number) {
+        sprite.x = value;
+      },
+      get y(): number {
+        return sprite.y;
+      },
+      set y(value: number) {
+        sprite.y = value;
+      },
+      get scale(): number {
+        return sprite.scaleX;
+      },
+      set scale(value: number) {
+        sprite.setScale(value);
+      },
+      get alpha(): number {
+        return sprite.alpha;
+      },
+      set alpha(value: number) {
+        sprite.alpha = value;
+      },
+      setTint: (color) => {
+        sprite.setTint(color);
+      },
+      setVisible: (visible) => {
+        sprite.setVisible(visible);
+      },
+      destroy: () => {
+        sprite.destroy();
+      },
+    };
+  }
+
+  private createVfxTweenHost(): VfxTweenHost {
+    return {
+      createPulseTween: (spec) => {
+        const tween = this.tweens.add({
+          targets: spec.targets,
+          alpha: spec.alpha,
+          duration: spec.duration,
+          yoyo: spec.yoyo,
+          repeat: spec.repeat,
+        });
+        return {
+          stop: (): void => {
+            tween.stop();
+          },
+        };
+      },
+      createOneShotTween: (spec) => {
+        const tween = this.tweens.add({
+          targets: spec.targets,
+          y: spec.y,
+          scale: spec.scale,
+          alpha: spec.alpha,
+          duration: spec.duration,
+          onComplete: () => spec.onComplete(),
+        });
+        return {
+          stop: (): void => {
+            tween.stop();
+          },
+        };
       },
     };
   }
@@ -556,6 +671,9 @@ export class FactoryScene extends Phaser.Scene {
           blockedEntityIds: [...this.machineBlinker.getBlinkingEntityIds()].sort(
             compareEntityIds,
           ),
+          heatEntityIds: this.vfxRenderer.getHeatEntityIds(),
+          saleBurstCount: this.vfxRenderer.getSaleBurstCount(),
+          liveBurstCount: this.vfxRenderer.getLiveBurstCount(),
         }),
     );
   }
@@ -606,6 +724,7 @@ export class FactoryScene extends Phaser.Scene {
     this.floorMap = undefined;
     this.gridDimensions = undefined;
     this.beltItemRenderer?.destroy();
+    this.vfxRenderer?.destroy();
     this.machineBlinker?.destroy();
     this.entityRenderer?.clearActive();
   };

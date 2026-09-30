@@ -61,6 +61,8 @@ const EXPECTED_FRAME_PATHS = {
   "resource.frame": ["assets/resources/frame.svg"],
   "resource.motor": ["assets/resources/motor.svg"],
   "vfx.spark": ["assets/vfx/spark.svg"],
+  "vfx.heat": ["assets/vfx/heat.svg"],
+  "vfx.coin": ["assets/vfx/coin.svg"],
 } as const;
 
 const MACHINE_TILE_SIZE = 64;

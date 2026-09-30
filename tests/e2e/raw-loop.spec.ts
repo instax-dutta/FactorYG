@@ -23,6 +23,9 @@ interface RenderTelemetry {
   beltGlowCount: number;
   beltItemEventCount: number;
   blockedEntityIds: readonly string[];
+  heatEntityIds: readonly string[];
+  saleBurstCount: number;
+  liveBurstCount: number;
 }
 
 interface SceneTelemetry {

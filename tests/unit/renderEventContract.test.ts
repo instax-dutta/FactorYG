@@ -23,10 +23,37 @@ describe("render event handling contract", () => {
     expect(renderEventHandlerSource()).toMatch(/case "storageFull":/);
   });
 
-  it("routes storage full through the same notice path as a completed sale", () => {
+  it("routes storage full to the notice and a sale to its own depot burst, never sharing one visual", () => {
     const handler = renderEventHandlerSource();
     expect(handler).toMatch(/case "storageFull":\s*this\.renderNotice\(event\.worldX, event\.worldY\);/);
-    expect(handler).toMatch(/case "saleCompleted":\s*this\.renderNotice\(event\.worldX, event\.worldY\);/);
+    expect(handler).toMatch(
+      /case "saleCompleted":\s*if \(this\.vfxRenderer\.apply\(event\)\) \{\s*this\.renderTelemetry\.markDirty\(\);\s*\}\s*break;/,
+    );
+    expect(handler).not.toMatch(/case "saleCompleted":\s*this\.renderNotice\(/);
+  });
+
+  it("keeps the vfx renderer off the blocked producer and off the storage notice", () => {
+    const handler = renderEventHandlerSource();
+    const blockedHandler = handler.slice(
+      handler.indexOf('case "blockedFull":'),
+      handler.indexOf('case "storageFull":'),
+    );
+    const storageHandler = handler.slice(
+      handler.indexOf('case "storageFull":'),
+      handler.indexOf('case "saleCompleted":'),
+    );
+
+    expect(blockedHandler).not.toMatch(/vfxRenderer/);
+    expect(storageHandler).not.toMatch(/vfxRenderer/);
+  });
+
+  it("gives the smelter heat its own overlay view rather than the machine sprite's own channels", () => {
+    const scene = readFileSync(resolve(process.cwd(), "src", "phaser", "render", "VfxRenderer.ts"), "utf8");
+    expect(scene).toMatch(/HEATED_MACHINE_TYPES/);
+    expect(scene).toMatch(/setTint/);
+    expect(scene).not.toMatch(/setAngle|baseTint|tintTopLeft/);
+    expect(scene).toMatch(/SMELTER_HEAT_ASSET_KEY = "vfx\.heat"/);
+    expect(scene).toMatch(/SALE_BURST_ASSET_KEY = "vfx\.coin"/);
   });
 
   it("keeps the render event switch exhaustive so a new variant cannot be dropped silently", () => {

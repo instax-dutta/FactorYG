@@ -7,7 +7,7 @@ Own static asset files and their manifest relationship.
 - `tiles/` contains floor and grid artwork.
 - `machines/` contains machine idle and active frames.
 - `resources/` contains resource icons.
-- `vfx/` contains particle and glow textures.
+- `vfx/` contains the glow, heat, and sale-burst textures. `spark` is the belt glow and the storage notice, `heat` is the smelter heat overlay, and `coin` is the depot sale burst; those three are the only v1 VFX families, so a fourth file here is a new family rather than a variant.
 - `audio/` holds committed audio files plus `README.md`, the sourcing and licensing reference for them.
 
 ## Local Contracts

@@ -22,6 +22,9 @@ function createRenderTelemetry(
     beltGlowCount: 0,
     beltItemEventCount: 0,
     blockedEntityIds: Object.freeze([]),
+    heatEntityIds: Object.freeze([]),
+    saleBurstCount: 0,
+    liveBurstCount: 0,
     ...overrides,
   });
 }
@@ -89,6 +92,9 @@ describe("createSceneTelemetry", () => {
       beltGlowCount: 0,
       beltItemEventCount: 0,
       blockedEntityIds: [] as string[],
+      heatEntityIds: [] as string[],
+      saleBurstCount: 0,
+      liveBurstCount: 0,
     };
 
     const telemetry = createSceneTelemetry({
@@ -116,6 +122,9 @@ describe("createSceneTelemetry", () => {
       beltGlowCount: 0,
       beltItemEventCount: 0,
       blockedEntityIds: [],
+      heatEntityIds: [],
+      saleBurstCount: 0,
+      liveBurstCount: 0,
     });
   });
 
@@ -128,6 +137,9 @@ describe("createSceneTelemetry", () => {
       beltGlowCount: 0,
       beltItemEventCount: 0,
       blockedEntityIds: ["entity-3", "entity-1"],
+      heatEntityIds: [],
+      saleBurstCount: 0,
+      liveBurstCount: 0,
     });
 
     expect(Object.isFrozen(render.blockedEntityIds)).toBe(true);

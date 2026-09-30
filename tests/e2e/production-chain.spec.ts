@@ -27,8 +27,12 @@ interface RuntimeBridge {
 
 interface RenderTelemetry {
   entityIds: readonly string[];
+  activeEntityIds: readonly string[];
   activeFrameKeys: readonly string[];
   beltItemIds: readonly string[];
+  heatEntityIds: readonly string[];
+  saleBurstCount: number;
+  liveBurstCount: number;
 }
 
 interface TelemetryBridge {
@@ -314,12 +318,16 @@ interface WireSaleObservation {
   currencyAfter: number;
   sawAssemblerActiveFrame: boolean;
   sawBeltItem: boolean;
+  heatWhileSmelting: boolean;
+  heatOnANonSmelter: boolean;
+  heatActiveWithTheChain: boolean;
+  saleBurstCount: number;
   renderedEntityIds: readonly string[];
 }
 
 async function observeWireDepotSale(page: Page): Promise<WireSaleObservation> {
   const observed = await page.evaluate(
-    async ({ maxTicks }) => {
+    async ({ maxTicks, smelterId }) => {
       const runtime = window as unknown as RuntimeWindow;
       const bridge = runtime.__FACTOR_Y__;
       const telemetry = runtime.__FACTOR_Y_TELEMETRY__;
@@ -338,6 +346,8 @@ async function observeWireDepotSale(page: Page): Promise<WireSaleObservation> {
       const currencyBefore = bridge.getSnapshot().currency;
       let sawAssemblerActiveFrame = false;
       let sawBeltItem = false;
+      let heatWhileSmelting = false;
+      let heatOnANonSmelter = false;
       let ticks = 0;
       let currencyAfter = currencyBefore;
 
@@ -348,8 +358,17 @@ async function observeWireDepotSale(page: Page): Promise<WireSaleObservation> {
         const render = telemetry.getSnapshot().render;
         sawAssemblerActiveFrame = sawAssemblerActiveFrame || render.activeFrameKeys.some(isAssemblerFrame);
         sawBeltItem = sawBeltItem || render.beltItemIds.length > 0;
+        heatWhileSmelting = heatWhileSmelting || render.heatEntityIds.includes(smelterId);
+        heatOnANonSmelter =
+          heatOnANonSmelter ||
+          render.heatEntityIds.some((entityId) => entityId !== smelterId);
         currencyAfter = bridge.getSnapshot().currency;
-        if (currencyAfter > currencyBefore && sawAssemblerActiveFrame && sawBeltItem) {
+        if (
+          currencyAfter > currencyBefore &&
+          sawAssemblerActiveFrame &&
+          sawBeltItem &&
+          heatWhileSmelting
+        ) {
           break;
         }
       }
@@ -360,10 +379,16 @@ async function observeWireDepotSale(page: Page): Promise<WireSaleObservation> {
         currencyAfter,
         sawAssemblerActiveFrame,
         sawBeltItem,
+        heatWhileSmelting,
+        heatOnANonSmelter,
+        heatActiveWithTheChain: telemetry.getSnapshot().render.heatEntityIds.every((entityId) =>
+          telemetry.getSnapshot().render.activeEntityIds.includes(entityId),
+        ),
+        saleBurstCount: telemetry.getSnapshot().render.saleBurstCount,
         renderedEntityIds: [...telemetry.getSnapshot().render.entityIds],
       };
     },
-    { maxTicks: 400 },
+    { maxTicks: 400, smelterId: SMELTER_ID },
   );
 
   expect(observed.ticks).toBeGreaterThan(0);
@@ -608,6 +633,10 @@ test("earns the tech tree from ore sales and runs copper to wire on a rotated as
   ]);
   expect(sale.sawAssemblerActiveFrame).toBe(true);
   expect(sale.sawBeltItem).toBe(true);
+  expect(sale.heatWhileSmelting).toBe(true);
+  expect(sale.heatOnANonSmelter).toBe(false);
+  expect(sale.heatActiveWithTheChain).toBe(true);
+  expect(sale.saleBurstCount).toBeGreaterThan(0);
 
   const saleGain = sale.currencyAfter - sale.currencyBefore;
   expect(saleGain).toBeGreaterThanOrEqual(WIRE_SELL_VALUE);

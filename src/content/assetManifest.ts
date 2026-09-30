@@ -216,6 +216,20 @@ const ASSET_ENTRIES = {
     height: 16,
     frameCount: 1,
   },
+  "vfx.heat": {
+    path: "assets/vfx/heat.svg",
+    framePaths: ["assets/vfx/heat.svg"],
+    width: 16,
+    height: 16,
+    frameCount: 1,
+  },
+  "vfx.coin": {
+    path: "assets/vfx/coin.svg",
+    framePaths: ["assets/vfx/coin.svg"],
+    width: 16,
+    height: 16,
+    frameCount: 1,
+  },
 } as const satisfies Record<string, AssetManifestEntry>;
 
 export type AssetKey = keyof typeof ASSET_ENTRIES;
