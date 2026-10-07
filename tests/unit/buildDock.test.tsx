@@ -26,8 +26,10 @@ describe("BuildDock", () => {
       expect(button).toHaveAttribute("data-testid", `build-${machine}`);
       if (machine === "extractor" || machine === "belt" || machine === "depot") {
         expect(button).toBeEnabled();
+        expect(getComputedStyle(button).pointerEvents).toBe("auto");
       } else {
         expect(button).toBeDisabled();
+        expect(getComputedStyle(button).pointerEvents).toBe("none");
         fireEvent.click(button);
       }
     }

@@ -23,6 +23,16 @@ const FALLBACK_TICKS = 300;
 const SILO_LEVEL = 40;
 const LARGE_GRID = 256;
 
+// Every test in the two equivalence describes runs the world twice over
+// EQUIVALENCE_TICKS: once through the unindexed path, which is the quadratic
+// neighbour scan the cell index exists to replace, and once through the indexed
+// path. The unindexed arm is deliberately slow, so on a host several times slower
+// than the machine that wrote this file the pair costs well over the default 5000ms
+// budget, and Vitest runs this file alongside 58 others. The assertion is a byte
+// comparison over a fixed window, so the honest fix is an explicit budget rather
+// than a shorter window: shortening it would narrow what the check proves.
+const EQUIVALENCE_TEST_TIMEOUT_MS = 60_000;
+
 interface LayoutEntry {
   id: string;
   type: MachineType;
@@ -374,7 +384,7 @@ describe("indexed ticks agree with unindexed ticks", () => {
     ).toBe(true);
     expect(canonical(indexedEvents)).toBe(canonical(referenceEvents));
     expect(canonical(indexed)).toBe(canonical(reference));
-  });
+  }, EQUIVALENCE_TEST_TIMEOUT_MS);
 
   it("emits a byte identical event stream on a world with idle regions", () => {
     const entities = [
@@ -398,7 +408,7 @@ describe("indexed ticks agree with unindexed ticks", () => {
     expect(indexedEvents.length).toBeGreaterThan(0);
     expect(canonical(indexedEvents)).toBe(canonical(referenceEvents));
     expect(canonical(indexed)).toBe(canonical(reference));
-  });
+  }, EQUIVALENCE_TEST_TIMEOUT_MS);
 
   it("emits a byte identical event stream on a long saturated belt run", () => {
     const entities = beltRun(4, 60, 1, "long");
@@ -413,7 +423,7 @@ describe("indexed ticks agree with unindexed ticks", () => {
 
     expect(canonical(indexedEvents)).toBe(canonical(referenceEvents));
     expect(canonical(indexed)).toBe(canonical(reference));
-  });
+  }, EQUIVALENCE_TEST_TIMEOUT_MS);
 
   it("emits a byte identical event stream when a world holds two entities on one cell", () => {
     const entities = [...beltRun(4, 6, 1, "run"), idleMachine("overlap", 3, 4)];
@@ -429,7 +439,7 @@ describe("indexed ticks agree with unindexed ticks", () => {
     expect(index.isCompleteFor(entities)).toBe(false);
     expect(canonical(indexedEvents)).toBe(canonical(referenceEvents));
     expect(canonical(indexed)).toBe(canonical(reference));
-  });
+  }, EQUIVALENCE_TEST_TIMEOUT_MS);
 
   it("emits a byte identical event stream on a world with a dead line and a blocked producer", () => {
     const entities = [
@@ -448,7 +458,7 @@ describe("indexed ticks agree with unindexed ticks", () => {
 
     expect(canonical(indexedEvents)).toBe(canonical(referenceEvents));
     expect(canonical(indexed)).toBe(canonical(reference));
-  });
+  }, EQUIVALENCE_TEST_TIMEOUT_MS);
 
   it("emits a byte identical storage full event when a shared silo fills", () => {
     const entities = [...siloRun(4, 6, "west"), ...siloRun(30, 6, "east-2")];
@@ -472,7 +482,7 @@ describe("indexed ticks agree with unindexed ticks", () => {
     );
     expect(canonical(indexedEvents)).toBe(canonical(referenceEvents));
     expect(canonical(indexed)).toBe(canonical(reference));
-  });
+  }, EQUIVALENCE_TEST_TIMEOUT_MS);
 
   it("agrees with the unindexed arm on a world where the chunk gate actually skips", () => {
     const entities = [
@@ -499,7 +509,7 @@ describe("indexed ticks agree with unindexed ticks", () => {
     expect(indexedEvents.length).toBeGreaterThan(0);
     expect(canonical(indexedEvents)).toBe(canonical(referenceEvents));
     expect(canonical(indexed)).toBe(canonical(reference));
-  });
+  }, EQUIVALENCE_TEST_TIMEOUT_MS);
 });
 
 function motorLayoutEntities(): Entity[] {
@@ -534,7 +544,7 @@ describe("the correctness fallback", () => {
     expect(index.isCompleteFor(entities)).toBe(false);
     expect(canonical(fallbackEvents)).toBe(canonical(indexedEvents));
     expect(canonical(fallback)).toBe(canonical(indexed));
-  });
+  }, EQUIVALENCE_TEST_TIMEOUT_MS);
 
   it("falls back when the world behind the index is not the one it indexed", () => {
     const entities = beltRun(4, 20, 1, "run");
@@ -556,7 +566,7 @@ describe("the correctness fallback", () => {
     expect(canonical(indexedEvents)).toBe(canonical(fallbackEvents));
     expect(canonical(indexed)).toBe(canonical(fallback));
     expect(canonical(indexed)).toBe(canonical(reference));
-  });
+  }, EQUIVALENCE_TEST_TIMEOUT_MS);
 
   it("skips no machine when the fallback runs, so a fresh producer still advances", () => {
     const entities = beltRun(4, 3, 1, "run");
@@ -579,7 +589,7 @@ describe("the correctness fallback", () => {
     expect(telemetry.chunksSkipped).toBe(0);
     expect(fallback.grid.belts["run-belt-1"]?.item).toBe("ironOre");
     expect(canonical(fallback)).toBe(canonical(indexed));
-  });
+  }, EQUIVALENCE_TEST_TIMEOUT_MS);
 });
 
 describe("the store keeps its index honest", () => {

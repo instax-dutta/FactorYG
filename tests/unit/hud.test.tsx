@@ -100,6 +100,11 @@ describe("Hud", () => {
     const prestigeButton = screen.getByRole("button", { name: "Prestige" });
 
     expect(prestigeButton).toBeDisabled();
+    expect(getComputedStyle(prestigeButton).pointerEvents).toBe("none");
+    expect(screen.getByRole("button", { name: "Expand plot" })).toBeDisabled();
+    expect(getComputedStyle(screen.getByRole("button", { name: "Expand plot" })).pointerEvents).toBe(
+      "none",
+    );
     expect(prestigeButton).toHaveAttribute("data-prestige-ready", "false");
     expect(prestigeButton).toHaveAttribute("title", "This run has not earned a prestige yet.");
     expect(screen.getByTestId("prestige-unavailable")).toHaveTextContent(
@@ -119,6 +124,9 @@ describe("Hud", () => {
     render(<Hud store={store} />);
 
     expect(screen.getByRole("button", { name: "Prestige" })).toBeEnabled();
+    expect(getComputedStyle(screen.getByRole("button", { name: "Prestige" })).pointerEvents).toBe(
+      "auto",
+    );
     expect(screen.queryByTestId("prestige-unavailable")).toBeNull();
     expect(screen.getByTestId("expand-cost")).toHaveTextContent("100,000");
   });
@@ -183,6 +191,7 @@ describe("EntityInspector", () => {
     const upgradeButton = screen.getByRole("button", { name: "Upgrade" });
 
     expect(upgradeButton).toBeDisabled();
+    expect(getComputedStyle(upgradeButton).pointerEvents).toBe("none");
     expect(screen.getByTestId("inspector-upgrade-status")).toHaveAttribute(
       "data-reason",
       "insufficientCurrency",

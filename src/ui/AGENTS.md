@@ -33,10 +33,13 @@ Own the React DOM overlay for Factor-I.
 - The Factor-I header must remain visible and panels must not overlap at the supported desktop viewport, which is 1000x800. The tech tree toggle is currently pinned at a fixed `top: 400` and its bottom is 446, while the build dock's top is `viewportHeight - 126`, so the two collide below a 572px viewport height. The supported viewport is tall enough that this never fires today; any overlay work must replace the fixed offset with a flow layout rather than retune the number.
 - The notification stack is anchored to the bottom right and grows upward, which is what keeps it off a HUD whose height the overlay does not measure. It was pinned below the HUD at a fixed `top: 220`, a hardcoded copy of the HUD's height that broke the moment the prestige and expansion controls made the HUD taller. It is not an unbounded guarantee: notifications are never capped, so the stack grows until it reaches the HUD, and at 1000x800 there are roughly 540px of headroom, about six to eight notifications. A run that stacks more than that will overlap, so capping the stack is the fix if a long run ever reaches it.
 
+- Pointer events are scoped to controls that can actually do something. A persistent panel sets `pointer-events: none` so the canvas beneath it stays reachable, and only its live controls set `pointer-events: auto`. A disabled control must set it to `none` as well, because a disabled button is inert for the player but not for hit-testing: it kept swallowing the click, the canvas never saw it, nothing happened, and the player got no signal at all. A playtest found this on the HUD, whose prestige and plot-expansion buttons are disabled for a brand-new run, and measured 6 of the 180 visible cells at 1440x900 quietly unbuildable underneath the overlay. An enabled control still captures its own area, which is intended: the left rail reserves that space.
+- The overlay can therefore cover world cells, and a refused world click is the scene's job to report rather than the panel's. Every cell a persistent panel covers is a cell the player cannot build on, so moving a panel is a gameplay-visible change and not only a visual one.
+
 ## Work Guidance
 
 - Use semantic buttons, labels, and stable data-testid hooks.
-- Scope pointer events to interactive controls so the canvas remains usable.
+- Keep pointer events on live controls only, so the canvas stays usable everywhere else.
 - Keep presentation formatting separate from simulation calculations.
 
 ## Verification

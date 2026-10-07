@@ -84,5 +84,6 @@ When the user requests a durable behavior change, record it here or in the relev
 
 - `docs/AGENTS.md` - durable design, implementation-plan, and release documentation.
 - `public/AGENTS.md` - static art and asset manifests.
+- `scripts/AGENTS.md` - Node-only developer, release, benchmark, asset, and layout-generation scripts.
 - `src/AGENTS.md` - application source boundaries and verification.
 - `tests/AGENTS.md` - unit, integration, and browser verification.

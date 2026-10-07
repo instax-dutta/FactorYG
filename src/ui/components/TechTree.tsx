@@ -519,6 +519,7 @@ const disabledButtonStyle = {
   background: "#34424c",
   color: "#c2cbd1",
   cursor: "not-allowed",
+  pointerEvents: "none" as const,
 };
 
 export default TechTree;

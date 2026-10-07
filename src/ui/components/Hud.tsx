@@ -165,12 +165,14 @@ const enabledButtonStyle = {
   fontWeight: 700,
 };
 
+// A disabled control is inert for hit-testing as well, so clicks reach the canvas.
 const disabledButtonStyle = {
   ...enabledButtonStyle,
   border: "1px solid #58758a",
   background: "#34424c",
   color: "#c2cbd1",
   cursor: "not-allowed",
+  pointerEvents: "none" as const,
 };
 
 export default Hud;

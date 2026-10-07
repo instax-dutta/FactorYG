@@ -30,8 +30,34 @@ function scene(page: Page): Promise<SceneSnapshot> {
   });
 }
 
-function nodesInInitialView(): Cell[] {
-  return createInitialState(NEW_GAME_SEED).grid.nodes.map((node) => ({ x: node.x, y: node.y }));
+/**
+ * The nodes whose cell actually lands on the canvas, which is what a new player
+ * can see and click. Walking every node in the world instead is both wrong and
+ * too slow to finish: a cell outside the viewport has no usable screen point, so
+ * each one costs the full per-node poll timeout and the spec overruns the
+ * Playwright test timeout before it reaches an assertion. Restricting the walk to
+ * the drawn area is also the honest version of the claim these tests make, which
+ * is about a node *in view*.
+ */
+async function nodesInInitialView(page: Page): Promise<Cell[]> {
+  const box = await page.locator("[data-testid=game-canvas] canvas").boundingBox();
+  if (box === null) {
+    throw new Error("the Factor-I canvas produced no bounding box");
+  }
+
+  const onScreen: Cell[] = [];
+  for (const node of createInitialState(NEW_GAME_SEED).grid.nodes) {
+    const point = await screenPointForCell(page, { x: node.x, y: node.y }, TILE_SIZE_PX);
+    if (
+      point.x >= box.x &&
+      point.x <= box.x + box.width &&
+      point.y >= box.y &&
+      point.y <= box.y + box.height
+    ) {
+      onScreen.push({ x: node.x, y: node.y });
+    }
+  }
+  return onScreen;
 }
 
 test("every resource node in the world is actually drawn, not merely present in state", async ({
@@ -188,7 +214,7 @@ test("the first machine a new player is offered can actually be placed on a node
   await page.waitForFunction(() => window.__FACTOR_Y_TELEMETRY__ !== undefined);
   await page.getByTestId("build-extractor").click();
 
-  const candidates = nodesInInitialView();
+  const candidates = await nodesInInitialView(page);
   expect(candidates.length).toBeGreaterThan(0);
 
   const placeable: Cell[] = [];
@@ -215,7 +241,7 @@ test("following the hint places a machine, and the hint then gets out of the way
   await page.waitForFunction(() => window.__FACTOR_Y_TELEMETRY__ !== undefined);
   await expect(page.getByTestId("first-run-hint")).toBeVisible();
 
-  const candidates = nodesInInitialView();
+  const candidates = await nodesInInitialView(page);
   let placed = false;
 
   await page.getByTestId("build-extractor").click();

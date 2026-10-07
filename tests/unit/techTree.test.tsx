@@ -175,6 +175,7 @@ describe("TechTree", () => {
       formatCost(COPPER_INGOT_COST),
     );
     expect(button).toBeDisabled();
+    expect(getComputedStyle(button).pointerEvents).toBe("none");
     expect(button).toHaveAttribute("title", "Not enough currency.");
     fireEvent.click(button);
 

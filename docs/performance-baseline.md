@@ -13,15 +13,20 @@ npm run bench:grid -- --no-index
 `--no-index` measures the same worlds with the active entity index switched off, so
 the cost of the index itself is separable from the cost of the port-geometry cache.
 
+`npm run typecheck` covers this file, and `npx eslint .` covers it. Both used to skip it.
+
 Three things about running this benchmark that are worth knowing before trusting a number
 it prints:
 
-- **It does not typecheck.** `tsconfig.json` includes only `src` and `tests`, so
-  `scripts/benchmark-grid.ts` is outside the project's type coverage. It runs under Node's
-  own type stripping, which erases types and checks nothing, so a type error in the
-  benchmark itself surfaces as a runtime failure or, worse, not at all. `npx eslint .`
-  does cover it, and the Playwright spec imports its helpers, so a signature that drifts
-  out of use fails there.
+- **It is now linted and typechecked, which it was not when this file was first written.**
+  `tsconfig.json` includes only `src` and `tests`, and no eslint config block declared a
+  `.ts` extension covering `scripts/`, so `scripts/benchmark-grid.ts` was outside both
+  checks while `npm run lint` reported a clean tree. The scripts now have their own
+  project, `tsconfig.scripts.json`, which `npm run typecheck` runs and a dedicated eslint
+  block lints, so a type error in the benchmark itself now fails the build rather than
+  surfacing as a runtime failure or, worse, not at all. `npm run bench:grid` still runs
+  the file under Node's own type stripping, which erases types and checks nothing; the
+  check happens ahead of it, not inside it.
 - **It resolves modules differently from vite.** The repo's own imports are extensionless,
   which vite resolves through its bundler and bare Node does not. `scripts/ts-resolve.mjs`
   is a nine-line resolver hook registered by the `bench:grid` script to append `.ts`. That

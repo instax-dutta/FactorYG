@@ -55,7 +55,7 @@ export function BuildDock({ store }: BuildDockProps) {
             disabled={!unlocked}
             onClick={() => store.dispatch({ type: "setPlacementMode", machine: type })}
             style={{
-              pointerEvents: "auto",
+              pointerEvents: unlocked ? "auto" : "none",
               minWidth: 92,
               minHeight: 38,
               padding: "0 12px",

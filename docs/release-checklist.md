@@ -69,8 +69,13 @@ npm run lint
 npm run typecheck
 ```
 
-`npm run typecheck` is `tsc --noEmit` over `src` and `tests`. `npm run build` runs `tsc -b`
-as well, so a typecheck failure will also surface there.
+`npm run typecheck` is `tsc --noEmit` over `src` and `tests`, followed by
+`tsc -p tsconfig.scripts.json` over `scripts`. The second project is not optional
+bookkeeping: `scripts/benchmark-grid.ts` and `scripts/generate-audio.ts` are TypeScript
+that ships no code but decides what the release gate measures and what audio the game
+loads, and they used to sit outside both `tsc` and `eslint` while both commands
+reported a clean tree. `npm run build` runs `tsc -b` as well, so a typecheck failure
+will also surface there.
 
 ## 5. Build
 

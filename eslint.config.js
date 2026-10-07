@@ -46,6 +46,25 @@ export default tseslint.config(
     },
   },
   {
+    // The scripts are TypeScript and they used to be invisible to `eslint .`:
+    // no config block declared a .ts extension covering `scripts/`, so the
+    // benchmark and the audio generator were never collected while the command
+    // reported a clean tree. They get their own block and their own project
+    // rather than joining the application one, because they are Node-only and
+    // share no globals with the browser sources.
+    files: ["scripts/**/*.ts"],
+    extends: [tseslint.configs.recommendedTypeChecked],
+    languageOptions: {
+      parserOptions: {
+        project: ["./tsconfig.scripts.json"],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+  {
     files: ["**/*.{js,cjs,mjs}"],
     languageOptions: {
       globals: globals.node,
